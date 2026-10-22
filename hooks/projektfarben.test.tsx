@@ -341,8 +341,8 @@ test('the band shows the project in its color and hides on request', async ($, o
     expect(texts.find(text => text.props.backgroundColor === '#3b82f6')?.children).toEqual([NBSP.repeat(2)])
     // No usage figure yet, so no gauge.
     expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
-    // No gh in this test, so no pull request count either.
-    expect(texts.some(text => /PRs/.test(text.text))).toBe(false)
+    // No gh in this test: the counts show 0 rather than leave a gap.
+    expect(texts.some(text => text.text === 'PRs: 0')).toBe(true)
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
@@ -542,7 +542,7 @@ test('the repo button asks gh to open the repository in the browser', async ($, 
   expect(asked[asked.length - 1]).toEqual(['gh', 'repo', 'view', '--web'])
 })
 
-test('without a working gh the band shows no count, and /projektfarbe says why', async ($, on) => {
+test('without a working gh the band shows 0, and /projektfarbe says why', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   let fails: 'start' | 'exit' = 'start'
   const clock = mock.clock(on)
@@ -567,19 +567,11 @@ test('without a working gh the band shows no count, and /projektfarbe says why',
     }
   })
 
-  const hasCount = async () => {
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-    const texts = await ui.findAll({ type: 'Text' })
-    const button = await ui.find({ key: 'repo' })
-    await ui.unmount()
-
-    // Neither the count nor the button that opens the repo.
-    return texts.some(text => /PRs/.test(text.text)) || button !== undefined
-  }
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await hasCount()).toBe(false)
+  // The band keeps its shape: 0 for what could not be read; /projektfarbe says why.
+  expect(await counts($)).toEqual({ prs: 'PRs: 0', issues: 'Issues: 0', raised: [] })
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
     'PR-Zahl nicht verfügbar: gh lässt sich hier nicht starten',
   )
@@ -587,7 +579,7 @@ test('without a working gh the band shows no count, and /projektfarbe says why',
   fails = 'exit'
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await hasCount()).toBe(false)
+  expect(await counts($)).toEqual({ prs: 'PRs: 0', issues: 'Issues: 0', raised: [] })
   const text = (await $.command.run({ ...RUN, args: '' })).text
   expect(text).toContain('PR-Zahl nicht verfügbar: gh meldet: no git remotes found')
   expect(text).not.toContain('second line')
@@ -886,30 +878,23 @@ test('a count that cannot be read again is kept for the same folder and dropped 
       : ghList([1, 2]),
   )
 
-  const hasCount = async () => {
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-    const texts = await ui.findAll({ type: 'Text' })
-    await ui.unmount()
-
-    return texts.some(text => /^PRs:/.test(text.text))
-  }
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await hasCount()).toBe(true)
+  expect((await counts($)).prs).toBe('PRs: 2')
 
   // gh fails five minutes later, in the same folder: the number of before stays.
   isBroken = true
   await clock.advance(5 * 60_000)
   await $.turn.complete(TURN)
   await clock.settle()
-  expect(await hasCount()).toBe(true)
+  expect((await counts($)).prs).toBe('PRs: 2')
 
-  // In another folder the old number says nothing about the new repository.
+  // In another folder the old number says nothing about the new repository: 0 until read.
   cwd = `${ALPHA}\\.claude\\worktrees\\a`
   await $.turn.complete(TURN)
   await clock.settle()
-  expect(await hasCount()).toBe(false)
+  expect((await counts($)).prs).toBe('PRs: 0')
 })
 
 test("the gauge shows the main conversation's window, not an agent's view", async ($, on) => {
@@ -1102,7 +1087,7 @@ test('a repository without issues still shows its pull requests; /projektfarbe s
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await counts($)).toEqual({ prs: 'PRs: 1', issues: undefined, raised: [] })
+  expect(await counts($)).toEqual({ prs: 'PRs: 1', issues: 'Issues: 0', raised: [] })
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
     'Issue-Zahl nicht verfügbar: gh meldet: the repository has disabled issues',
   )

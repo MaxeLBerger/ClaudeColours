@@ -638,7 +638,11 @@ export const register: Register = on => {
       return next(e)
     }
     const state = await read($, view)
-    const { hex, contextPercent: percent, openPrs, openIssues } = state
+    const { hex, contextPercent: percent } = state
+    // A count that could not be read shows as 0, so the band keeps one shape and never wraps
+    // differently; /projektfarbe says why it could not be read.
+    const openPrs = state.openPrs ?? 0
+    const openIssues = state.openIssues ?? 0
     if (state.isHidden || state.project === null || state.mark === null || hex === null) {
       return next(e)
     }
@@ -708,38 +712,32 @@ export const register: Register = on => {
           )}
           <Text bold={!isCalm}>{` ${state.project}`}</Text>
         </Text>
-        {openPrs === null ? null : (
-          <Button key="prs" plain onPress={() => openList($, 'pr')}>
-            <Text>
-              <Text dimColor>PRs: </Text>
-              <Text bold>{prLabel(openPrs)}</Text>
-              {state.newPrs === 0 ? null : (
-                <Text color={NEW_COLOR} bold>
-                  {superscript(state.newPrs)}
-                </Text>
-              )}
-            </Text>
-          </Button>
-        )}
-        {openIssues === null ? null : (
-          <Button key="issues" plain onPress={() => openList($, 'issue')}>
-            <Text>
-              <Text dimColor>Issues: </Text>
-              <Text bold>{prLabel(openIssues)}</Text>
-              {state.newIssues === 0 ? null : (
-                <Text color={NEW_COLOR} bold>
-                  {superscript(state.newIssues)}
-                </Text>
-              )}
-            </Text>
-          </Button>
-        )}
-        {openPrs === null && openIssues === null ? null : (
-          <Button key="repo" plain onPress={() => openRepo($)}>
-            <Text dimColor>Repo ↗</Text>
-          </Button>
-        )}
-        {!showsGauge || (openPrs === null && openIssues === null) ? null : (
+        <Button key="prs" plain onPress={() => openList($, 'pr')}>
+          <Text>
+            <Text dimColor>PRs: </Text>
+            <Text bold>{prLabel(openPrs)}</Text>
+            {state.newPrs === 0 ? null : (
+              <Text color={NEW_COLOR} bold>
+                {superscript(state.newPrs)}
+              </Text>
+            )}
+          </Text>
+        </Button>
+        <Button key="issues" plain onPress={() => openList($, 'issue')}>
+          <Text>
+            <Text dimColor>Issues: </Text>
+            <Text bold>{prLabel(openIssues)}</Text>
+            {state.newIssues === 0 ? null : (
+              <Text color={NEW_COLOR} bold>
+                {superscript(state.newIssues)}
+              </Text>
+            )}
+          </Text>
+        </Button>
+        <Button key="repo" plain onPress={() => openRepo($)}>
+          <Text dimColor>Repo ↗</Text>
+        </Button>
+        {!showsGauge ? null : (
           <Text>{NBSP.repeat(4)}</Text>
         )}
         {!showsGauge ? null : (
