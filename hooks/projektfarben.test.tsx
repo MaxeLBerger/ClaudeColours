@@ -2,12 +2,25 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   assignFarben,
+  BUNT,
+  contextFill,
+  contextLevel,
+  contextPercent,
+  DAEMMERUNG,
   desiredTitle,
   farbeFor,
   FARBEN,
   findFarbe,
+  findSatz,
   learnPicks,
+  markOf,
+  modusLabel,
+  prCount,
+  prLabel,
   projectOf,
+  readPicks,
+  SAETZE,
+  satzOf,
   stripMark,
 } from './colors'
 
@@ -32,6 +45,9 @@ const RUN = {
   origin: { kind: 'composer' },
   presentation: { isFullscreen: false, columns: 80 },
 } as const
+
+// What the band's color block and gauge are drawn with: blanks that keep their width on a colored background.
+const NBSP = String.fromCharCode(0xa0)
 
 const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
@@ -106,6 +122,29 @@ test('a new project gets the next free color; a picked one is kept', async () =>
   expect(findFarbe('kreis weiß')?.mark).toBe('⚪')
   expect(findFarbe('🟪')?.name).toBe('lila')
   expect(findFarbe('pink')).toBe(undefined)
+})
+
+test('the context fill is read from the usage figures; the gauge warns from 70 %', async () => {
+  expect(contextPercent({ context: { window: 200_000, percent: 41.6 } })).toBe(42)
+  expect(contextPercent({ context: { window: 200_000, tokens: 50_000 } })).toBe(25)
+  expect(contextPercent({ context: { window: 200_000, percent: 140 } })).toBe(100)
+  // Before the first answer the engine has no figure: no gauge rather than 0 %.
+  expect(contextPercent({ context: { window: 200_000 } })).toBe(null)
+  expect(contextPercent({ context: { percent: Number.NaN } })).toBe(null)
+  expect(contextPercent(undefined)).toBe(null)
+  expect([69, 70, 84, 85].map(contextLevel)).toEqual(['ok', 'warn', 'warn', 'full'])
+  // Any use at all shows one cell; a full window fills all eight.
+  expect([0, 3, 7, 50, 100].map(contextFill)).toEqual([0, 1, 1, 4, 8])
+})
+
+test('the open pull requests are the length of the list gh prints; 100 shows as 100+', async () => {
+  expect(prCount('[{"number":4},{"number":9}]')).toBe(2)
+  expect(prCount('[]')).toBe(0)
+  expect(prCount('')).toBe(null)
+  expect(prCount('{"number":4}')).toBe(null)
+  expect(prCount('gh: not logged in')).toBe(null)
+  // gh is asked for 101: exactly 100 shows as it is, one more as 100+.
+  expect([0, 7, 99, 100, 101].map(prLabel)).toEqual(['0', '7', '99', '100', '100+'])
 })
 
 test("the sidebar's colors are learned: the mark most of a project's sessions carry", async () => {
@@ -256,7 +295,9 @@ test("a subagent's turn reads nothing; the band follows a color picked elsewhere
   await $.turn.complete(TURN)
   await clock.settle()
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /Beta/ }))?.text).toBe('🟪 Beta')
+  const texts = await ui.findAll({ type: 'Text' })
+  expect(texts.some(text => /Beta/.test(text.text))).toBe(true)
+  expect(texts.some(text => text.props.backgroundColor === '#a855f7')).toBe(true)
   await ui.unmount()
   expect(self.title).toBe('🟪 Neu')
 })
@@ -280,7 +321,14 @@ test('the band shows the project in its color and hides on request', async ($, o
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.find({ type: 'Text', text: /Beta/ }))?.text).toBe('🟦 Beta')
+    const texts = await ui.findAll({ type: 'Text' })
+    expect(texts.some(text => /Beta/.test(text.text))).toBe(true)
+    // The color block: two blanks on the project's color.
+    expect(texts.find(text => text.props.backgroundColor === '#3b82f6')?.children).toEqual([NBSP.repeat(2)])
+    // No usage figure yet, so no gauge.
+    expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
+    // No gh in this test, so no pull request count either.
+    expect(texts.some(text => /PRs/.test(text.text))).toBe(false)
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
@@ -291,4 +339,582 @@ test('the band shows the project in its color and hides on request', async ($, o
   await ui.press({ key: 'ausblenden' })
   expect(await ui.find({ type: 'Text', text: /Beta/ })).toBe(undefined)
   await ui.unmount()
+})
+
+test('the band gauges the context window after each turn: a warning from 70 %, bold red from 85 %', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let percent = 41
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000, percent }, rateLimits: [] },
+  }))
+  on('turn.complete', () => ({ text: '' }))
+
+  // The gauge is a run of blanks on the fill color, one on the track color, and the percentage.
+  const gauge = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+    const on = (color: string) => texts.find(text => text.props.backgroundColor === color)
+
+    return {
+      fill: on('inactive') ?? on('warning') ?? on('error'),
+      track: on('subtle'),
+      // The Text that holds the number itself, not the one around the whole gauge (no props).
+      percent: texts.find(text => /\d+ %$/.test(text.text) && Object.keys(text.props).length > 0),
+    }
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const calm = await gauge()
+  expect(calm.fill?.props).toMatchObject({ backgroundColor: 'inactive' })
+  expect(calm.fill?.children).toEqual([NBSP.repeat(3)])
+  expect(calm.track?.children).toEqual([NBSP.repeat(5)])
+  expect(calm.percent?.text.trim()).toBe('41 %')
+  expect(calm.percent?.props).toMatchObject({ dimColor: true })
+
+  percent = 72
+  await $.turn.complete(TURN)
+  await clock.settle()
+  const warn = await gauge()
+  expect(warn.fill?.props).toMatchObject({ backgroundColor: 'warning' })
+  expect(warn.fill?.children).toEqual([NBSP.repeat(6)])
+  expect(warn.percent?.text.trim()).toBe('72 %')
+  expect(warn.percent?.props).toMatchObject({ color: 'warning' })
+
+  percent = 90
+  await $.turn.complete(TURN)
+  await clock.settle()
+  const full = await gauge()
+  expect(full.fill?.props).toMatchObject({ backgroundColor: 'error' })
+  expect(full.fill?.children).toEqual([NBSP.repeat(7)])
+  expect(full.percent?.text.trim()).toBe('90 %')
+  expect(full.percent?.props).toMatchObject({ color: 'error', bold: true })
+
+  // A full window leaves no track.
+  percent = 100
+  await $.turn.complete(TURN)
+  await clock.settle()
+  const brim = await gauge()
+  expect(brim.fill?.children).toEqual([NBSP.repeat(8)])
+  expect(brim.track).toBe(undefined)
+})
+
+test('the spinner carries the project mark; hiding the band takes it away', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  // Stands for the engine's own spinner: it draws the message, or else the word, it is handed.
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.message ?? e.props.word}</Text>
+  })
+
+  const SPINNER = { plugin: 'projektfarben', component: 'Spinner', surface: 'desktop' } as const
+  const shown = async (props: { word: string; message: string | null }) => {
+    const ui = await $.ui.mount({
+      ...SPINNER,
+      props: { ...props, suffix: '…', mode: 'thinking' },
+    })
+    const found = await ui.find({ type: 'Text' })
+    await ui.unmount()
+
+    return found?.text
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await shown({ word: 'Sauteing', message: null })).toBe('🟦 Sauteing')
+  expect(await shown({ word: 'Sauteing', message: 'Compacting' })).toBe('🟦 Compacting')
+
+  await $.command.run({ ...RUN, args: 'band' })
+  expect(await shown({ word: 'Sauteing', message: null })).toBe('Sauteing')
+})
+
+/** What `$.process.run` answers when `gh pr list` printed these pull requests. */
+const ghList = (numbers: number[]) => ({
+  value: {
+    exitCode: 0,
+    stdout: JSON.stringify(numbers.map(number => ({ number }))),
+    stderr: '',
+    isStdoutTruncated: false,
+    isStderrTruncated: false,
+  },
+})
+
+test('the band counts the open pull requests with gh, at most every five minutes', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let open = [1, 2]
+  const asked: string[][] = []
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', (_, e) => {
+    asked.push([...e.argv])
+
+    return ghList(open)
+  })
+
+  const shown = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+
+    // The label, then the number in bold.
+    const number = texts.find(text => text.props.bold === true && /^\d+\+?$/.test(text.text))?.text
+
+    return texts.some(text => /^PRs:/.test(text.text)) && number !== undefined
+      ? `PRs: ${number}`
+      : undefined
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await shown()).toBe('PRs: 2')
+  expect(asked).toEqual([['gh', 'pr', 'list', '--state', 'open', '--limit', '101', '--json', 'number']])
+
+  // A turn within five minutes does not ask again; one after them does.
+  open = [1, 2, 3]
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(asked).toHaveLength(1)
+  expect(await shown()).toBe('PRs: 2')
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(asked).toHaveLength(2)
+  expect(await shown()).toBe('PRs: 3')
+  expect((await $.command.run({ ...RUN, args: '' })).text).toContain('Offene PRs: 3')
+})
+
+test('the repo button asks gh to open the repository in the browser', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const asked: string[][] = []
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', (_, e) => {
+    asked.push([...e.argv])
+
+    return ghList([1])
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ key: 'repo' })).toBeDefined()
+  await ui.press({ key: 'repo' })
+  await ui.unmount()
+  expect(asked[asked.length - 1]).toEqual(['gh', 'repo', 'view', '--web'])
+})
+
+test('without a working gh the band shows no count, and /projektfarbe says why', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let fails: 'start' | 'exit' = 'start'
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('process.run', () => {
+    if (fails === 'start') {
+      throw new Error('spawn gh ENOENT')
+    }
+
+    return {
+      value: {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'no git remotes found\nsecond line',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
+
+  const hasCount = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    const button = await ui.find({ key: 'repo' })
+    await ui.unmount()
+
+    // Neither the count nor the button that opens the repo.
+    return texts.some(text => /PRs/.test(text.text)) || button !== undefined
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await hasCount()).toBe(false)
+  expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
+    'PR-Zahl nicht verfügbar: gh lässt sich hier nicht starten',
+  )
+
+  fails = 'exit'
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await hasCount()).toBe(false)
+  const text = (await $.command.run({ ...RUN, args: '' })).text
+  expect(text).toContain('PR-Zahl nicht verfügbar: gh meldet: no git remotes found')
+  expect(text).not.toContain('second line')
+})
+
+/** A hex color in OKLab (L, a, b), to hold the sleep colors to their promise. */
+function oklab(hex: string): [number, number, number] {
+  const [r, g, b] = [1, 3, 5].map(i => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255
+
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }) as [number, number, number]
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
+}
+
+test('every color set has unique names and marks, and an order that names them all', async () => {
+  for (const satz of SAETZE) {
+    const names = satz.farben.map(f => f.name)
+    expect(new Set(names).size).toBe(names.length)
+    expect(new Set(satz.farben.map(f => f.mark)).size).toBe(satz.farben.length)
+    expect([...satz.reihenfolge].sort()).toEqual([...names].sort())
+    expect(satz.farben.every(f => /^#[0-9a-f]{6}$/.test(f.hex))).toBe(true)
+  }
+  // No mark belongs to two sets, or a title could not tell them apart.
+  const marks = SAETZE.flatMap(s => s.farben.map(f => f.mark))
+  expect(new Set(marks).size).toBe(marks.length)
+  // The mode switch shows each set by its own emoji, so none may be missing or shared.
+  expect(new Set(SAETZE.map(s => s.emoji)).size).toBe(SAETZE.length)
+  expect(SAETZE.every(s => s.emoji !== '')).toBe(true)
+  expect(SAETZE.map(modusLabel)).toEqual(['🎨 Bunt', '🌙 Dämmerung'])
+  expect(satzOf(undefined)).toBe(BUNT)
+  expect(satzOf('daemmerung')).toBe(DAEMMERUNG)
+  expect(findSatz('Dämmerung')).toBe(DAEMMERUNG)
+  expect(findSatz('mond')).toBe(undefined)
+})
+
+test('the sleep colors stay calm (chroma under 0.06) and apart (at least 5)', async () => {
+  const labs = DAEMMERUNG.farben.map(f => oklab(f.hex))
+  for (const [, a, b] of labs) {
+    expect(Math.hypot(a, b)).toBeLessThan(0.06)
+  }
+  let closest = Infinity
+  labs.forEach((x, i) => {
+    for (const y of labs.slice(i + 1)) {
+      closest = Math.min(closest, Math.hypot(...x.map((v, k) => (v - (y[k] ?? 0)) * 100)))
+    }
+  })
+  expect(closest).toBeGreaterThan(5)
+})
+
+test('sleep marks are plain shapes: stripped from any set, and only in front of a space', async () => {
+  expect(stripMark('◆ Release notes')).toBe('Release notes')
+  expect(stripMark('⬤ 🟦 Release notes')).toBe('Release notes')
+  expect(stripMark('▲Plan')).toBe('▲Plan')
+  expect(stripMark('■')).toBe('')
+  expect(markOf('◆ Release notes')?.name).toBe('moos')
+  expect(markOf('◆ Release notes', BUNT)).toBe(undefined)
+  expect(desiredTitle('🟦 Fix the login bug', '◆')).toBe('◆ Fix the login bug')
+  expect(desiredTitle('■', '◆')).toBe(null)
+})
+
+test('the sleep set hands out its colors in order, from its own picks', async () => {
+  expect(farbeFor('Alpha', {}, DAEMMERUNG).mark).toBe('⬤')
+  expect(farbeFor('Beta', { alpha: '⬤' }, DAEMMERUNG).mark).toBe('■')
+  // A mark of the other set is not a pick of this one.
+  expect(farbeFor('Alpha', { alpha: '🟥' }, DAEMMERUNG).mark).toBe('⬤')
+  expect(readPicks({ alpha: '◆', beta: '🟦' }, DAEMMERUNG)).toEqual({ alpha: '◆' })
+  expect(readPicks({ alpha: '◆', beta: '🟦' })).toEqual({ beta: '🟦' })
+  const full = Object.fromEntries(DAEMMERUNG.farben.map((f, i) => [`p${i}`, f.mark]))
+  expect(farbeFor('Delta', full, DAEMMERUNG).mark).toBe(farbeFor('delta', full, DAEMMERUNG).mark)
+  expect(findFarbe('Moos', DAEMMERUNG)?.mark).toBe('◆')
+  expect(findFarbe('◐', DAEMMERUNG)?.name).toBe('petrol')
+  expect(findFarbe('moos')).toBe(undefined)
+  expect(findFarbe('rot', DAEMMERUNG)).toBe(undefined)
+  // Shapes already in the sidebar are not picks of the bright set.
+  const row = { sessionId: '1', title: '◆ One', cwd: ALPHA }
+  expect(learnPicks([row])).toEqual({})
+  expect(learnPicks([row], DAEMMERUNG)).toEqual({ alpha: '◆' })
+})
+
+test('sleep mode swaps every mark for a calm one, and bunt swaps them back', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Fix the login bug', cwd: `${ALPHA}\\.claude\\worktrees\\a` }
+  const desk = fakeDesktop(self, [
+    { sessionId: 'local_a', title: '🟦 Write the docs', cwd: `${ALPHA}\\.claude\\worktrees\\b` },
+    { sessionId: 'local_b', title: '🟩 Release notes', cwd: `${BETA}\\.claude\\worktrees\\c` },
+  ])
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', desk.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const bright = ['🟦 Fix the login bug', '🟦 Write the docs', '🟩 Release notes']
+  expect(desk.all.map(row => row.title)).toEqual(bright)
+
+  const slept = await $.command.run({ ...RUN, args: 'schlaf' })
+  expect(slept.text).toContain('Schlafmodus (Dämmerung) an; 3 Session(s) umbenannt')
+  expect(desk.all.map(row => row.title)).toEqual([
+    '⬤ Fix the login bug',
+    '⬤ Write the docs',
+    '■ Release notes',
+  ])
+
+  // The band shows the shape and offers the calm colors only.
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const texts = await ui.findAll({ type: 'Text' })
+  expect(texts.find(text => text.text === '⬤')?.props).toMatchObject({ color: DAEMMERUNG.farben[0]?.hex })
+  expect(texts.some(text => /Alpha/.test(text.text))).toBe(true)
+  await ui.press({ key: 'farbe' })
+  expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
+  expect(await ui.find({ key: 'farbe-lila' })).toBe(undefined)
+  await ui.press({ key: 'abbrechen' })
+  await ui.unmount()
+
+  // A pick in sleep mode uses the sleep names; the bright ones are not known there.
+  const picked = await $.command.run({ ...RUN, args: 'moos' })
+  expect(picked.text).toContain('◆ Alpha ist jetzt moos')
+  expect((await $.command.run({ ...RUN, args: 'rot' })).text).toContain('Unbekannte Farbe')
+  expect(desk.all.map(row => row.title)).toEqual([
+    '◆ Fix the login bug',
+    '◆ Write the docs',
+    '■ Release notes',
+  ])
+
+  // Back to bright: each project has the color it had before.
+  const back = await $.command.run({ ...RUN, args: 'bunt' })
+  expect(back.text).toContain('Bunte Farben wieder an; 3 Session(s) umbenannt')
+  expect(desk.all.map(row => row.title)).toEqual(bright)
+})
+
+test('sleep mode survives a restart, and an unknown sleep set is refused', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Another one', cwd: ALPHA }
+  const desk = fakeDesktop(self, [])
+  const clock = mock.clock(on)
+  // What the store kept from before the restart.
+  mock.store(on, { modus: 'daemmerung', gelernt: true, 'farben-daemmerung': { alpha: '▼' } })
+  on('mcp.call', desk.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(self.title).toBe('▼ Another one')
+
+  const refused = await $.command.run({ ...RUN, args: 'schlaf mond' })
+  expect(refused.text).toContain('Unbekannter Schlafmodus')
+  expect(self.title).toBe('▼ Another one')
+})
+
+test('the color picker switches between the bright colors and sleep mode', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Fix the login bug', cwd: `${ALPHA}\\.claude\\worktrees\\a` }
+  const desk = fakeDesktop(self, [
+    { sessionId: 'local_a', title: '🟦 Write the docs', cwd: `${ALPHA}\\.claude\\worktrees\\b` },
+  ])
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', desk.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(desk.all.map(row => row.title)).toEqual(['🟦 Fix the login bug', '🟦 Write the docs'])
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // One entry per set, its emoji and name; the one in use is bold, the others dimmed.
+  const modes = async () =>
+    (await ui.findAll({ type: 'Text' }))
+      .filter(text => SAETZE.some(satz => text.text === modusLabel(satz)))
+      .map(text => `${text.props.bold === true ? 'an' : 'aus'}: ${text.text}`)
+
+  // The switch sits in the color picker.
+  await ui.press({ key: 'farbe' })
+  expect(await modes()).toEqual(['an: 🎨 Bunt', 'aus: 🌙 Dämmerung'])
+
+  await ui.press({ key: 'modus-daemmerung' })
+  expect(desk.all.map(row => row.title)).toEqual(['⬤ Fix the login bug', '⬤ Write the docs'])
+  // The switch closed the picker; opened again it shows the new mode, and its colors.
+  await ui.press({ key: 'farbe' })
+  expect(await modes()).toEqual(['aus: 🎨 Bunt', 'an: 🌙 Dämmerung'])
+  expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
+
+  // The mode in use asks for nothing: no title is renamed again.
+  const renames = desk.calls.set
+  await ui.press({ key: 'modus-daemmerung' })
+  expect(desk.calls.set).toBe(renames)
+
+  await ui.press({ key: 'modus-bunt' })
+  expect(desk.all.map(row => row.title)).toEqual(['🟦 Fix the login bug', '🟦 Write the docs'])
+  await ui.unmount()
+})
+
+test('the picker reads the mode from the store: another session may have switched it', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Fix the login bug', cwd: `${ALPHA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  // The store is the one thing the sessions share, so the test holds it itself.
+  const kept = new Map<string, unknown>()
+  on('store.get', (_, e) => ({ value: kept.get(e.key) }))
+  on('store.set', (_, e) => {
+    kept.set(e.key, e.value)
+
+    return { value: undefined }
+  })
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  // Sleep mode was switched on elsewhere; this band has not been redrawn since.
+  kept.set('modus', 'daemmerung')
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'farbe' })
+  const bold = (await ui.findAll({ type: 'Text' })).filter(text => text.props.bold === true)
+  expect(bold.some(text => text.text === modusLabel(DAEMMERUNG))).toBe(true)
+  expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
+
+  // The bright mode is not the one in use, so pressing it switches.
+  await ui.press({ key: 'modus-bunt' })
+  expect(kept.get('modus')).toBe('bunt')
+  await ui.unmount()
+})
+
+test('the repo button says why gh could not open the repository', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const toasts: string[] = []
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', (_, e) =>
+    e.argv[1] === 'repo'
+      ? {
+          value: {
+            exitCode: 1,
+            stdout: '',
+            stderr: 'no default remote repository\nrun gh repo set-default',
+            isStdoutTruncated: false,
+            isStderrTruncated: false,
+          },
+        }
+      : ghList([1]),
+  )
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'repo' })
+  await ui.unmount()
+  expect(toasts).toEqual(['Repo lässt sich nicht öffnen: no default remote repository'])
+})
+
+test('a count that cannot be read again is kept for the same folder and dropped for another', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let cwd = self.cwd
+  let isBroken = false
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', () =>
+    isBroken
+      ? {
+          value: {
+            exitCode: 1,
+            stdout: '',
+            stderr: 'not a git repository',
+            isStdoutTruncated: false,
+            isStderrTruncated: false,
+          },
+        }
+      : ghList([1, 2]),
+  )
+
+  const hasCount = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+
+    return texts.some(text => /^PRs:/.test(text.text))
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await hasCount()).toBe(true)
+
+  // gh fails five minutes later, in the same folder: the number of before stays.
+  isBroken = true
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(await hasCount()).toBe(true)
+
+  // In another folder the old number says nothing about the new repository.
+  cwd = `${ALPHA}\\.claude\\worktrees\\a`
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(await hasCount()).toBe(false)
+})
+
+test("the gauge shows the main conversation's window, not an agent's view", async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000, percent: 40 }, rateLimits: [] },
+  }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const hasGauge = async (view: { agentId?: string }) => {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, view }, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+
+    return texts.some(text => /Kontext/.test(text.text))
+  }
+
+  expect(await hasGauge({})).toBe(true)
+  expect(await hasGauge({ agentId: 'a1' })).toBe(false)
 })

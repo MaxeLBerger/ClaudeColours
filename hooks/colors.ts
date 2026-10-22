@@ -4,6 +4,24 @@
 
 export type Farbe = { name: string; mark: string; hex: string }
 
+/**
+ * A set of colors a project can have. The bright default and the calm sleep
+ * set are both data: nothing below names one, so a further set is one more entry.
+ */
+export type Satz = {
+  id: string
+  label: string
+  /** Stands for the set in the color picker's mode switch; none is shared by two sets. */
+  emoji: string
+  /** Where the person's picks for this set live in the store. */
+  storeKey: string
+  farben: readonly Farbe[]
+  /** The order a new project is handed a color in (names from `farben`). */
+  reihenfolge: readonly string[]
+  /** Marks are plain text, not emoji: one only counts when a space or the end follows it. */
+  strikt: boolean
+}
+
 export const FARBEN: readonly Farbe[] = [
   { name: 'blau', mark: '🟦', hex: '#3b82f6' },
   { name: 'gruen', mark: '🟩', hex: '#22c55e' },
@@ -32,10 +50,80 @@ const REIHENFOLGE = [
   'braun', 'kreis-braun', 'schwarz', 'kreis-schwarz', 'weiss', 'kreis-weiss',
 ]
 
+/**
+ * Calm colors for the evening. A session title is plain text and cannot be tinted,
+ * and emoji colors are the system's own (the moon phases and several nature emoji
+ * come out vivid on Windows), so the sidebar gets a monochrome shape and only
+ * the band gets the color: every hex is below 0.06 chroma (OKLCH), at least 5 apart (OKLab x100).
+ */
+const DAEMMERUNG_FARBEN: readonly Farbe[] = [
+  { name: 'nebel', mark: '⬤', hex: '#93aeca' },
+  { name: 'sand', mark: '■', hex: '#d7caa6' },
+  { name: 'altrosa', mark: '▲', hex: '#c59b9e' },
+  { name: 'moos', mark: '◆', hex: '#8a9974' },
+  { name: 'flieder', mark: '▼', hex: '#a597b8' },
+  { name: 'petrol', mark: '◐', hex: '#6e9ba1' },
+  { name: 'ton', mark: '◑', hex: '#b49078' },
+  { name: 'salbei', mark: '⬢', hex: '#a8c7ad' },
+  { name: 'schiefer', mark: '▣', hex: '#797f99' },
+  { name: 'mauve', mark: '✚', hex: '#9d7a8d' },
+]
+
+export const BUNT: Satz = {
+  id: 'bunt',
+  label: 'bunt',
+  emoji: '🎨',
+  storeKey: 'farben',
+  farben: FARBEN,
+  reihenfolge: REIHENFOLGE,
+  strikt: false,
+}
+
+export const DAEMMERUNG: Satz = {
+  id: 'daemmerung',
+  label: 'Dämmerung',
+  emoji: '🌙',
+  storeKey: 'farben-daemmerung',
+  farben: DAEMMERUNG_FARBEN,
+  reihenfolge: DAEMMERUNG_FARBEN.map(f => f.name),
+  strikt: true,
+}
+
+export const SAETZE: readonly Satz[] = [BUNT, DAEMMERUNG]
+/** The sets sleep mode can use; the first is what `/projektfarbe schlaf` picks. */
+export const SCHLAFSAETZE: readonly Satz[] = [DAEMMERUNG]
+
+/** What the color picker's mode switch shows for a set: its emoji and its name, capitalized. */
+export const modusLabel = (satz: Satz): string =>
+  `${satz.emoji} ${satz.label.charAt(0).toUpperCase()}${satz.label.slice(1)}`
+
 const PLATZHALTER = new Set(['', 'new session', 'neue session', 'untitled', 'unbenannt'])
 
-const byName = (name: string): Farbe | undefined => FARBEN.find(f => f.name === name)
-const byMark = (mark: string): Farbe | undefined => FARBEN.find(f => f.mark === mark)
+const byName = (satz: Satz, name: string): Farbe | undefined => satz.farben.find(f => f.name === name)
+const byMark = (satz: Satz, mark: string): Farbe | undefined => satz.farben.find(f => f.mark === mark)
+
+/** A name as the person types it: lowercase, umlauts spelled out, spaces as dashes. */
+const asciiName = (input: string): string =>
+  input
+    .trim()
+    .toLowerCase()
+    .replace(/ü/g, 'ue')
+    .replace(/ö/g, 'oe')
+    .replace(/ä/g, 'ae')
+    .replace(/ß/g, 'ss')
+    .replace(/\s+/g, '-')
+
+/** The color set stored under `modus`; the bright one when none is stored. */
+export function satzOf(id: unknown): Satz {
+  return SAETZE.find(s => s.id === id) ?? BUNT
+}
+
+/** A sleep set from what the person typed (dämmerung, Daemmerung, …). */
+export function findSatz(input: string): Satz | undefined {
+  const name = asciiName(input)
+
+  return SCHLAFSAETZE.find(s => asciiName(s.label) === name || s.id === name)
+}
 
 /** The project folder of a session directory; a worktree counts as its repository. */
 export function projectOf(cwd: string): string | null {
@@ -50,74 +138,96 @@ export function projectOf(cwd: string): string | null {
   return name === '' || /^[a-z]:$/i.test(name) ? null : name
 }
 
-/** A color from a project's name, the same every time: used once all 18 are taken. */
-function hashFarbe(project: string): Farbe {
+/** A color from a project's name, the same every time: used once every color of the set is taken. */
+function hashFarbe(project: string, satz: Satz): Farbe {
   let hash = 0
   for (const ch of project.toLowerCase()) {
     hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) >>> 0
   }
 
-  return FARBEN[hash % FARBEN.length] ?? FARBEN[0]!
+  return satz.farben[hash % satz.farben.length] ?? satz.farben[0]!
 }
 
 /** The color a project with none gets: the first no other project has, else one from its name. */
-export function nextFarbe(project: string, picks: Readonly<Record<string, string>>): Farbe {
+export function nextFarbe(
+  project: string,
+  picks: Readonly<Record<string, string>>,
+  satz: Satz = BUNT,
+): Farbe {
   const taken = new Set(Object.values(picks))
-  const free = REIHENFOLGE.map(byName).find(f => f !== undefined && !taken.has(f.mark))
+  const free = satz.reihenfolge
+    .map(name => byName(satz, name))
+    .find(f => f !== undefined && !taken.has(f.mark))
 
-  return free ?? hashFarbe(project)
+  return free ?? hashFarbe(project, satz)
 }
 
 /** The project's color: the stored one, else the one it would be handed now. */
-export function farbeFor(project: string, picks: Readonly<Record<string, string>>): Farbe {
+export function farbeFor(
+  project: string,
+  picks: Readonly<Record<string, string>>,
+  satz: Satz = BUNT,
+): Farbe {
   const picked = picks[project.toLowerCase()]
 
-  return (picked === undefined ? undefined : byMark(picked)) ?? nextFarbe(project, picks)
+  return (picked === undefined ? undefined : byMark(satz, picked)) ?? nextFarbe(project, picks, satz)
 }
 
 /** The picks with a color recorded for each project that has none yet, in the order given. */
 export function assignFarben(
   projects: readonly string[],
   picks: Readonly<Record<string, string>>,
+  satz: Satz = BUNT,
 ): Record<string, string> {
   const next: Record<string, string> = { ...picks }
   for (const project of projects) {
     const key = project.toLowerCase()
-    if (next[key] === undefined || byMark(next[key]) === undefined) {
-      next[key] = nextFarbe(project, next).mark
+    if (next[key] === undefined || byMark(satz, next[key]) === undefined) {
+      next[key] = nextFarbe(project, next, satz).mark
     }
   }
 
   return next
 }
 
-/** A color from what the person typed: its name (grün, weiß and kreis-… work) or its emoji. */
-export function findFarbe(input: string): Farbe | undefined {
+/** A color of the set from what the person typed: its name (grün, weiß and kreis-… work) or its mark. */
+export function findFarbe(input: string, satz: Satz = BUNT): Farbe | undefined {
   const text = input.trim()
-  const name = text
-    .toLowerCase()
-    .replace(/ü/g, 'ue')
-    .replace(/ö/g, 'oe')
-    .replace(/ä/g, 'ae')
-    .replace(/ß/g, 'ss')
-    .replace(/\s+/g, '-')
 
-  return byName(name) ?? FARBEN.find(f => text.startsWith(f.mark))
+  return byName(satz, asciiName(text)) ?? satz.farben.find(f => text.startsWith(f.mark))
 }
 
-/** The color mark a title starts with, if any. */
-export function markOf(title: string): Farbe | undefined {
+/** True when the title starts with this mark (a plain-text mark needs a space or the end after it). */
+function carries(text: string, farbe: Farbe, satz: Satz): boolean {
+  if (!text.startsWith(farbe.mark)) {
+    return false
+  }
+  const after = text.charAt(farbe.mark.length)
+
+  return !satz.strikt || after === '' || /\s/.test(after)
+}
+
+/** The color mark a title starts with, if any: of one set, or of any set when none is given. */
+export function markOf(title: string, only?: Satz): Farbe | undefined {
   const text = title.trim()
+  for (const satz of only === undefined ? SAETZE : [only]) {
+    const found = satz.farben.find(f => carries(text, f, satz))
+    if (found !== undefined) {
+      return found
+    }
+  }
 
-  return FARBEN.find(f => text.startsWith(f.mark))
+  return undefined
 }
 
-/** The title without a color mark in front. */
+/** The title without color marks in front, whichever set they come from. */
 export function stripMark(title: string): string {
-  const text = title.trim()
-  const farbe = markOf(text)
+  let text = title.trim()
+  for (let farbe = markOf(text); farbe !== undefined; farbe = markOf(text)) {
+    text = text.slice(farbe.mark.length).replace(/^️/, '').trim()
+  }
 
-  return farbe === undefined ? text : text.slice(farbe.mark.length).replace(/^️/, '').trim()
+  return text
 }
 
 /** The title with `mark` in front, or null while the app has not named the session yet. */
@@ -130,14 +240,14 @@ export function desiredTitle(title: string, mark: string): string | null {
   return `${mark} ${bare}`
 }
 
-/** The person's picks from the store, keeping only well-formed entries. */
-export function readPicks(raw: unknown): Record<string, string> {
+/** The person's picks for one set from the store, keeping only well-formed entries. */
+export function readPicks(raw: unknown, satz: Satz = BUNT): Record<string, string> {
   const picks: Record<string, string> = {}
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return picks
   }
   for (const [key, value] of Object.entries(raw)) {
-    if (typeof value === 'string' && byMark(value) !== undefined) {
+    if (typeof value === 'string' && byMark(satz, value) !== undefined) {
       picks[key.toLowerCase()] = value
     }
   }
@@ -162,14 +272,14 @@ export function toRow(raw: unknown, fallbackId?: string): SessionRow | null {
 }
 
 /**
- * The colors the sidebar already shows: per project, the mark most of its
- * sessions carry (the first seen on a tie). Sessions without a mark count for nothing.
+ * The colors the sidebar already shows: per project, the mark of this set most of
+ * its sessions carry (the first seen on a tie). Sessions without one count for nothing.
  */
-export function learnPicks(rows: readonly SessionRow[]): Record<string, string> {
+export function learnPicks(rows: readonly SessionRow[], satz: Satz = BUNT): Record<string, string> {
   const tally = new Map<string, Map<string, number>>()
   for (const row of rows) {
     const project = projectOf(row.cwd)
-    const farbe = markOf(row.title)
+    const farbe = markOf(row.title, satz)
     if (project === null || farbe === undefined) {
       continue
     }
@@ -198,17 +308,77 @@ export type TitlePlan =
   | { kind: 'rename'; title: string }
   | { kind: 'same' | 'unnamed' | 'no-project' }
 
-export function planTitle(row: SessionRow, picks: Readonly<Record<string, string>>): TitlePlan {
+export function planTitle(
+  row: SessionRow,
+  picks: Readonly<Record<string, string>>,
+  satz: Satz = BUNT,
+): TitlePlan {
   const project = projectOf(row.cwd)
   if (project === null) {
     return { kind: 'no-project' }
   }
-  const wanted = desiredTitle(row.title, farbeFor(project, picks).mark)
+  const wanted = desiredTitle(row.title, farbeFor(project, picks, satz).mark)
   if (wanted === null) {
     return { kind: 'unnamed' }
   }
 
   return wanted === row.title ? { kind: 'same' } : { kind: 'rename', title: wanted }
+}
+
+export type ContextLevel = 'ok' | 'warn' | 'full'
+
+const CONTEXT_WARN = 70
+const CONTEXT_FULL = 85
+
+/** The width of the gauge, in cells. */
+export const CONTEXT_CELLS = 8
+
+/** How full the context window is, 0 to 100, from `$.session.usage()`; null before the first answer. */
+export function contextPercent(usage: unknown): number | null {
+  const context = (usage as { context?: unknown } | null)?.context
+  if (context === null || typeof context !== 'object') {
+    return null
+  }
+  const { percent, tokens, window } = context as Record<string, unknown>
+  const value =
+    typeof percent === 'number'
+      ? percent
+      : typeof tokens === 'number' && typeof window === 'number' && window > 0
+        ? (tokens / window) * 100
+        : null
+
+  return value === null || !Number.isFinite(value) ? null : Math.min(100, Math.max(0, Math.round(value)))
+}
+
+/** From where the window is getting full (70 %) and where `/compact` is due (85 %). */
+export function contextLevel(percent: number): ContextLevel {
+  return percent >= CONTEXT_FULL ? 'full' : percent >= CONTEXT_WARN ? 'warn' : 'ok'
+}
+
+/** How many of the gauge's cells are filled: in proportion to the percentage, at least one once there is any use. */
+export function contextFill(percent: number): number {
+  const cells = Math.round((percent / 100) * CONTEXT_CELLS)
+
+  return Math.min(CONTEXT_CELLS, Math.max(percent > 0 ? 1 : 0, cells))
+}
+
+/** The band counts open pull requests up to this number; more than that shows as "100+". */
+export const PR_LIMIT = 100
+
+/** The number of open pull requests from the JSON `gh pr list --json number` prints; null when it is no list. */
+export function prCount(stdout: string): number | null {
+  try {
+    const list: unknown = JSON.parse(stdout)
+
+    return Array.isArray(list) ? list.length : null
+  } catch {
+    return null
+  }
+}
+
+/** The count as the band shows it. */
+export function prLabel(count: number): string {
+  return count > PR_LIMIT ? `${PR_LIMIT}+` : String(count)
 }
 
 const TRIED_LIMIT = 300
