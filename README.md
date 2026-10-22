@@ -9,7 +9,7 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
 🟧 Plan the next version
 ```
 
-*English: a Claude Code mod that gives each project a color and puts it as an emoji in front of every session title in the desktop app's sidebar, adds a colored project band above the prompt, and a `/projektfarbe` command to change the color. The interface is in German.*
+*English: a Claude Code mod that gives each project a color and puts it as an emoji in front of every session title in the desktop app's sidebar, adds a colored project band above the prompt, and a `/projektfarbe` command to change the color. A sleep mode (`/projektfarbe schlaf`) swaps the bright emoji for plain shapes and muted band colors. The interface is in German.*
 
 ## Was der Mod macht
 
@@ -20,6 +20,7 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
 - **Offene PRs im Band:** Rechts neben der Kontext-Anzeige steht `PRs: 2`, die Zahl der offenen Pull Requests des Repositories dieses Projekts (ab 100 als `100+`). Der Mod fragt dafür im Hintergrund `gh pr list` ab: beim Start der Session und danach höchstens alle 5 Minuten nach einer Antwort. Ohne angemeldetes `gh` oder ohne GitHub-Repository bleibt die Zahl weg; `/projektfarbe` sagt dann, woran es liegt.
 - **Repo-Button:** Der kleine Button „Repo ↗“ neben der PR-Zahl öffnet das Repository auf GitHub im Standardbrowser deines Systems (über `gh repo view --web`), nicht im Browser der App.
 - **`/projektfarbe`:** Farbe zeigen oder ändern. Eine Änderung benennt alle offenen Sessions des Projekts sofort mit um.
+- **Schlafmodus:** `/projektfarbe schlaf` ersetzt die bunten Punkte durch ruhige Formen und das Band durch gedämpfte Farben. `/projektfarbe bunt` stellt alles zurück.
 
 Als Projekt zählt der Ordner, in dem die Session läuft; ein Worktree unter `.claude/worktrees/` zählt zu seinem Repository.
 
@@ -52,12 +53,32 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 | `/projektfarbe standard` | gibt dem Projekt die nächste freie Farbe |
 | `/projektfarbe alle` | färbt alle offenen Sessions neu ein |
 | `/projektfarbe band` | blendet Band, Kontext-Anzeige, PR-Zahl und den Farbpunkt am Spinner ein oder aus |
+| `/projektfarbe schlaf` | schaltet den Schlafmodus ein und benennt alle offenen Sessions um |
+| `/projektfarbe bunt` | schaltet zurück zu den bunten Farben und benennt alle offenen Sessions um |
+
+Im Schlafmodus gelten die Namen des Schlafmodus (`/projektfarbe moos`), im bunten Modus die bunten.
 
 18 Farben: 🟦 🟩 🟧 🟪 🟥 🟨 🟫 ⬛ ⬜ und 🔵 🟢 🟠 🟣 🔴 🟡 🟤 ⚫ ⚪.
 
+## Schlafmodus
+
+Der Schlafmodus nimmt den Farben die Reizwirkung, ohne die Projekte schwerer unterscheidbar zu machen. Er nutzt den Satz „Dämmerung“ mit 10 Formen und gedämpften Farben:
+
+| Form | Name | Form | Name |
+|---|---|---|---|
+| ⬤ | `nebel` | ◐ | `petrol` |
+| ■ | `sand` | ◑ | `ton` |
+| ▲ | `altrosa` | ⬢ | `salbei` |
+| ◆ | `moos` | ▣ | `schiefer` |
+| ▼ | `flieder` | ✚ | `mauve` |
+
+- **Seitenleiste:** Ein Session-Name ist reiner Text und lässt sich nicht einfärben, und die Emoji-Farben bestimmt das Betriebssystem (Mondphasen und mehrere Natur-Emoji sind unter Windows kräftig bunt). Deshalb steht vor dem Namen eine einfarbige Form, und die Form trennt die Projekte.
+- **Band und Farbwahl:** zeigen dieselbe Form in der gedämpften Farbe, ohne Fettschrift.
+- Jedes Projekt merkt sich seine Farbe pro Modus. Beim Zurückschalten hat es wieder seine bunte Farbe.
+
 ## Wie die Farben vergeben werden
 
-- Ein neues Projekt bekommt die nächste Farbe, die noch kein anderes Projekt hat (erst die hellen Quadrate, dann die hellen Kreise, dann der Rest). Sind alle 18 vergeben, entscheidet der Projektname.
+- Ein neues Projekt bekommt die nächste Farbe, die noch kein anderes Projekt hat (erst die hellen Quadrate, dann die hellen Kreise, dann der Rest). Sind alle 18 vergeben (im Schlafmodus alle 10), entscheidet der Projektname.
 - Beim ersten Start übernimmt der Mod die Farbpunkte, die schon in der Seitenleiste stehen: Pro Projekt gilt der Punkt, den die meisten seiner Sessions tragen.
 - Deine Farben speichert der Mod lokal in seinem eigenen Speicher unter deinem Claude-Code-Konfigurationsordner. Der Mod selbst spricht nur mit den lokalen Session-Werkzeugen der Desktop-App und startet `gh`; nur `gh` redet dabei mit GitHub, mit deiner eigenen Anmeldung.
 
@@ -69,7 +90,11 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 - Die PR-Zahl zählt alle offenen Pull Requests des Repositories, nicht nur die dieser Session. Läuft `gh` in der Desktop-App nicht, bleibt sie weg.
 - Der Prozentwert ist der von Claude Code gemeldete Füllstand des Fensters; er kann von der Zahl in `/context` leicht abweichen.
 - Hast du einen Session-Namen selbst vergeben, fragt die App einmal nach, bevor der Mod den Farbpunkt davorsetzt. Sagst du nein, fragt sie für diesen Namen nicht wieder.
-- Sortierst du die Seitenleiste nach Namen, ordnet sie nach Farbe.
+- Sortierst du die Seitenleiste nach Namen, ordnet sie nach Farbe (im Schlafmodus nach Form).
+- Das Umschalten zwischen bunt und Schlafmodus benennt alle offenen Sessions um; bei Namen, die du selbst vergeben hast, fragt die App wieder nach.
+- Im Schlafmodus gibt es 10 Plätze statt 18, weil sich gedämpfte Farben weniger weit voneinander entfernen lassen. Mit mehr Projekten wiederholen sich Formen und Farben.
+- Die Bandfarben des Schlafmodus sind für dunkle Terminal-Hintergründe gewählt; auf hellem Grund wirken sie blass.
+- Ein Name, der selbst mit einer dieser Formen und einem Leerzeichen beginnt (zum Beispiel `■ Aufgaben`), wird vom Mod wie eine Farbmarke behandelt.
 
 ## Entwickeln
 
