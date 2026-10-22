@@ -2,12 +2,19 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   assignFarben,
+  BUNT,
+  DAEMMERUNG,
   desiredTitle,
   farbeFor,
   FARBEN,
   findFarbe,
+  findSatz,
   learnPicks,
+  markOf,
   projectOf,
+  readPicks,
+  SAETZE,
+  satzOf,
   stripMark,
 } from './colors'
 
@@ -291,4 +298,154 @@ test('the band shows the project in its color and hides on request', async ($, o
   await ui.press({ key: 'ausblenden' })
   expect(await ui.find({ type: 'Text', text: /Beta/ })).toBe(undefined)
   await ui.unmount()
+})
+
+/** A hex color in OKLab (L, a, b), to hold the sleep colors to their promise. */
+function oklab(hex: string): [number, number, number] {
+  const [r, g, b] = [1, 3, 5].map(i => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255
+
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }) as [number, number, number]
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
+}
+
+test('every color set has unique names and marks, and an order that names them all', async () => {
+  for (const satz of SAETZE) {
+    const names = satz.farben.map(f => f.name)
+    expect(new Set(names).size).toBe(names.length)
+    expect(new Set(satz.farben.map(f => f.mark)).size).toBe(satz.farben.length)
+    expect([...satz.reihenfolge].sort()).toEqual([...names].sort())
+    expect(satz.farben.every(f => /^#[0-9a-f]{6}$/.test(f.hex))).toBe(true)
+  }
+  // No mark belongs to two sets, or a title could not tell them apart.
+  const marks = SAETZE.flatMap(s => s.farben.map(f => f.mark))
+  expect(new Set(marks).size).toBe(marks.length)
+  expect(satzOf(undefined)).toBe(BUNT)
+  expect(satzOf('daemmerung')).toBe(DAEMMERUNG)
+  expect(findSatz('Dämmerung')).toBe(DAEMMERUNG)
+  expect(findSatz('mond')).toBe(undefined)
+})
+
+test('the sleep colors stay calm (chroma under 0.06) and apart (at least 5)', async () => {
+  const labs = DAEMMERUNG.farben.map(f => oklab(f.hex))
+  for (const [, a, b] of labs) {
+    expect(Math.hypot(a, b)).toBeLessThan(0.06)
+  }
+  let closest = Infinity
+  labs.forEach((x, i) => {
+    for (const y of labs.slice(i + 1)) {
+      closest = Math.min(closest, Math.hypot(...x.map((v, k) => (v - (y[k] ?? 0)) * 100)))
+    }
+  })
+  expect(closest).toBeGreaterThan(5)
+})
+
+test('sleep marks are plain shapes: stripped from any set, and only in front of a space', async () => {
+  expect(stripMark('◆ Release notes')).toBe('Release notes')
+  expect(stripMark('⬤ 🟦 Release notes')).toBe('Release notes')
+  expect(stripMark('▲Plan')).toBe('▲Plan')
+  expect(stripMark('■')).toBe('')
+  expect(markOf('◆ Release notes')?.name).toBe('moos')
+  expect(markOf('◆ Release notes', BUNT)).toBe(undefined)
+  expect(desiredTitle('🟦 Fix the login bug', '◆')).toBe('◆ Fix the login bug')
+  expect(desiredTitle('■', '◆')).toBe(null)
+})
+
+test('the sleep set hands out its colors in order, from its own picks', async () => {
+  expect(farbeFor('Alpha', {}, DAEMMERUNG).mark).toBe('⬤')
+  expect(farbeFor('Beta', { alpha: '⬤' }, DAEMMERUNG).mark).toBe('■')
+  // A mark of the other set is not a pick of this one.
+  expect(farbeFor('Alpha', { alpha: '🟥' }, DAEMMERUNG).mark).toBe('⬤')
+  expect(readPicks({ alpha: '◆', beta: '🟦' }, DAEMMERUNG)).toEqual({ alpha: '◆' })
+  expect(readPicks({ alpha: '◆', beta: '🟦' })).toEqual({ beta: '🟦' })
+  const full = Object.fromEntries(DAEMMERUNG.farben.map((f, i) => [`p${i}`, f.mark]))
+  expect(farbeFor('Delta', full, DAEMMERUNG).mark).toBe(farbeFor('delta', full, DAEMMERUNG).mark)
+  expect(findFarbe('Moos', DAEMMERUNG)?.mark).toBe('◆')
+  expect(findFarbe('◐', DAEMMERUNG)?.name).toBe('petrol')
+  expect(findFarbe('moos')).toBe(undefined)
+  expect(findFarbe('rot', DAEMMERUNG)).toBe(undefined)
+  // Shapes already in the sidebar are not picks of the bright set.
+  const row = { sessionId: '1', title: '◆ One', cwd: ALPHA }
+  expect(learnPicks([row])).toEqual({})
+  expect(learnPicks([row], DAEMMERUNG)).toEqual({ alpha: '◆' })
+})
+
+test('sleep mode swaps every mark for a calm one, and bunt swaps them back', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Fix the login bug', cwd: `${ALPHA}\\.claude\\worktrees\\a` }
+  const desk = fakeDesktop(self, [
+    { sessionId: 'local_a', title: '🟦 Write the docs', cwd: `${ALPHA}\\.claude\\worktrees\\b` },
+    { sessionId: 'local_b', title: '🟩 Release notes', cwd: `${BETA}\\.claude\\worktrees\\c` },
+  ])
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', desk.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const bright = ['🟦 Fix the login bug', '🟦 Write the docs', '🟩 Release notes']
+  expect(desk.all.map(row => row.title)).toEqual(bright)
+
+  const slept = await $.command.run({ ...RUN, args: 'schlaf' })
+  expect(slept.text).toContain('Schlafmodus (Dämmerung) an; 3 Session(s) umbenannt')
+  expect(desk.all.map(row => row.title)).toEqual([
+    '⬤ Fix the login bug',
+    '⬤ Write the docs',
+    '■ Release notes',
+  ])
+
+  // The band shows the shape and offers the calm colors only.
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /Alpha/ }))?.text).toBe('⬤ Alpha')
+  await ui.press({ key: 'farbe' })
+  expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
+  expect(await ui.find({ key: 'farbe-lila' })).toBe(undefined)
+  await ui.press({ key: 'abbrechen' })
+  await ui.unmount()
+
+  // A pick in sleep mode uses the sleep names; the bright ones are not known there.
+  const picked = await $.command.run({ ...RUN, args: 'moos' })
+  expect(picked.text).toContain('◆ Alpha ist jetzt moos')
+  expect((await $.command.run({ ...RUN, args: 'rot' })).text).toContain('Unbekannte Farbe')
+  expect(desk.all.map(row => row.title)).toEqual([
+    '◆ Fix the login bug',
+    '◆ Write the docs',
+    '■ Release notes',
+  ])
+
+  // Back to bright: each project has the color it had before.
+  const back = await $.command.run({ ...RUN, args: 'bunt' })
+  expect(back.text).toContain('Bunte Farben wieder an; 3 Session(s) umbenannt')
+  expect(desk.all.map(row => row.title)).toEqual(bright)
+})
+
+test('sleep mode survives a restart, and an unknown sleep set is refused', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Another one', cwd: ALPHA }
+  const desk = fakeDesktop(self, [])
+  const clock = mock.clock(on)
+  // What the store kept from before the restart.
+  mock.store(on, { modus: 'daemmerung', gelernt: true, 'farben-daemmerung': { alpha: '▼' } })
+  on('mcp.call', desk.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(self.title).toBe('▼ Another one')
+
+  const refused = await $.command.run({ ...RUN, args: 'schlaf mond' })
+  expect(refused.text).toContain('Unbekannter Schlafmodus')
+  expect(self.title).toBe('▼ Another one')
 })

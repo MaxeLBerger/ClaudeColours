@@ -4,17 +4,21 @@ import type { EngineInterface, McpContentBlock, Register } from 'claude-code'
 import type { ProjektfarbenView } from '../types'
 import {
   assignFarben,
+  BUNT,
   farbeFor,
-  FARBEN,
   findFarbe,
+  findSatz,
   learnPicks,
   planTitle,
   projectOf,
   readPicks,
   readTried,
   rememberTry,
+  satzOf,
+  SCHLAFSAETZE,
   toRow,
   type Farbe,
+  type Satz,
   type SessionRow,
   type TitlePlan,
 } from './colors'
@@ -30,6 +34,7 @@ const EMPTY: ProjektfarbenView = {
   project: null,
   mark: null,
   hex: null,
+  satz: BUNT.id,
   isPicking: false,
   isHidden: false,
 }
@@ -48,15 +53,22 @@ async function callJson($: Engine, tool: string, args: Record<string, unknown>):
   return JSON.parse(text) as unknown
 }
 
-const picksOf = async ($: Engine): Promise<Record<string, string>> =>
-  readPicks(await $.store.get('farben'))
+/** The color set in use: the bright one unless the person turned sleep mode on. */
+const satzNow = async ($: Engine): Promise<Satz> => satzOf(await $.store.get('modus'))
+
+const picksOf = async ($: Engine, satz: Satz): Promise<Record<string, string>> =>
+  readPicks(await $.store.get(satz.storeKey), satz)
 
 /** The picks, with a color handed to each of these projects that has none yet (and stored). */
-async function ensurePicks($: Engine, projects: readonly string[]): Promise<Record<string, string>> {
-  const picks = await picksOf($)
-  const next = assignFarben(projects, picks)
+async function ensurePicks(
+  $: Engine,
+  projects: readonly string[],
+  satz: Satz,
+): Promise<Record<string, string>> {
+  const picks = await picksOf($, satz)
+  const next = assignFarben(projects, picks, satz)
   if (Object.keys(next).length !== Object.keys(picks).length) {
-    await $.store.set('farben', next)
+    await $.store.set(satz.storeKey, next)
   }
 
   return next
@@ -74,6 +86,7 @@ async function listRows($: Engine): Promise<SessionRow[]> {
 /**
  * Once per person: takes the colors the sidebar already shows into the store,
  * so marks set before this mod (or by an earlier version) keep their project's color.
+ * Only the bright set is learned: sleep mode starts after the mod, with nothing to keep.
  * Left undone when the app cannot be asked, and tried again at the next start.
  */
 async function learnOnce($: Engine): Promise<void> {
@@ -82,8 +95,8 @@ async function learnOnce($: Engine): Promise<void> {
   }
   const self = toRow(await callJson($, 'get_session', { session_id: 'self' }), 'self')
   const rows = await listRows($)
-  const learned = learnPicks(self === null ? rows : [self, ...rows])
-  await $.store.set('farben', { ...(await picksOf($)), ...learned })
+  const learned = learnPicks(self === null ? rows : [self, ...rows], BUNT)
+  await $.store.set(BUNT.storeKey, { ...(await picksOf($, BUNT)), ...learned })
   await $.store.set('gelernt', true)
 }
 
@@ -94,8 +107,13 @@ async function rename($: Engine, sessionId: string, title: string): Promise<Outc
 }
 
 /** Puts the project's color mark in front of one session's title. */
-async function recolor($: Engine, row: SessionRow, picks: Record<string, string>): Promise<Outcome> {
-  const plan = planTitle(row, picks)
+async function recolor(
+  $: Engine,
+  row: SessionRow,
+  picks: Record<string, string>,
+  satz: Satz,
+): Promise<Outcome> {
+  const plan = planTitle(row, picks, satz)
 
   return plan.kind === 'rename' ? rename($, row.sessionId, plan.title) : plan.kind
 }
@@ -109,8 +127,9 @@ async function recolorSelf($: Engine, force: boolean): Promise<Outcome> {
   if (row === null) {
     return 'failed'
   }
+  const satz = await satzNow($)
   const project = projectOf(row.cwd)
-  const plan = planTitle(row, await ensurePicks($, project === null ? [] : [project]))
+  const plan = planTitle(row, await ensurePicks($, project === null ? [] : [project], satz), satz)
   if (plan.kind !== 'rename') {
     return plan.kind
   }
@@ -136,9 +155,10 @@ async function afterTurn($: Engine): Promise<void> {
 
 /** Recolors every open session, or those of one project. Returns how many it renamed. */
 async function recolorAll($: Engine, onlyProject: string | null): Promise<number> {
+  const satz = await satzNow($)
   const rows = await listRows($)
   const projects = rows.map(row => projectOf(row.cwd)).filter((p): p is string => p !== null)
-  const picks = await ensurePicks($, projects)
+  const picks = await ensurePicks($, projects, satz)
   const wanted = onlyProject?.toLowerCase()
   let renamed = (await recolorSelf($, true)) === 'renamed' ? 1 : 0
   for (const row of rows) {
@@ -146,7 +166,7 @@ async function recolorAll($: Engine, onlyProject: string | null): Promise<number
       continue
     }
     try {
-      renamed += (await recolor($, row, picks)) === 'renamed' ? 1 : 0
+      renamed += (await recolor($, row, picks, satz)) === 'renamed' ? 1 : 0
     } catch {
       // One session that cannot be renamed does not stop the others.
     }
@@ -157,14 +177,17 @@ async function recolorAll($: Engine, onlyProject: string | null): Promise<number
 
 /** Reads the project and its color into the band's state. */
 async function refreshView($: Engine, cwd: string): Promise<void> {
+  const satz = await satzNow($)
   const project = projectOf(cwd)
-  const farbe = project === null ? null : farbeFor(project, await ensurePicks($, [project]))
+  const farbe =
+    project === null ? null : farbeFor(project, await ensurePicks($, [project], satz), satz)
   const isHidden = (await $.store.get('bandAus')) === true
   await update($, view, v => ({
     ...v,
     project,
     mark: farbe?.mark ?? null,
     hex: farbe?.hex ?? null,
+    satz: satz.id,
     isHidden,
   }))
 }
@@ -175,17 +198,30 @@ async function choose($: Engine, farbe: Farbe | null): Promise<string> {
   if (project === null) {
     return 'Diese Session liegt in keinem Projektordner, sie hat keine Projektfarbe.'
   }
-  const picks = await picksOf($)
+  const satz = await satzNow($)
+  const picks = await picksOf($, satz)
   const key = project.toLowerCase()
   delete picks[key]
-  const next = farbe === null ? assignFarben([project], picks) : { ...picks, [key]: farbe.mark }
-  await $.store.set('farben', next)
+  const next = farbe === null ? assignFarben([project], picks, satz) : { ...picks, [key]: farbe.mark }
+  await $.store.set(satz.storeKey, next)
   await update($, view, v => ({ ...v, isPicking: false }))
   await refreshView($, await $.session.cwd())
-  const now = farbeFor(project, next)
+  const now = farbeFor(project, next, satz)
   const renamed = await recolorAll($, project).catch(() => 0)
 
   return `${now.mark} ${project} ist jetzt ${now.name}; ${renamed} Session(s) umbenannt.`
+}
+
+/** Switches the color set (sleep mode or back) and recolors every open session to it. */
+async function switchSatz($: Engine, satz: Satz): Promise<string> {
+  await $.store.set('modus', satz.id)
+  await update($, view, v => ({ ...v, isPicking: false }))
+  await refreshView($, await $.session.cwd())
+  const renamed = await recolorAll($, null).catch(() => 0)
+
+  return satz === BUNT
+    ? `Bunte Farben wieder an; ${renamed} Session(s) umbenannt.`
+    : `Schlafmodus (${satz.label}) an; ${renamed} Session(s) umbenannt.`
 }
 
 /** At the session's start: learn the sidebar's colors once, draw the band, mark the title. */
@@ -195,22 +231,25 @@ async function startUp($: Engine, cwd: string): Promise<void> {
   await recolorSelf($, false)
 }
 
-const HILFE = [
-  '/projektfarbe            zeigt die Farbe dieses Projekts',
-  '/projektfarbe <farbe>    setzt sie und färbt alle Sessions des Projekts um',
-  '/projektfarbe standard   nächste freie Farbe automatisch',
-  '/projektfarbe alle       färbt alle offenen Sessions neu ein',
-  '/projektfarbe band       Band über dem Eingabefeld ein- oder ausblenden',
-  '',
-  `Farben: ${FARBEN.map(f => `${f.mark} ${f.name}`).join(', ')}`,
-].join('\n')
+const hilfe = (satz: Satz): string =>
+  [
+    '/projektfarbe            zeigt die Farbe dieses Projekts',
+    '/projektfarbe <farbe>    setzt sie und färbt alle Sessions des Projekts um',
+    '/projektfarbe standard   nächste freie Farbe automatisch',
+    '/projektfarbe alle       färbt alle offenen Sessions neu ein',
+    '/projektfarbe band       Band über dem Eingabefeld ein- oder ausblenden',
+    '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
+    '/projektfarbe bunt       zurück zu den bunten Farben',
+    '',
+    `Farben (${satz.label}): ${satz.farben.map(f => `${f.mark} ${f.name}`).join(', ')}`,
+  ].join('\n')
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'projektfarbe',
       description: 'Farbe dieses Projekts zeigen oder ändern (Farbpunkt vor den Session-Namen)',
-      argumentHint: '[farbe | standard | alle | band]',
+      argumentHint: '[farbe | standard | alle | band | schlaf | bunt]',
     })
     // In the background, so the session start never waits on the app.
     void startUp($, e.cwd).catch(() => undefined)
@@ -231,15 +270,16 @@ export const register: Register = on => {
   on('command.run', { command: 'projektfarbe' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
     const state = await read($, view)
+    const satz = await satzNow($)
 
     if (arg === '') {
-      const name = FARBEN.find(f => f.mark === state.mark)?.name ?? 'keine'
+      const name = satz.farben.find(f => f.mark === state.mark)?.name ?? 'keine'
       const head =
         state.project === null
           ? 'Diese Session liegt in keinem Projektordner.'
-          : `${state.mark ?? ''} ${state.project}: ${name}`
+          : `${state.mark ?? ''} ${state.project}: ${name}${satz === BUNT ? '' : ` (Schlafmodus, ${satz.label})`}`
 
-      return { text: `${head}\n\n${HILFE}` }
+      return { text: `${head}\n\n${hilfe(satz)}` }
     }
     if (arg === 'alle') {
       const renamed = await recolorAll($, null)
@@ -253,12 +293,26 @@ export const register: Register = on => {
 
       return { text: isHidden ? 'Band ausgeblendet.' : 'Band eingeblendet.' }
     }
+    if (arg === 'bunt') {
+      return { text: await switchSatz($, BUNT) }
+    }
+    if (arg === 'schlaf' || arg.startsWith('schlaf ')) {
+      const wanted = arg.slice('schlaf'.length).trim()
+      const sleep = wanted === '' ? SCHLAFSAETZE[0] : findSatz(wanted)
+      if (sleep === undefined) {
+        return {
+          text: `Unbekannter Schlafmodus „${wanted}“. Verfügbar: ${SCHLAFSAETZE.map(s => s.label).join(', ')}.`,
+        }
+      }
+
+      return { text: await switchSatz($, sleep) }
+    }
     if (arg === 'standard') {
       return { text: await choose($, null) }
     }
-    const farbe = findFarbe(arg)
+    const farbe = findFarbe(arg, satz)
     if (farbe === undefined) {
-      return { text: `Unbekannte Farbe „${e.args.trim()}“.\n\n${HILFE}` }
+      return { text: `Unbekannte Farbe „${e.args.trim()}“.\n\n${hilfe(satz)}` }
     }
 
     return { text: await choose($, farbe) }
@@ -273,6 +327,8 @@ export const register: Register = on => {
       return next(e)
     }
     const { Box, Button, Text } = $.ui.resolve(e)
+    const satz = satzOf(state.satz)
+    const isCalm = satz !== BUNT
     const pick = async (farbe: Farbe): Promise<void> => {
       $.ui.toast(await choose($, farbe))
     }
@@ -282,9 +338,9 @@ export const register: Register = on => {
         <Box flexDirection="column">
           <Text dimColor>Farbe für {state.project}:</Text>
           <Box flexWrap="wrap" columnGap={1}>
-            {FARBEN.map(farbe => (
+            {satz.farben.map(farbe => (
               <Button key={`farbe-${farbe.name}`} plain onPress={() => pick(farbe)}>
-                {farbe.mark}
+                {isCalm ? <Text color={farbe.hex}>{farbe.mark}</Text> : farbe.mark}
               </Button>
             ))}
             <Button
@@ -301,7 +357,7 @@ export const register: Register = on => {
 
     return (
       <Box columnGap={1}>
-        <Text bold color={state.hex ?? 'text'}>
+        <Text bold={!isCalm} color={state.hex ?? 'text'}>
           {state.mark} {state.project}
         </Text>
         <Button
