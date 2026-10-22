@@ -143,7 +143,8 @@ test('the open pull requests are the length of the list gh prints; 100 shows as 
   expect(prCount('')).toBe(null)
   expect(prCount('{"number":4}')).toBe(null)
   expect(prCount('gh: not logged in')).toBe(null)
-  expect([0, 7, 99, 100].map(prLabel)).toEqual(['0', '7', '99', '100+'])
+  // gh is asked for 101: exactly 100 shows as it is, one more as 100+.
+  expect([0, 7, 99, 100, 101].map(prLabel)).toEqual(['0', '7', '99', '100', '100+'])
 })
 
 test("the sidebar's colors are learned: the mark most of a project's sessions carry", async () => {
@@ -484,7 +485,7 @@ test('the band counts the open pull requests with gh, at most every five minutes
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   expect(await shown()).toBe('PRs: 2')
-  expect(asked).toEqual([['gh', 'pr', 'list', '--state', 'open', '--limit', '100', '--json', 'number']])
+  expect(asked).toEqual([['gh', 'pr', 'list', '--state', 'open', '--limit', '101', '--json', 'number']])
 
   // A turn within five minutes does not ask again; one after them does.
   open = [1, 2, 3]
@@ -772,4 +773,148 @@ test('the color picker switches between the bright colors and sleep mode', async
   await ui.press({ key: 'modus-bunt' })
   expect(desk.all.map(row => row.title)).toEqual(['🟦 Fix the login bug', '🟦 Write the docs'])
   await ui.unmount()
+})
+
+test('the picker reads the mode from the store: another session may have switched it', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Fix the login bug', cwd: `${ALPHA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  // The store is the one thing the sessions share, so the test holds it itself.
+  const kept = new Map<string, unknown>()
+  on('store.get', (_, e) => ({ value: kept.get(e.key) }))
+  on('store.set', (_, e) => {
+    kept.set(e.key, e.value)
+
+    return { value: undefined }
+  })
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  // Sleep mode was switched on elsewhere; this band has not been redrawn since.
+  kept.set('modus', 'daemmerung')
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'farbe' })
+  const bold = (await ui.findAll({ type: 'Text' })).filter(text => text.props.bold === true)
+  expect(bold.some(text => text.text === modusLabel(DAEMMERUNG))).toBe(true)
+  expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
+
+  // The bright mode is not the one in use, so pressing it switches.
+  await ui.press({ key: 'modus-bunt' })
+  expect(kept.get('modus')).toBe('bunt')
+  await ui.unmount()
+})
+
+test('the repo button says why gh could not open the repository', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const toasts: string[] = []
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', (_, e) =>
+    e.argv[1] === 'repo'
+      ? {
+          value: {
+            exitCode: 1,
+            stdout: '',
+            stderr: 'no default remote repository\nrun gh repo set-default',
+            isStdoutTruncated: false,
+            isStderrTruncated: false,
+          },
+        }
+      : ghList([1]),
+  )
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'repo' })
+  await ui.unmount()
+  expect(toasts).toEqual(['Repo lässt sich nicht öffnen: no default remote repository'])
+})
+
+test('a count that cannot be read again is kept for the same folder and dropped for another', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let cwd = self.cwd
+  let isBroken = false
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', () =>
+    isBroken
+      ? {
+          value: {
+            exitCode: 1,
+            stdout: '',
+            stderr: 'not a git repository',
+            isStdoutTruncated: false,
+            isStderrTruncated: false,
+          },
+        }
+      : ghList([1, 2]),
+  )
+
+  const hasCount = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+
+    return texts.some(text => /^PRs:/.test(text.text))
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await hasCount()).toBe(true)
+
+  // gh fails five minutes later, in the same folder: the number of before stays.
+  isBroken = true
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(await hasCount()).toBe(true)
+
+  // In another folder the old number says nothing about the new repository.
+  cwd = `${ALPHA}\\.claude\\worktrees\\a`
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(await hasCount()).toBe(false)
+})
+
+test("the gauge shows the main conversation's window, not an agent's view", async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000, percent: 40 }, rateLimits: [] },
+  }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const hasGauge = async (view: { agentId?: string }) => {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, view }, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+
+    return texts.some(text => /Kontext/.test(text.text))
+  }
+
+  expect(await hasGauge({})).toBe(true)
+  expect(await hasGauge({ agentId: 'a1' })).toBe(false)
 })

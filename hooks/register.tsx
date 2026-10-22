@@ -166,8 +166,9 @@ async function recolorSelf($: Engine, force: boolean): Promise<Outcome> {
 
 /** After a turn: the band follows a color picked in another session, and the title gets its mark. */
 async function afterTurn($: Engine): Promise<void> {
-  await refreshView($, await $.session.cwd())
-  void refreshPrs($, false).catch(() => undefined)
+  const cwd = await $.session.cwd()
+  await refreshView($, cwd)
+  void refreshPrs($, cwd, false).catch(() => undefined)
   if ((await recolorSelf($, false)) === 'unnamed') {
     $.clock.after(RETRY_MS, () => {
       void recolorSelf($, false).catch(() => undefined)
@@ -226,8 +227,9 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
 }
 
 const PR_EVERY_MS = 5 * 60_000
-// When the pull requests were last counted; starts over with a reload of the module.
+// When, and in which folder, the pull requests were last counted; starts over with a reload.
 let prsCheckedAt: number | null = null
+let prsFor: string | null = null
 
 const firstLine = (text: string): string => text.trim().split(/\r?\n/)[0]?.slice(0, 120) ?? ''
 
@@ -235,7 +237,8 @@ const firstLine = (text: string): string => text.trim().split(/\r?\n/)[0]?.slice
 async function readOpenPrs($: Engine): Promise<{ count: number | null; note: string | null }> {
   try {
     const { exitCode, stdout, stderr } = await $.process.run(
-      ['gh', 'pr', 'list', '--state', 'open', '--limit', String(PR_LIMIT), '--json', 'number'],
+      // One more than the band shows: that is how "100" and "more than 100" are told apart.
+      ['gh', 'pr', 'list', '--state', 'open', '--limit', String(PR_LIMIT + 1), '--json', 'number'],
       { timeoutMs: 20_000 },
     )
     if (exitCode !== 0) {
@@ -266,16 +269,28 @@ async function openRepo($: Engine): Promise<void> {
   }
 }
 
-/** Counts the open pull requests into the band's state: at most every five minutes, unless forced. */
-async function refreshPrs($: Engine, isForced: boolean): Promise<void> {
+/**
+ * Counts the open pull requests into the band's state: at most every five minutes for one
+ * folder, at once for another, unless forced. A folder without a project has no band: no count.
+ */
+async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<void> {
+  if (projectOf(cwd) === null) {
+    return
+  }
   const now = await $.clock.now()
-  if (!isForced && prsCheckedAt !== null && now - prsCheckedAt < PR_EVERY_MS) {
+  const isSameFolder = cwd === prsFor
+  if (!isForced && isSameFolder && prsCheckedAt !== null && now - prsCheckedAt < PR_EVERY_MS) {
     return
   }
   prsCheckedAt = now
+  prsFor = cwd
   const { count, note } = await readOpenPrs($)
-  // A reading that fails keeps the number from the last one that worked.
-  await update($, view, v => ({ ...v, openPrs: count ?? v.openPrs, prsNote: note }))
+  // A reading that fails keeps the last good number, but only of the same folder.
+  await update($, view, v => ({
+    ...v,
+    openPrs: count ?? (isSameFolder ? v.openPrs : null),
+    prsNote: note,
+  }))
 }
 
 /** Stores the person's color for this project (null: the next free one) and recolors its sessions. */
@@ -314,7 +329,7 @@ async function switchSatz($: Engine, satz: Satz): Promise<string> {
 async function startUp($: Engine, cwd: string): Promise<void> {
   await learnOnce($).catch(() => undefined)
   await refreshView($, cwd)
-  void refreshPrs($, true).catch(() => undefined)
+  void refreshPrs($, cwd, true).catch(() => undefined)
   await recolorSelf($, false)
 }
 
@@ -431,9 +446,10 @@ export const register: Register = on => {
     const pick = async (farbe: Farbe): Promise<void> => {
       $.ui.toast(await choose($, farbe))
     }
-    // The set in use stays as it is; any other one recolors every open session.
+    // The set in use stays as it is; any other one recolors every open session. What counts is
+    // the store: another session may have switched since this band last read it.
     const changeMode = async (wanted: Satz): Promise<void> => {
-      if (wanted !== satz) {
+      if (wanted !== (await satzNow($))) {
         $.ui.toast(await switchSatz($, wanted))
       }
     }
@@ -488,7 +504,7 @@ export const register: Register = on => {
           )}
           <Text bold={!isCalm}>{` ${state.project}`}</Text>
         </Text>
-        {percent === null ? null : (
+        {percent === null || e.props.view.agentId !== undefined ? null : (
           <Text>
             <Text dimColor>Kontext </Text>
             {filled === 0 ? null : (
@@ -519,7 +535,11 @@ export const register: Register = on => {
         <Button
           key="farbe"
           plain
-          onPress={() => update($, view, v => ({ ...v, isPicking: true }))}
+          onPress={async () => {
+            // The picker offers the colors of the set in the store, not of the last turn's reading.
+            const current = await satzNow($)
+            await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
+          }}
         >
           <Text dimColor>Farbe ändern</Text>
         </Button>
