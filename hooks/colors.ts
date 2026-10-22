@@ -11,6 +11,8 @@ export type Farbe = { name: string; mark: string; hex: string }
 export type Satz = {
   id: string
   label: string
+  /** Stands for the set in the color picker's mode switch; none is shared by two sets. */
+  emoji: string
   /** Where the person's picks for this set live in the store. */
   storeKey: string
   farben: readonly Farbe[]
@@ -70,6 +72,7 @@ const DAEMMERUNG_FARBEN: readonly Farbe[] = [
 export const BUNT: Satz = {
   id: 'bunt',
   label: 'bunt',
+  emoji: '🎨',
   storeKey: 'farben',
   farben: FARBEN,
   reihenfolge: REIHENFOLGE,
@@ -79,6 +82,7 @@ export const BUNT: Satz = {
 export const DAEMMERUNG: Satz = {
   id: 'daemmerung',
   label: 'Dämmerung',
+  emoji: '🌙',
   storeKey: 'farben-daemmerung',
   farben: DAEMMERUNG_FARBEN,
   reihenfolge: DAEMMERUNG_FARBEN.map(f => f.name),
@@ -88,6 +92,10 @@ export const DAEMMERUNG: Satz = {
 export const SAETZE: readonly Satz[] = [BUNT, DAEMMERUNG]
 /** The sets sleep mode can use; the first is what `/projektfarbe schlaf` picks. */
 export const SCHLAFSAETZE: readonly Satz[] = [DAEMMERUNG]
+
+/** What the color picker's mode switch shows for a set: its emoji and its name, capitalized. */
+export const modusLabel = (satz: Satz): string =>
+  `${satz.emoji} ${satz.label.charAt(0).toUpperCase()}${satz.label.slice(1)}`
 
 const PLATZHALTER = new Set(['', 'new session', 'neue session', 'untitled', 'unbenannt'])
 

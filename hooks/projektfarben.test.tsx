@@ -14,6 +14,7 @@ import {
   findSatz,
   learnPicks,
   markOf,
+  modusLabel,
   prCount,
   prLabel,
   projectOf,
@@ -602,6 +603,10 @@ test('every color set has unique names and marks, and an order that names them a
   // No mark belongs to two sets, or a title could not tell them apart.
   const marks = SAETZE.flatMap(s => s.farben.map(f => f.mark))
   expect(new Set(marks).size).toBe(marks.length)
+  // The mode switch shows each set by its own emoji, so none may be missing or shared.
+  expect(new Set(SAETZE.map(s => s.emoji)).size).toBe(SAETZE.length)
+  expect(SAETZE.every(s => s.emoji !== '')).toBe(true)
+  expect(SAETZE.map(modusLabel)).toEqual(['🎨 Bunt', '🌙 Dämmerung'])
   expect(satzOf(undefined)).toBe(BUNT)
   expect(satzOf('daemmerung')).toBe(DAEMMERUNG)
   expect(findSatz('Dämmerung')).toBe(DAEMMERUNG)
@@ -680,7 +685,9 @@ test('sleep mode swaps every mark for a calm one, and bunt swaps them back', asy
 
   // The band shows the shape and offers the calm colors only.
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /Alpha/ }))?.text).toBe('⬤ Alpha')
+  const texts = await ui.findAll({ type: 'Text' })
+  expect(texts.find(text => text.text === '⬤')?.props).toMatchObject({ color: DAEMMERUNG.farben[0]?.hex })
+  expect(texts.some(text => /Alpha/.test(text.text))).toBe(true)
   await ui.press({ key: 'farbe' })
   expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
   expect(await ui.find({ key: 'farbe-lila' })).toBe(undefined)
@@ -721,4 +728,48 @@ test('sleep mode survives a restart, and an unknown sleep set is refused', async
   const refused = await $.command.run({ ...RUN, args: 'schlaf mond' })
   expect(refused.text).toContain('Unbekannter Schlafmodus')
   expect(self.title).toBe('▼ Another one')
+})
+
+test('the color picker switches between the bright colors and sleep mode', async ($, on) => {
+  const self = { sessionId: 'local_self', title: 'Fix the login bug', cwd: `${ALPHA}\\.claude\\worktrees\\a` }
+  const desk = fakeDesktop(self, [
+    { sessionId: 'local_a', title: '🟦 Write the docs', cwd: `${ALPHA}\\.claude\\worktrees\\b` },
+  ])
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', desk.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(desk.all.map(row => row.title)).toEqual(['🟦 Fix the login bug', '🟦 Write the docs'])
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // One entry per set, its emoji and name; the one in use is bold, the others dimmed.
+  const modes = async () =>
+    (await ui.findAll({ type: 'Text' }))
+      .filter(text => SAETZE.some(satz => text.text === modusLabel(satz)))
+      .map(text => `${text.props.bold === true ? 'an' : 'aus'}: ${text.text}`)
+
+  // The switch sits in the color picker.
+  await ui.press({ key: 'farbe' })
+  expect(await modes()).toEqual(['an: 🎨 Bunt', 'aus: 🌙 Dämmerung'])
+
+  await ui.press({ key: 'modus-daemmerung' })
+  expect(desk.all.map(row => row.title)).toEqual(['⬤ Fix the login bug', '⬤ Write the docs'])
+  // The switch closed the picker; opened again it shows the new mode, and its colors.
+  await ui.press({ key: 'farbe' })
+  expect(await modes()).toEqual(['aus: 🎨 Bunt', 'an: 🌙 Dämmerung'])
+  expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
+
+  // The mode in use asks for nothing: no title is renamed again.
+  const renames = desk.calls.set
+  await ui.press({ key: 'modus-daemmerung' })
+  expect(desk.calls.set).toBe(renames)
+
+  await ui.press({ key: 'modus-bunt' })
+  expect(desk.all.map(row => row.title)).toEqual(['🟦 Fix the login bug', '🟦 Write the docs'])
+  await ui.unmount()
 })

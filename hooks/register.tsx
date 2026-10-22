@@ -13,6 +13,7 @@ import {
   findFarbe,
   findSatz,
   learnPicks,
+  modusLabel,
   planTitle,
   PR_LIMIT,
   prCount,
@@ -21,6 +22,7 @@ import {
   readPicks,
   readTried,
   rememberTry,
+  SAETZE,
   satzOf,
   SCHLAFSAETZE,
   toRow,
@@ -429,6 +431,12 @@ export const register: Register = on => {
     const pick = async (farbe: Farbe): Promise<void> => {
       $.ui.toast(await choose($, farbe))
     }
+    // The set in use stays as it is; any other one recolors every open session.
+    const changeMode = async (wanted: Satz): Promise<void> => {
+      if (wanted !== satz) {
+        $.ui.toast(await switchSatz($, wanted))
+      }
+    }
 
     if (state.isPicking) {
       return (
@@ -447,6 +455,17 @@ export const register: Register = on => {
             >
               <Text dimColor>abbrechen</Text>
             </Button>
+          </Box>
+          <Box columnGap={2} marginTop="lg" flexWrap="wrap">
+            <Text dimColor>Modus:</Text>
+            {SAETZE.map(wanted => (
+              <Button key={`modus-${wanted.id}`} plain onPress={() => changeMode(wanted)}>
+                <Text bold={wanted === satz} dimColor={wanted !== satz}>
+                  {modusLabel(wanted)}
+                </Text>
+              </Button>
+            ))}
+            <Text dimColor>benennt alle Sessions um</Text>
           </Box>
         </Box>
       )
