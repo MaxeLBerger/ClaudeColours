@@ -21,6 +21,26 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
 - **Neue Einträge als „+x“:** Sind seit deinem letzten Blick neue PRs oder Issues dazugekommen, steht ihre Zahl klein und farbig hochgestellt hinter der Zahl, etwa `PRs: 4⁺²`. Neu ist, was eine höhere Nummer hat als die höchste, die du schon gesehen hast. Beim ersten Mal gilt alles Offene als gesehen. Ein Klick auf `PRs` oder `Issues` öffnet die Liste im Standardbrowser (`gh pr list --web`, `gh issue list --web`) und nimmt das „+x“ weg, in allen Sessions des Projekts.
 - **Repo-Button:** Der kleine Button „Repo ↗“ neben den Zahlen öffnet das Repository auf GitHub im Standardbrowser deines Systems (über `gh repo view --web`), nicht im Browser der App.
 - **`/projektfarbe`:** Farbe zeigen oder ändern. Eine Änderung benennt alle offenen Sessions des Projekts sofort mit um.
+- **Stand aller Sessions (`/projektfarbe status`):** listet alle offenen Sessions, nach Projekt gruppiert (mit Projektfarbe), das Dringendste zuerst. Pro Zeile: Zeichen, Name ohne Farbpunkt, Stand und wann zuletzt etwas passiert ist:
+
+  ```
+  🟦 Alpha
+    ⚠ Login — abgebrochen · PR #11 offen, Review wartet · vor 2 Std
+    🔀 Suche — PR #9 offen, CI rot · vor 20 Min
+    ▶ Status bauen (diese) — läuft · gerade eben
+    💤 Alte Idee — ruht seit 5 Tagen, kein PR · vor 5 Tagen
+  ```
+
+  | Zeichen | Stand |
+  |---|---|
+  | ⚠ | letzte Antwort abgebrochen oder mit Fehler beendet (eine neue Antwort hebt das auf) |
+  | 🔀 | PR offen, mit „CI rot“, „Änderungen gewünscht“, „Review wartet“ oder „Entwurf“, wenn zutreffend |
+  | ✎ | in Arbeit, noch kein PR |
+  | ▶ | läuft gerade |
+  | ✓ / ✖ | PR gemerged / geschlossen (selten: die App archiviert solche Sessions meist selbst) |
+  | 💤 | seit mehr als 3 Tagen nichts passiert und kein PR: Kandidat zum Archivieren |
+
+  Den PR findet der Mod über den Branch der Session (`gh pr list --state all`, einmal pro Repository; bei mehreren PRs auf einem Branch zählt der neueste). Kennt `gh` keinen, nimmt er den PR, den die App selbst der Session zuordnet. Jede Session merkt sich dafür nach jeder eigenen Antwort, wie sie endete (Antwort, abgebrochen, Fehler).
 - **Schlafmodus:** `/projektfarbe schlaf` ersetzt die bunten Punkte durch ruhige Formen und das Band durch gedämpfte Farben. `/projektfarbe bunt` stellt alles zurück.
 - **Wechsel in der Farbwahl:** Unter den Farben von „Farbe ändern“ steht, mit etwas Abstand, die Zeile „Modus“: ein Emoji und der Name je Modus (`🎨 Bunt`, `🌙 Dämmerung`). Der aktive Modus ist fett, die anderen sind gedimmt; jeder weitere Modus bekommt ein eigenes Emoji und reiht sich in die Zeile ein. Ein Klick auf den anderen Modus schaltet um und benennt alle offenen Sessions um; ein Klick auf den aktiven Modus tut nichts.
 
@@ -54,6 +74,7 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 | `/projektfarbe <farbe>` | setzt sie (`rot`, `grün`, `lila`, `kreis-blau`, … oder das Emoji) und färbt alle Sessions des Projekts um |
 | `/projektfarbe standard` | gibt dem Projekt die nächste freie Farbe |
 | `/projektfarbe alle` | färbt alle offenen Sessions neu ein |
+| `/projektfarbe status` | zeigt den Stand aller offenen Sessions nach Projekt: läuft, abgebrochen, PR offen, in Arbeit, ruht … |
 | `/projektfarbe band` | blendet Band, Kontext-Anzeige, PR- und Issue-Zahl und den Farbpunkt am Spinner ein oder aus |
 | `/projektfarbe schlaf` | schaltet den Schlafmodus ein und benennt alle offenen Sessions um |
 | `/projektfarbe bunt` | schaltet zurück zu den bunten Farben und benennt alle offenen Sessions um |
@@ -91,6 +112,10 @@ Der Schlafmodus nimmt den Farben die Reizwirkung, ohne die Projekte schwerer unt
 - Die Kontext-Anzeige aktualisiert sich nach jeder Antwort, nach `/compact` also erst mit der nächsten. Vor der ersten Antwort einer Session zeigt sie nichts. In einem Ordner ohne Projekt erscheint das Band und damit die Anzeige nicht.
 - PR- und Issue-Zahl zählen alle offenen Einträge des Repositories, nicht nur die dieser Session. Läuft `gh` in der Desktop-App nicht, bleiben sie weg.
 - Das „+x“ zählt auch PRs und Issues, die du selbst angelegt hast. Es verschwindet nur über den Klick auf die Zahl; die Liste nur im Browser zu öffnen reicht nicht. In anderen Sessions geht es mit deren nächster Antwort weg.
+- `/projektfarbe status` sieht nicht, ob eine Session auf deine Eingabe wartet (eine Rückfrage, eine Freigabe): Die App verrät das dem Mod nicht. Eine solche Session erscheint als „in Arbeit“ oder mit ihrem PR.
+- Ob eine Antwort abgebrochen wurde, weiß der Mod erst für Antworten nach diesem Update; ältere Sessions zeigen ihren Stand ohne diese Angabe. Sessions, die gerade nicht geladen sind (etwa nach einem Neustart der App), merken sich ihren Stand erst mit ihrer nächsten Antwort.
+- `/projektfarbe status` geht nur in der Desktop-App. Ohne angemeldetes `gh` fehlen CI- und Review-Angaben; die Ausgabe sagt dann, für welches Projekt.
+- Der Speicher des Mods schreibt nicht atomar: Beenden zwei Sessions im selben Moment eine Antwort, kann der Stand der einen verloren gehen (sie meldet ihn mit der nächsten Antwort wieder). Dasselbe gilt für das „+x“.
 - Der Prozentwert ist der von Claude Code gemeldete Füllstand des Fensters; er kann von der Zahl in `/context` leicht abweichen.
 - Hast du einen Session-Namen selbst vergeben, fragt die App einmal nach, bevor der Mod den Farbpunkt davorsetzt. Sagst du nein, fragt sie für diesen Namen nicht wieder.
 - Sortierst du die Seitenleiste nach Namen, ordnet sie nach Farbe (im Schlafmodus nach Form).

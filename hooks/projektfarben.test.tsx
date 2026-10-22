@@ -1,7 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import {
+  alterText,
   assignFarben,
+  buildUebersicht,
   BUNT,
   contextFill,
   contextLevel,
@@ -13,6 +15,7 @@ import {
   findFarbe,
   findSatz,
   ghNumbers,
+  ghPrs,
   learnPicks,
   markOf,
   markSeen,
@@ -23,9 +26,16 @@ import {
   readPicks,
   SAETZE,
   readSeen,
+  readStand,
+  rememberStand,
   satzOf,
+  statusOf,
   stripMark,
   superscript,
+  toListed,
+  uebersichtText,
+  type GhPr,
+  type Grund,
 } from './colors'
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
@@ -1149,4 +1159,300 @@ test('the band puts the counts and the repo button before the context gauge', as
   expect(at(/^PRs: /)).toBeLessThan(at(/^Issues: /))
   expect(at(/^Issues: /)).toBeLessThan(at(/^Repo/))
   expect(at(/^Repo/)).toBeLessThan(at(/^Kontext/))
+})
+
+const HOUR = 60 * 60_000
+const DAY = 24 * HOUR
+const NOW = Date.parse('2026-10-23T12:00:00.000Z')
+
+/** A list_sessions entry as the app gives it, with fields as needed. */
+const listed = (fields: Record<string, unknown>) => ({
+  sessionId: 'local_s',
+  title: '🟦 Fix the login bug',
+  cwd: `${ALPHA}\\.claude\\worktrees\\a`,
+  branch: 'claude/login',
+  isRunning: false,
+  isArchived: false,
+  lastActivityAt: new Date(NOW - 2 * HOUR).toISOString(),
+  ...fields,
+})
+
+const session = (fields: Record<string, unknown> = {}) => toListed(listed(fields))!
+
+const pr = (fields: Partial<GhPr> = {}): GhPr => ({
+  number: 7,
+  state: 'OPEN',
+  headRefName: 'claude/login',
+  isDraft: false,
+  reviewDecision: null,
+  isCiRed: false,
+  ...fields,
+})
+
+test('the stand of each session is read safely and kept for the newest 300 sessions', async () => {
+  expect(readStand({ a: { grund: 'aborted', um: 5 }, b: { grund: 'nope', um: 1 }, c: 'x', d: { grund: 'answer' } })).toEqual({
+    a: { grund: 'aborted', um: 5 },
+  })
+  expect(readStand(null)).toEqual({})
+  let stand = {}
+  for (let i = 0; i < 305; i += 1) {
+    stand = rememberStand(stand, `s${i}`, { grund: 'answer', um: i })
+  }
+  stand = rememberStand(stand, 's10', { grund: 'error', um: 999 })
+  const ids = Object.keys(stand)
+  expect(ids).toHaveLength(300)
+  expect(ids[0]).toBe('s5')
+  expect(ids[299]).toBe('s10')
+})
+
+test('the sessions list and gh pr list are read into what the status needs', async () => {
+  const row = session({ prNumber: 3, prState: 'OPEN' })
+  expect(row.lastActivityAt).toBe(NOW - 2 * HOUR)
+  expect(row.appPr).toEqual({ number: 3, state: 'OPEN' })
+  expect(session({ branch: '', lastActivityAt: 'later' })).toMatchObject({ branch: null, lastActivityAt: null, appPr: null })
+  expect(toListed({ title: 'x' })).toBe(null)
+
+  const stdout = JSON.stringify([
+    {
+      number: 9, state: 'OPEN', headRefName: 'a', isDraft: true, reviewDecision: 'REVIEW_REQUIRED',
+      statusCheckRollup: [
+        { __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { __typename: 'StatusContext', state: 'FAILURE' },
+      ],
+    },
+    { number: 8, state: 'MERGED', headRefName: 'b', isDraft: false, reviewDecision: '', statusCheckRollup: [] },
+    { number: 'x', state: 'OPEN', headRefName: 'c' },
+  ])
+  expect(ghPrs(stdout)).toEqual([
+    { number: 9, state: 'OPEN', headRefName: 'a', isDraft: true, reviewDecision: 'REVIEW_REQUIRED', isCiRed: true },
+    { number: 8, state: 'MERGED', headRefName: 'b', isDraft: false, reviewDecision: null, isCiRed: false },
+  ])
+  expect(ghPrs('not json')).toBe(null)
+  expect(ghPrs('{}')).toBe(null)
+})
+
+test('a session is running, aborted, failed, in work or resting; a newer answer clears an abort', async () => {
+  const at = (grund: Grund) => ({ grund, um: NOW - HOUR })
+  const sign = (s: ReturnType<typeof session>, stand?: { grund: Grund; um: number }) => {
+    const status = statusOf(s, stand, [], NOW)
+
+    return `${status.mark} ${status.label}`
+  }
+  expect(sign(session({ isRunning: true }), at('aborted'))).toBe('▶ läuft')
+  expect(sign(session(), at('aborted'))).toBe('⚠ abgebrochen')
+  expect(sign(session(), at('error'))).toBe('⚠ Fehler')
+  expect(sign(session(), at('refusal'))).toBe('⚠ Fehler (Modell lehnte ab)')
+  // Only the last turn is kept: an answer after the abort is all that is left.
+  expect(sign(session(), at('answer'))).toBe('✎ in Arbeit, kein PR')
+  // A session from before this version has no stand: no abort info, still a status.
+  expect(sign(session())).toBe('✎ in Arbeit, kein PR')
+  expect(sign(session({ lastActivityAt: new Date(NOW - 5 * DAY).toISOString() }))).toBe('💤 ruht seit 5 Tagen, kein PR')
+  // Exactly three days is not yet resting; the last turn counts as activity too.
+  expect(sign(session({ lastActivityAt: new Date(NOW - 3 * DAY).toISOString() }))).toBe('✎ in Arbeit, kein PR')
+  expect(sign(session({ lastActivityAt: new Date(NOW - 9 * DAY).toISOString() }), { grund: 'answer', um: NOW - DAY })).toBe(
+    '✎ in Arbeit, kein PR',
+  )
+  const ranks = [
+    statusOf(session(), at('aborted'), [], NOW),
+    statusOf(session(), undefined, [pr({ isCiRed: true })], NOW),
+    statusOf(session(), undefined, [pr()], NOW),
+    statusOf(session(), undefined, [], NOW),
+    statusOf(session({ isRunning: true }), undefined, [], NOW),
+    statusOf(session(), undefined, [pr({ state: 'MERGED' })], NOW),
+    statusOf(session({ lastActivityAt: new Date(NOW - 5 * DAY).toISOString() }), undefined, [], NOW),
+  ].map(status => status.rang)
+  expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
+})
+
+test("a session's pull request is the newest on its branch, with what it is waiting for", async () => {
+  const label = (prs: GhPr[] | null, fields: Record<string, unknown> = {}) => {
+    const status = statusOf(session(fields), undefined, prs, NOW)
+
+    return `${status.mark} ${status.label}`
+  }
+  expect(label([pr()])).toBe('🔀 PR #7 offen')
+  expect(label([pr({ isCiRed: true, reviewDecision: 'REVIEW_REQUIRED' })])).toBe('🔀 PR #7 offen, CI rot, Review wartet')
+  expect(label([pr({ isDraft: true })])).toBe('🔀 PR #7 offen, Entwurf')
+  expect(label([pr({ reviewDecision: 'CHANGES_REQUESTED' })])).toBe('🔀 PR #7 offen, Änderungen gewünscht')
+  expect(label([pr({ state: 'MERGED', isCiRed: true })])).toBe('✓ PR #7 gemerged')
+  expect(label([pr({ state: 'CLOSED' })])).toBe('✖ PR #7 geschlossen')
+  // Several on one branch: the newest counts, an old closed one is history.
+  expect(label([pr({ number: 4, state: 'CLOSED' }), pr({ number: 12 }), pr({ number: 9, state: 'MERGED' })])).toBe(
+    '🔀 PR #12 offen',
+  )
+  // A branch without one, or another session's branch: no pull request.
+  expect(label([pr({ headRefName: 'claude/other' })])).toBe('✎ in Arbeit, kein PR')
+  expect(label([pr()], { branch: null })).toBe('✎ in Arbeit, kein PR')
+  // gh not available: no pull request part, still a status; the app's own link fills in when it has one.
+  expect(label(null)).toBe('✎ in Arbeit, kein PR')
+  expect(label(null, { prNumber: 5, prState: 'MERGED' })).toBe('✓ PR #5 gemerged')
+  // Running or aborted: the pull request rides along.
+  expect(label([pr()], { isRunning: true })).toBe('▶ läuft · PR #7 offen')
+  expect(statusOf(session(), { grund: 'aborted', um: NOW }, [pr()], NOW).label).toBe('abgebrochen · PR #7 offen')
+})
+
+test('how long ago reads in short German', async () => {
+  expect([0, 59_000, 5 * 60_000, 2 * HOUR + 59 * 60_000, DAY, 3 * DAY].map(alterText)).toEqual([
+    'gerade eben',
+    'gerade eben',
+    'vor 5 Min',
+    'vor 2 Std',
+    'vor 1 Tag',
+    'vor 3 Tagen',
+  ])
+})
+
+test('the overview groups by project, the most urgent first, and prints a line per session', async () => {
+  const sessions = [
+    session({ sessionId: 'a1', title: '🟦 Ruhig', branch: 'x', lastActivityAt: new Date(NOW - 6 * DAY).toISOString() }),
+    session({ sessionId: 'a2', title: '🟦 Neu', branch: 'y', cwd: ALPHA, lastActivityAt: new Date(NOW - 10 * 60_000).toISOString() }),
+    session({ sessionId: 'b1', title: '🟩 PR rot', cwd: `${BETA}\\.claude\\worktrees\\q`, branch: 'claude/beta' }),
+    session({ sessionId: 'b2', title: 'Archiviert', cwd: BETA, isArchived: true }),
+    session({ sessionId: 'c1', title: 'Notiz', cwd: 'C:\\x\\scratch-workspaces\\y', isRunning: true }),
+  ]
+  const overview = buildUebersicht({
+    sessions,
+    selfId: 'a2',
+    stand: { a2: { grund: 'aborted', um: NOW - 10 * 60_000 } },
+    prs: new Map([
+      ['c:/users/me/repos/alpha', []],
+      ['c:/users/me/repos/beta', [pr({ number: 3, headRefName: 'claude/beta', isCiRed: true })]],
+    ]),
+    markOf: project => (project === 'Alpha' ? '🟦' : '🟩'),
+    now: NOW,
+    hinweise: ['PR-Stand für Gamma nicht verfügbar: gh meldet: no'],
+  })
+  expect(overview.gruppen.map(g => [g.project, g.zeilen.map(z => z.sessionId)])).toEqual([
+    ['Alpha', ['a2', 'a1']],
+    ['Beta', ['b1']],
+    [null, ['c1']],
+  ])
+  expect(uebersichtText(overview)).toBe(
+    [
+      '4 offene Session(s), was Aufmerksamkeit braucht zuerst:',
+      '',
+      '🟦 Alpha',
+      '  ⚠ Neu (diese) — abgebrochen · vor 10 Min',
+      '  💤 Ruhig — ruht seit 6 Tagen, kein PR · vor 6 Tagen',
+      '',
+      '🟩 Beta',
+      '  🔀 PR rot — PR #3 offen, CI rot · vor 2 Std',
+      '',
+      'Ohne Projekt',
+      '  ▶ Notiz — läuft · vor 2 Std',
+      '',
+      'PR-Stand für Gamma nicht verfügbar: gh meldet: no',
+    ].join('\n'),
+  )
+  expect(uebersichtText({ gruppen: [], hinweise: [] })).toBe('Keine offenen Sessions gefunden.')
+})
+
+test("each own turn stores why it ended and when; a subagent's does not", async ($, on) => {
+  const self = { sessionId: 'local_self', title: '🟦 Arbeit', cwd: ALPHA }
+  const clock = mock.clock(on)
+  const kept = sharedStore(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(kept.get('stand')).toBe(undefined)
+
+  await $.turn.complete({ ...TURN, reason: 'aborted', isAborted: true })
+  await clock.settle()
+  const first = clock.now()
+  expect(kept.get('stand')).toEqual({ local_self: { grund: 'aborted', um: first } })
+
+  await clock.advance(60_000)
+  await $.turn.complete({ ...TURN, agentId: 'a1', reason: 'error' })
+  await clock.settle()
+  expect(kept.get('stand')).toEqual({ local_self: { grund: 'aborted', um: first } })
+
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(kept.get('stand')).toEqual({ local_self: { grund: 'answer', um: first + 60_000 } })
+})
+
+test('/projektfarbe status asks gh once per repository, in a folder of it, and still answers without gh', async ($, on) => {
+  const clock = mock.clock(on)
+  await clock.set(NOW)
+  const self = listed({ sessionId: 'local_self', title: '🟦 Status bauen', cwd: `${ALPHA}\\.claude\\worktrees\\a`, branch: 'claude/status', isRunning: true })
+  const others = [
+    listed({ sessionId: 'local_a', title: '🟦 Login', cwd: `${ALPHA}\\.claude\\worktrees\\b`, branch: 'claude/login' }),
+    listed({ sessionId: 'local_b', title: '🟩 Doku', cwd: `${BETA}\\.claude\\worktrees\\c`, branch: 'claude/doku', lastActivityAt: new Date(NOW - 4 * DAY).toISOString() }),
+    listed({ sessionId: 'local_c', title: '🟩 Alt', cwd: BETA, branch: 'main', prNumber: 2, prState: 'OPEN' }),
+  ]
+  const asked: { argv: string[]; cwd: string | undefined }[] = []
+  mock.store(on, { stand: { local_a: { grund: 'aborted', um: NOW - 3 * HOUR } }, farben: { alpha: '🟦', beta: '🟩' } })
+  on('mcp.call', fakeDesktop(self as Row, others as Row[]).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('process.run', (_, e) => {
+    asked.push({ argv: [...e.argv], cwd: e.init?.cwd })
+    if (e.argv.includes('--state') && e.argv.includes('all')) {
+      if (e.init?.cwd?.includes('Beta') === true) {
+        return ghFails('could not resolve to a Repository')
+      }
+
+      return {
+        value: {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { number: 11, state: 'OPEN', headRefName: 'claude/login', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', statusCheckRollup: [] },
+            { number: 10, state: 'CLOSED', headRefName: 'claude/login', isDraft: false, reviewDecision: null, statusCheckRollup: [] },
+          ]),
+          stderr: '',
+          isStdoutTruncated: false,
+          isStderrTruncated: false,
+        },
+      }
+    }
+
+    return ghList([])
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  asked.length = 0
+  const text = (await $.command.run({ ...RUN, args: 'status' })).text
+
+  expect(asked).toHaveLength(2)
+  expect(asked[0]?.argv).toEqual([
+    'gh', 'pr', 'list', '--state', 'all', '--limit', '200',
+    '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
+  ])
+  expect(asked.map(one => one.cwd)).toEqual([self.cwd, others[1]!.cwd])
+  expect(text).toBe(
+    [
+      '4 offene Session(s), was Aufmerksamkeit braucht zuerst:',
+      '',
+      '🟦 Alpha',
+      '  ⚠ Login — abgebrochen · PR #11 offen, Review wartet · vor 2 Std',
+      '  ▶ Status bauen (diese) — läuft · vor 2 Std',
+      '',
+      '🟩 Beta',
+      '  🔀 Alt — PR #2 offen · vor 2 Std',
+      '  💤 Doku — ruht seit 4 Tagen, kein PR · vor 4 Tagen',
+      '',
+      'PR-Stand für Beta nicht verfügbar: gh meldet: could not resolve to a Repository',
+    ].join('\n'),
+  )
+})
+
+test('/projektfarbe status says so when the app cannot be asked', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', () => ({ value: { content: [{ type: 'text', text: 'no such server' }], isError: true } }))
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: ALPHA }))
+
+  await $.session.start({ cwd: ALPHA, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const text = (await $.command.run({ ...RUN, args: 'status' })).text
+  expect(text).toContain('Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App)')
 })

@@ -4,6 +4,7 @@ import type { EngineInterface, McpContentBlock, Register } from 'claude-code'
 import type { ProjektfarbenView } from '../types'
 import {
   assignFarben,
+  buildUebersicht,
   BUNT,
   CONTEXT_CELLS,
   contextFill,
@@ -13,6 +14,7 @@ import {
   findFarbe,
   findSatz,
   ghNumbers,
+  ghPrs,
   learnPicks,
   markSeen,
   modusLabel,
@@ -23,18 +25,27 @@ import {
   projectOf,
   readPicks,
   readSeen,
+  readStand,
   readTried,
+  rememberStand,
   rememberTry,
+  repoKeyOf,
   SAETZE,
   satzOf,
   SCHLAFSAETZE,
   superscript,
+  toListed,
   toRow,
+  uebersichtText,
   type Art,
   type Farbe,
+  type GhPr,
+  type Grund,
+  type ListedSession,
   type Satz,
   type SessionRow,
   type TitlePlan,
+  type Uebersicht,
 } from './colors'
 
 type Engine = EngineInterface
@@ -156,8 +167,8 @@ async function recolor(
  * Recolors this session's own title. A title it already tried is left alone, even
  * after a restart: a title the person set makes the app ask them, and one no is enough.
  */
-async function recolorSelf($: Engine, force: boolean): Promise<Outcome> {
-  const row = toRow(await callJson($, 'get_session', { session_id: 'self' }), 'self')
+async function recolorSelf($: Engine, force: boolean, known?: SessionRow | null): Promise<Outcome> {
+  const row = known !== undefined ? known : toRow(await callJson($, 'get_session', { session_id: 'self' }), 'self')
   if (row === null) {
     return 'failed'
   }
@@ -177,12 +188,27 @@ async function recolorSelf($: Engine, force: boolean): Promise<Outcome> {
   return rename($, 'self', plan.title)
 }
 
-/** After a turn: the band follows a color picked in another session, and the title gets its mark. */
-async function afterTurn($: Engine): Promise<void> {
+/** Stores why this session's turn ended and when, for `/projektfarbe status` in every session. */
+async function recordStand($: Engine, sessionId: string, grund: Grund): Promise<void> {
+  const um = await $.clock.now()
+  const stand = readStand(await $.store.get('stand'))
+  await $.store.set('stand', rememberStand(stand, sessionId, { grund, um }))
+}
+
+/**
+ * After a turn: the session's last turn is stored, the band follows a color picked
+ * in another session, and the title gets its mark.
+ */
+async function afterTurn($: Engine, grund: Grund): Promise<void> {
+  // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
+  const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
+  void self
+    .then(row => (row === null ? undefined : recordStand($, row.sessionId, grund)))
+    .catch(() => undefined)
   const cwd = await $.session.cwd()
   await refreshView($, cwd)
   void refreshPrs($, cwd, false).catch(() => undefined)
-  if ((await recolorSelf($, false)) === 'unnamed') {
+  if ((await recolorSelf($, false, await self)) === 'unnamed') {
     $.clock.after(RETRY_MS, () => {
       void recolorSelf($, false).catch(() => undefined)
     })
@@ -381,6 +407,77 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
   await refreshNew($)
 }
 
+// Newest first, as gh lists them: enough to reach the pull requests of every open session.
+const STATUS_PR_LIMIT = 200
+const STATUS_GH_MS = 20_000
+
+/** Every pull request of one repository, read in a folder of it; null and why when gh could not list them. */
+async function readRepoPrs($: Engine, cwd: string): Promise<{ prs: GhPr[] | null; note: string | null }> {
+  try {
+    const { exitCode, stdout, stderr } = await $.process.run(
+      [
+        'gh', 'pr', 'list', '--state', 'all', '--limit', String(STATUS_PR_LIMIT),
+        '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
+      ],
+      { cwd, timeoutMs: STATUS_GH_MS },
+    )
+    if (exitCode !== 0) {
+      return { prs: null, note: `gh meldet: ${firstLine(stderr)}` }
+    }
+    const prs = ghPrs(stdout)
+
+    return { prs, note: prs === null ? 'gh antwortet in einem unerwarteten Format' : null }
+  } catch (error) {
+    return { prs: null, note: `gh lässt sich nicht starten (${firstLine(String(error))})` }
+  }
+}
+
+/**
+ * Where every open session stands, by project: the data `/projektfarbe status` prints (and a side
+ * panel can draw). Asks the app for the sessions, and gh once per repository, all repositories
+ * at once, each in the folder of one of its sessions.
+ */
+async function readUebersicht($: Engine): Promise<Uebersicht> {
+  const [selfRaw, listed] = await Promise.all([
+    callJson($, 'get_session', { session_id: 'self' }),
+    callJson($, 'list_sessions', { limit: 500 }),
+  ])
+  const self = toListed(selfRaw, 'self')
+  const others = (Array.isArray(listed) ? listed : [])
+    .map(entry => toListed(entry))
+    .filter((row): row is ListedSession => row !== null && row.sessionId !== self?.sessionId)
+  const sessions = self === null ? others : [self, ...others]
+
+  const folders = new Map<string, { cwd: string; project: string }>()
+  for (const session of sessions) {
+    const repo = repoKeyOf(session.cwd)
+    const project = projectOf(session.cwd)
+    if (repo !== null && project !== null && !session.isArchived && !folders.has(repo)) {
+      folders.set(repo, { cwd: session.cwd, project })
+    }
+  }
+  const gelesen = await Promise.all(
+    [...folders].map(async ([repo, { cwd, project }]) => ({ repo, project, ...(await readRepoPrs($, cwd)) })),
+  )
+  const prs = new Map(gelesen.map(entry => [entry.repo, entry.prs] as const))
+  const hinweise = gelesen
+    .filter(entry => entry.note !== null)
+    .map(entry => `PR-Stand für ${entry.project} nicht verfügbar: ${entry.note}`)
+
+  const satz = await satzNow($)
+  const picks = await picksOf($, satz)
+
+  return buildUebersicht({
+    sessions,
+    selfId: self?.sessionId ?? null,
+    stand: readStand(await $.store.get('stand')),
+    prs,
+    markOf: project => farbeFor(project, picks, satz).mark,
+    now: await $.clock.now(),
+    hinweise,
+  })
+}
+
 /** Stores the person's color for this project (null: the next free one) and recolors its sessions. */
 async function choose($: Engine, farbe: Farbe | null): Promise<string> {
   const { project } = await read($, view)
@@ -427,6 +524,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe <farbe>    setzt sie und färbt alle Sessions des Projekts um',
     '/projektfarbe standard   nächste freie Farbe automatisch',
     '/projektfarbe alle       färbt alle offenen Sessions neu ein',
+    '/projektfarbe status     Stand aller offenen Sessions nach Projekt (läuft, abgebrochen, PR, ruht …)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
@@ -439,7 +537,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'projektfarbe',
       description: 'Farbe dieses Projekts zeigen oder ändern (Farbpunkt vor den Session-Namen)',
-      argumentHint: '[farbe | standard | alle | band | schlaf | bunt]',
+      argumentHint: '[farbe | standard | alle | status | band | schlaf | bunt]',
     })
     // In the background, so the session start never waits on the app.
     void startUp($, e.cwd).catch(() => undefined)
@@ -451,7 +549,7 @@ export const register: Register = on => {
   // background: the turn never waits on the app or on the person's answer there.
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
-      void afterTurn($).catch(() => undefined)
+      void afterTurn($, e.reason).catch(() => undefined)
     }
 
     return next(e)
@@ -489,6 +587,15 @@ export const register: Register = on => {
       const renamed = await recolorAll($, null)
 
       return { text: `${renamed} Session(s) mit ihrer Projektfarbe umbenannt.` }
+    }
+    if (arg === 'status') {
+      try {
+        return { text: uebersichtText(await readUebersicht($)) }
+      } catch (error) {
+        return {
+          text: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
+        }
+      }
     }
     if (arg === 'band') {
       const isHidden = !state.isHidden
