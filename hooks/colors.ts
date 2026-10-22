@@ -211,6 +211,43 @@ export function planTitle(row: SessionRow, picks: Readonly<Record<string, string
   return wanted === row.title ? { kind: 'same' } : { kind: 'rename', title: wanted }
 }
 
+export type ContextLevel = 'ok' | 'warn' | 'full'
+
+const CONTEXT_WARN = 70
+const CONTEXT_FULL = 85
+
+/** The width of the gauge, in cells. */
+export const CONTEXT_CELLS = 8
+
+/** How full the context window is, 0 to 100, from `$.session.usage()`; null before the first answer. */
+export function contextPercent(usage: unknown): number | null {
+  const context = (usage as { context?: unknown } | null)?.context
+  if (context === null || typeof context !== 'object') {
+    return null
+  }
+  const { percent, tokens, window } = context as Record<string, unknown>
+  const value =
+    typeof percent === 'number'
+      ? percent
+      : typeof tokens === 'number' && typeof window === 'number' && window > 0
+        ? (tokens / window) * 100
+        : null
+
+  return value === null || !Number.isFinite(value) ? null : Math.min(100, Math.max(0, Math.round(value)))
+}
+
+/** From where the window is getting full (70 %) and where `/compact` is due (85 %). */
+export function contextLevel(percent: number): ContextLevel {
+  return percent >= CONTEXT_FULL ? 'full' : percent >= CONTEXT_WARN ? 'warn' : 'ok'
+}
+
+/** How many of the gauge's cells are filled: in proportion to the percentage, at least one once there is any use. */
+export function contextFill(percent: number): number {
+  const cells = Math.round((percent / 100) * CONTEXT_CELLS)
+
+  return Math.min(CONTEXT_CELLS, Math.max(percent > 0 ? 1 : 0, cells))
+}
+
 const TRIED_LIMIT = 300
 
 /** The title each session last tried to recolor, by session id, from the store. */

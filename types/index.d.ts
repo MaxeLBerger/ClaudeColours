@@ -5,6 +5,8 @@ export type ProjektfarbenView = {
   mark: string | null
   /** The color the band paints the project name in. */
   hex: string | null
+  /** How full the context window was after the last answer, 0 to 100; null before the first one. */
+  contextPercent: number | null
   /** True while the band shows the color buttons. */
   isPicking: boolean
   /** True when the person hid the band (kept across sessions in the store). */

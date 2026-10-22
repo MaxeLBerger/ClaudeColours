@@ -4,6 +4,10 @@ import type { EngineInterface, McpContentBlock, Register } from 'claude-code'
 import type { ProjektfarbenView } from '../types'
 import {
   assignFarben,
+  CONTEXT_CELLS,
+  contextFill,
+  contextLevel,
+  contextPercent,
   farbeFor,
   FARBEN,
   findFarbe,
@@ -30,10 +34,20 @@ const EMPTY: ProjektfarbenView = {
   project: null,
   mark: null,
   hex: null,
+  contextPercent: null,
   isPicking: false,
   isHidden: false,
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
+
+// Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
+// the warning and error colors from where the window is filling up.
+const CONTEXT_FILL = { ok: 'inactive', warn: 'warning', full: 'error' } as const
+const CONTEXT_TRACK = 'subtle'
+
+// The color block and the gauge are runs of these on a colored background: on the desktop plain
+// runs of spaces collapse, and empty Boxes sat a few pixels off the line of the text beside them.
+const NBSP = ' '
 
 const textOf = (content: readonly McpContentBlock[]): string =>
   content.map(block => (block.type === 'text' ? (block.text ?? '') : '')).join('')
@@ -155,16 +169,27 @@ async function recolorAll($: Engine, onlyProject: string | null): Promise<number
   return renamed
 }
 
-/** Reads the project and its color into the band's state. */
+/** How full the context window is: a local read of the figures the status line has, no model call. */
+async function readContext($: Engine): Promise<number | null> {
+  try {
+    return contextPercent(await $.session.usage())
+  } catch {
+    return null
+  }
+}
+
+/** Reads the project, its color and the context fill into the band's state. */
 async function refreshView($: Engine, cwd: string): Promise<void> {
   const project = projectOf(cwd)
   const farbe = project === null ? null : farbeFor(project, await ensurePicks($, [project]))
   const isHidden = (await $.store.get('bandAus')) === true
+  const percent = await readContext($)
   await update($, view, v => ({
     ...v,
     project,
     mark: farbe?.mark ?? null,
     hex: farbe?.hex ?? null,
+    contextPercent: percent,
     isHidden,
   }))
 }
@@ -200,7 +225,7 @@ const HILFE = [
   '/projektfarbe <farbe>    setzt sie und färbt alle Sessions des Projekts um',
   '/projektfarbe standard   nächste freie Farbe automatisch',
   '/projektfarbe alle       färbt alle offenen Sessions neu ein',
-  '/projektfarbe band       Band über dem Eingabefeld ein- oder ausblenden',
+  '/projektfarbe band       Band, Kontext-Anzeige und Farbpunkt am Spinner ein- oder ausblenden',
   '',
   `Farben: ${FARBEN.map(f => `${f.mark} ${f.name}`).join(', ')}`,
 ].join('\n')
@@ -251,7 +276,11 @@ export const register: Register = on => {
       await $.store.set('bandAus', isHidden)
       await update($, view, v => ({ ...v, isHidden }))
 
-      return { text: isHidden ? 'Band ausgeblendet.' : 'Band eingeblendet.' }
+      return {
+        text: isHidden
+          ? 'Band ausgeblendet (mit Kontext-Anzeige und Farbpunkt am Spinner).'
+          : 'Band eingeblendet.',
+      }
     }
     if (arg === 'standard') {
       return { text: await choose($, null) }
@@ -269,7 +298,8 @@ export const register: Register = on => {
       return next(e)
     }
     const state = await read($, view)
-    if (state.isHidden || state.project === null || state.mark === null) {
+    const { hex, contextPercent: percent } = state
+    if (state.isHidden || state.project === null || state.mark === null || hex === null) {
       return next(e)
     }
     const { Box, Button, Text } = $.ui.resolve(e)
@@ -299,11 +329,35 @@ export const register: Register = on => {
       )
     }
 
+    const level = percent === null ? 'ok' : contextLevel(percent)
+    const filled = percent === null ? 0 : contextFill(percent)
+    const tone =
+      level === 'ok' ? { dimColor: true } : { color: CONTEXT_FILL[level], bold: level === 'full' }
+
     return (
-      <Box columnGap={1}>
-        <Text bold color={state.hex ?? 'text'}>
-          {state.mark} {state.project}
+      <Box columnGap={2} flexWrap="wrap">
+        <Text>
+          <Text mono backgroundColor={hex}>
+            {NBSP.repeat(2)}
+          </Text>
+          <Text bold>{` ${state.project}`}</Text>
         </Text>
+        {percent === null ? null : (
+          <Text>
+            <Text dimColor>Kontext </Text>
+            {filled === 0 ? null : (
+              <Text mono backgroundColor={CONTEXT_FILL[level]}>
+                {NBSP.repeat(filled)}
+              </Text>
+            )}
+            {filled === CONTEXT_CELLS ? null : (
+              <Text mono backgroundColor={CONTEXT_TRACK}>
+                {NBSP.repeat(CONTEXT_CELLS - filled)}
+              </Text>
+            )}
+            <Text {...tone}>{` ${percent} %`}</Text>
+          </Text>
+        )}
         <Button
           key="farbe"
           plain
@@ -323,5 +377,20 @@ export const register: Register = on => {
         </Button>
       </Box>
     )
+  })
+
+  // The project's mark in front of what the spinner says; the engine still draws the rest.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    const { isHidden, mark } = await read($, view)
+    if (isHidden || mark === null) {
+      return next(e)
+    }
+    const { message, word } = e.props
+    const props =
+      message === null
+        ? { ...e.props, word: `${mark} ${word}` }
+        : { ...e.props, message: `${mark} ${message}` }
+
+    return next({ ...e, props })
   })
 }

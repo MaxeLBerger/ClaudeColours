@@ -2,6 +2,9 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   assignFarben,
+  contextFill,
+  contextLevel,
+  contextPercent,
   desiredTitle,
   farbeFor,
   FARBEN,
@@ -32,6 +35,9 @@ const RUN = {
   origin: { kind: 'composer' },
   presentation: { isFullscreen: false, columns: 80 },
 } as const
+
+// What the band's color block and gauge are drawn with: blanks that keep their width on a colored background.
+const NBSP = ' '
 
 const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
@@ -106,6 +112,19 @@ test('a new project gets the next free color; a picked one is kept', async () =>
   expect(findFarbe('kreis weiß')?.mark).toBe('⚪')
   expect(findFarbe('🟪')?.name).toBe('lila')
   expect(findFarbe('pink')).toBe(undefined)
+})
+
+test('the context fill is read from the usage figures; the gauge warns from 70 %', async () => {
+  expect(contextPercent({ context: { window: 200_000, percent: 41.6 } })).toBe(42)
+  expect(contextPercent({ context: { window: 200_000, tokens: 50_000 } })).toBe(25)
+  expect(contextPercent({ context: { window: 200_000, percent: 140 } })).toBe(100)
+  // Before the first answer the engine has no figure: no gauge rather than 0 %.
+  expect(contextPercent({ context: { window: 200_000 } })).toBe(null)
+  expect(contextPercent({ context: { percent: Number.NaN } })).toBe(null)
+  expect(contextPercent(undefined)).toBe(null)
+  expect([69, 70, 84, 85].map(contextLevel)).toEqual(['ok', 'warn', 'warn', 'full'])
+  // Any use at all shows one cell; a full window fills all eight.
+  expect([0, 3, 7, 50, 100].map(contextFill)).toEqual([0, 1, 1, 4, 8])
 })
 
 test("the sidebar's colors are learned: the mark most of a project's sessions carry", async () => {
@@ -256,7 +275,9 @@ test("a subagent's turn reads nothing; the band follows a color picked elsewhere
   await $.turn.complete(TURN)
   await clock.settle()
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /Beta/ }))?.text).toBe('🟪 Beta')
+  const texts = await ui.findAll({ type: 'Text' })
+  expect(texts.some(text => /Beta/.test(text.text))).toBe(true)
+  expect(texts.some(text => text.props.backgroundColor === '#a855f7')).toBe(true)
   await ui.unmount()
   expect(self.title).toBe('🟪 Neu')
 })
@@ -280,7 +301,12 @@ test('the band shows the project in its color and hides on request', async ($, o
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
-    expect((await ui.find({ type: 'Text', text: /Beta/ }))?.text).toBe('🟦 Beta')
+    const texts = await ui.findAll({ type: 'Text' })
+    expect(texts.some(text => /Beta/.test(text.text))).toBe(true)
+    // The color block: two blanks on the project's color.
+    expect(texts.find(text => text.props.backgroundColor === '#3b82f6')?.children).toEqual([NBSP.repeat(2)])
+    // No usage figure yet, so no gauge.
+    expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
@@ -291,4 +317,104 @@ test('the band shows the project in its color and hides on request', async ($, o
   await ui.press({ key: 'ausblenden' })
   expect(await ui.find({ type: 'Text', text: /Beta/ })).toBe(undefined)
   await ui.unmount()
+})
+
+test('the band gauges the context window after each turn: a warning from 70 %, bold red from 85 %', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let percent = 41
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000, percent }, rateLimits: [] },
+  }))
+  on('turn.complete', () => ({ text: '' }))
+
+  // The gauge is a run of blanks on the fill color, one on the track color, and the percentage.
+  const gauge = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+    const on = (color: string) => texts.find(text => text.props.backgroundColor === color)
+
+    return {
+      fill: on('inactive') ?? on('warning') ?? on('error'),
+      track: on('subtle'),
+      // The Text that holds the number itself, not the one around the whole gauge (no props).
+      percent: texts.find(text => /\d+ %$/.test(text.text) && Object.keys(text.props).length > 0),
+    }
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const calm = await gauge()
+  expect(calm.fill?.props).toMatchObject({ backgroundColor: 'inactive' })
+  expect(calm.fill?.children).toEqual([NBSP.repeat(3)])
+  expect(calm.track?.children).toEqual([NBSP.repeat(5)])
+  expect(calm.percent?.text.trim()).toBe('41 %')
+  expect(calm.percent?.props).toMatchObject({ dimColor: true })
+
+  percent = 72
+  await $.turn.complete(TURN)
+  await clock.settle()
+  const warn = await gauge()
+  expect(warn.fill?.props).toMatchObject({ backgroundColor: 'warning' })
+  expect(warn.fill?.children).toEqual([NBSP.repeat(6)])
+  expect(warn.percent?.text.trim()).toBe('72 %')
+  expect(warn.percent?.props).toMatchObject({ color: 'warning' })
+
+  percent = 90
+  await $.turn.complete(TURN)
+  await clock.settle()
+  const full = await gauge()
+  expect(full.fill?.props).toMatchObject({ backgroundColor: 'error' })
+  expect(full.fill?.children).toEqual([NBSP.repeat(7)])
+  expect(full.percent?.text.trim()).toBe('90 %')
+  expect(full.percent?.props).toMatchObject({ color: 'error', bold: true })
+
+  // A full window leaves no track.
+  percent = 100
+  await $.turn.complete(TURN)
+  await clock.settle()
+  const brim = await gauge()
+  expect(brim.fill?.children).toEqual([NBSP.repeat(8)])
+  expect(brim.track).toBe(undefined)
+})
+
+test('the spinner carries the project mark; hiding the band takes it away', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  // Stands for the engine's own spinner: it draws the message, or else the word, it is handed.
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>{e.props.message ?? e.props.word}</Text>
+  })
+
+  const SPINNER = { plugin: 'projektfarben', component: 'Spinner', surface: 'desktop' } as const
+  const shown = async (props: { word: string; message: string | null }) => {
+    const ui = await $.ui.mount({
+      ...SPINNER,
+      props: { ...props, suffix: '…', mode: 'thinking' },
+    })
+    const found = await ui.find({ type: 'Text' })
+    await ui.unmount()
+
+    return found?.text
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await shown({ word: 'Sauteing', message: null })).toBe('🟦 Sauteing')
+  expect(await shown({ word: 'Sauteing', message: 'Compacting' })).toBe('🟦 Compacting')
+
+  await $.command.run({ ...RUN, args: 'band' })
+  expect(await shown({ word: 'Sauteing', message: null })).toBe('Sauteing')
 })

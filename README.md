@@ -14,7 +14,9 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
 ## Was der Mod macht
 
 - **Farbpunkt im Session-Namen:** Nach der ersten Antwort einer Session setzt der Mod den Farbpunkt ihres Projekts vor den Namen, den die App vergeben hat.
-- **Band über dem Eingabefeld:** zeigt das Projekt in seiner Farbe, mit „Farbe ändern“ (Auswahl per Klick) und „ausblenden“.
+- **Band über dem Eingabefeld:** zeigt das Projekt mit einem Farbblock in seiner Farbe und dem Namen in der Schrift deines Themes. Dazu „Farbe ändern“ (Auswahl per Klick) und „ausblenden“.
+- **Kontext-Anzeige im Band:** ein Balken mit Prozentwert zeigt, wie voll das Kontextfenster nach der letzten Antwort ist: grau unter 70 %, in der Warnfarbe deines Themes ab 70 %, in der Fehlerfarbe und mit fettem Prozentwert ab 85 % (dann ist `/compact` fällig). Der Mod liest dafür nur die Werte, die Claude Code ohnehin hat; es entstehen keine Modellaufrufe und keine Kosten.
+- **Farbpunkt am Spinner:** Während Claude arbeitet, steht der Farbpunkt des Projekts vor der Statuszeile („🟦 Sauteing…“).
 - **`/projektfarbe`:** Farbe zeigen oder ändern. Eine Änderung benennt alle offenen Sessions des Projekts sofort mit um.
 
 Als Projekt zählt der Ordner, in dem die Session läuft; ein Worktree unter `.claude/worktrees/` zählt zu seinem Repository.
@@ -47,7 +49,7 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 | `/projektfarbe <farbe>` | setzt sie (`rot`, `grün`, `lila`, `kreis-blau`, … oder das Emoji) und färbt alle Sessions des Projekts um |
 | `/projektfarbe standard` | gibt dem Projekt die nächste freie Farbe |
 | `/projektfarbe alle` | färbt alle offenen Sessions neu ein |
-| `/projektfarbe band` | blendet das Band ein oder aus |
+| `/projektfarbe band` | blendet Band, Kontext-Anzeige und den Farbpunkt am Spinner ein oder aus |
 
 18 Farben: 🟦 🟩 🟧 🟪 🟥 🟨 🟫 ⬛ ⬜ und 🔵 🟢 🟠 🟣 🔴 🟡 🟤 ⚫ ⚪.
 
@@ -60,7 +62,9 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 ## Grenzen
 
 - Die Seitenleiste selbst färbt kein Mod: Die Projekt-Überschriften bleiben grau, die Farbe steht im Session-Namen.
-- Umbenennen geht nur in der Desktop-App. In einer Terminal-Session zeigt der Mod nur das Band.
+- Umbenennen geht nur in der Desktop-App. In einer Terminal-Session zeigen sich nur Band, Kontext-Anzeige und Spinner-Punkt.
+- Die Kontext-Anzeige aktualisiert sich nach jeder Antwort, nach `/compact` also erst mit der nächsten. Vor der ersten Antwort einer Session zeigt sie nichts. In einem Ordner ohne Projekt erscheint das Band und damit die Anzeige nicht.
+- Der Prozentwert ist der von Claude Code gemeldete Füllstand des Fensters; er kann von der Zahl in `/context` leicht abweichen.
 - Hast du einen Session-Namen selbst vergeben, fragt die App einmal nach, bevor der Mod den Farbpunkt davorsetzt. Sagst du nein, fragt sie für diesen Namen nicht wieder.
 - Sortierst du die Seitenleiste nach Namen, ordnet sie nach Farbe.
 
