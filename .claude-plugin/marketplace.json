@@ -1,0 +1,6 @@
+{
+  "name": "max-mods",
+  "description": "ClaudeColours: Farbpunkte pro Projekt für die Session-Liste der Claude-Desktop-App.",
+  "owner": { "name": "MaxeLBerger" },
+  "plugins": [{ "name": "projektfarben", "source": "./" }]
+}

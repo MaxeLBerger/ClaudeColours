@@ -1,0 +1,9 @@
+{
+  "name": "projektfarben",
+  "version": "0.3.0",
+  "description": "Gibt jedem Projekt eine Farbe: ein Farbpunkt vor jedem Session-Namen in der Seitenleiste, ein farbiges Band im Chat und /projektfarbe zum Aendern.",
+  "author": { "name": "MaxeLBerger", "url": "https://github.com/MaxeLBerger" },
+  "homepage": "https://github.com/MaxeLBerger/ClaudeColours",
+  "repository": "https://github.com/MaxeLBerger/ClaudeColours",
+  "types": "./types/index.d.ts"
+}
