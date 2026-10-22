@@ -299,7 +299,7 @@ async function openRepo($: Engine): Promise<void> {
 
 /**
  * Opens the list of open pull requests or issues in the person's browser and, once it opened,
- * marks every one of them as seen: the "+x" goes, in every session of the project.
+ * marks every one open now as seen: the "+x" goes, in every session of the project.
  */
 async function openList($: Engine, art: Art): Promise<void> {
   const what = art === 'pr' ? 'PR-Liste' : 'Issue-Liste'
@@ -316,6 +316,15 @@ async function openList($: Engine, art: Art): Promise<void> {
     $.ui.toast(`${what} lässt sich nicht öffnen: ${firstLine(String(error))}`)
 
     return
+  }
+  // Read again: the list in the browser can hold entries newer than the band's last reading.
+  const fresh = (await readOpen($, art)).numbers
+  if (fresh !== null) {
+    await update($, view, v =>
+      art === 'pr'
+        ? { ...v, openPrs: fresh.length, prNumbers: fresh, prsNote: null }
+        : { ...v, openIssues: fresh.length, issueNumbers: fresh, issuesNote: null },
+    )
   }
   const state = await read($, view)
   if (state.project === null) {
@@ -347,8 +356,7 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
   }
   prsCheckedAt = now
   prsFor = cwd
-  const prs = await readOpen($, 'pr')
-  const issues = await readOpen($, 'issue')
+  const [prs, issues] = await Promise.all([readOpen($, 'pr'), readOpen($, 'issue')])
   // A reading that fails keeps the last good one, but only of the same folder.
   await update($, view, v => ({
     ...v,
@@ -578,6 +586,8 @@ export const register: Register = on => {
     const filled = percent === null ? 0 : contextFill(percent)
     const tone =
       level === 'ok' ? { dimColor: true } : { color: CONTEXT_FILL[level], bold: level === 'full' }
+    // Subagent views get no gauge: the number is the main session's.
+    const showsGauge = percent !== null && e.props.view.agentId === undefined
 
     return (
       <Box columnGap={2} flexWrap="wrap">
@@ -591,23 +601,6 @@ export const register: Register = on => {
           )}
           <Text bold={!isCalm}>{` ${state.project}`}</Text>
         </Text>
-        {percent === null || e.props.view.agentId !== undefined ? null : (
-          <Text>
-            <Text dimColor>Kontext </Text>
-            {filled === 0 ? null : (
-              <Text mono backgroundColor={CONTEXT_FILL[level]}>
-                {NBSP.repeat(filled)}
-              </Text>
-            )}
-            {filled === CONTEXT_CELLS ? null : (
-              <Text mono backgroundColor={CONTEXT_TRACK}>
-                {NBSP.repeat(CONTEXT_CELLS - filled)}
-              </Text>
-            )}
-            <Text {...tone}>{` ${percent} %`}</Text>
-          </Text>
-        )}
-        {openPrs === null && openIssues === null ? null : <Text>{NBSP.repeat(4)}</Text>}
         {openPrs === null ? null : (
           <Button key="prs" plain onPress={() => openList($, 'pr')}>
             <Text>
@@ -638,6 +631,25 @@ export const register: Register = on => {
           <Button key="repo" plain onPress={() => openRepo($)}>
             <Text dimColor>Repo ↗</Text>
           </Button>
+        )}
+        {!showsGauge || (openPrs === null && openIssues === null) ? null : (
+          <Text>{NBSP.repeat(4)}</Text>
+        )}
+        {!showsGauge ? null : (
+          <Text>
+            <Text dimColor>Kontext </Text>
+            {filled === 0 ? null : (
+              <Text mono backgroundColor={CONTEXT_FILL[level]}>
+                {NBSP.repeat(filled)}
+              </Text>
+            )}
+            {filled === CONTEXT_CELLS ? null : (
+              <Text mono backgroundColor={CONTEXT_TRACK}>
+                {NBSP.repeat(CONTEXT_CELLS - filled)}
+              </Text>
+            )}
+            <Text {...tone}>{` ${percent} %`}</Text>
+          </Text>
         )}
         <Button
           key="farbe"

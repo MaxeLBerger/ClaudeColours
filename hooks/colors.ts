@@ -381,11 +381,6 @@ export function ghNumbers(stdout: string): number[] | null {
   }
 }
 
-/** The number of open pull requests from the JSON `gh pr list --json number` prints; null when it is no list. */
-export function prCount(stdout: string): number | null {
-  return ghNumbers(stdout)?.length ?? null
-}
-
 /** The count as the band shows it. */
 export function prLabel(count: number): string {
   return count > PR_LIMIT ? `${PR_LIMIT}+` : String(count)
