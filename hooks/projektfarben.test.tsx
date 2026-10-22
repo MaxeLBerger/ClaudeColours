@@ -10,6 +10,8 @@ import {
   FARBEN,
   findFarbe,
   learnPicks,
+  prCount,
+  prLabel,
   projectOf,
   stripMark,
 } from './colors'
@@ -37,7 +39,7 @@ const RUN = {
 } as const
 
 // What the band's color block and gauge are drawn with: blanks that keep their width on a colored background.
-const NBSP = ' '
+const NBSP = String.fromCharCode(0xa0)
 
 const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
@@ -125,6 +127,15 @@ test('the context fill is read from the usage figures; the gauge warns from 70 %
   expect([69, 70, 84, 85].map(contextLevel)).toEqual(['ok', 'warn', 'warn', 'full'])
   // Any use at all shows one cell; a full window fills all eight.
   expect([0, 3, 7, 50, 100].map(contextFill)).toEqual([0, 1, 1, 4, 8])
+})
+
+test('the open pull requests are the length of the list gh prints; 100 shows as 100+', async () => {
+  expect(prCount('[{"number":4},{"number":9}]')).toBe(2)
+  expect(prCount('[]')).toBe(0)
+  expect(prCount('')).toBe(null)
+  expect(prCount('{"number":4}')).toBe(null)
+  expect(prCount('gh: not logged in')).toBe(null)
+  expect([0, 7, 99, 100].map(prLabel)).toEqual(['0', '7', '99', '100+'])
 })
 
 test("the sidebar's colors are learned: the mark most of a project's sessions carry", async () => {
@@ -307,6 +318,8 @@ test('the band shows the project in its color and hides on request', async ($, o
     expect(texts.find(text => text.props.backgroundColor === '#3b82f6')?.children).toEqual([NBSP.repeat(2)])
     // No usage figure yet, so no gauge.
     expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
+    // No gh in this test, so no pull request count either.
+    expect(texts.some(text => /PRs/.test(text.text))).toBe(false)
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
@@ -417,4 +430,138 @@ test('the spinner carries the project mark; hiding the band takes it away', asyn
 
   await $.command.run({ ...RUN, args: 'band' })
   expect(await shown({ word: 'Sauteing', message: null })).toBe('Sauteing')
+})
+
+/** What `$.process.run` answers when `gh pr list` printed these pull requests. */
+const ghList = (numbers: number[]) => ({
+  value: {
+    exitCode: 0,
+    stdout: JSON.stringify(numbers.map(number => ({ number }))),
+    stderr: '',
+    isStdoutTruncated: false,
+    isStderrTruncated: false,
+  },
+})
+
+test('the band counts the open pull requests with gh, at most every five minutes', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let open = [1, 2]
+  const asked: string[][] = []
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', (_, e) => {
+    asked.push([...e.argv])
+
+    return ghList(open)
+  })
+
+  const shown = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+
+    // The label, then the number in bold.
+    const number = texts.find(text => text.props.bold === true && /^\d+\+?$/.test(text.text))?.text
+
+    return texts.some(text => /^PRs:/.test(text.text)) && number !== undefined
+      ? `PRs: ${number}`
+      : undefined
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await shown()).toBe('PRs: 2')
+  expect(asked).toEqual([['gh', 'pr', 'list', '--state', 'open', '--limit', '100', '--json', 'number']])
+
+  // A turn within five minutes does not ask again; one after them does.
+  open = [1, 2, 3]
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(asked).toHaveLength(1)
+  expect(await shown()).toBe('PRs: 2')
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(asked).toHaveLength(2)
+  expect(await shown()).toBe('PRs: 3')
+  expect((await $.command.run({ ...RUN, args: '' })).text).toContain('Offene PRs: 3')
+})
+
+test('the repo button asks gh to open the repository in the browser', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const asked: string[][] = []
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', (_, e) => {
+    asked.push([...e.argv])
+
+    return ghList([1])
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ key: 'repo' })).toBeDefined()
+  await ui.press({ key: 'repo' })
+  await ui.unmount()
+  expect(asked[asked.length - 1]).toEqual(['gh', 'repo', 'view', '--web'])
+})
+
+test('without a working gh the band shows no count, and /projektfarbe says why', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let fails: 'start' | 'exit' = 'start'
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('process.run', () => {
+    if (fails === 'start') {
+      throw new Error('spawn gh ENOENT')
+    }
+
+    return {
+      value: {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'no git remotes found\nsecond line',
+        isStdoutTruncated: false,
+        isStderrTruncated: false,
+      },
+    }
+  })
+
+  const hasCount = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = await ui.findAll({ type: 'Text' })
+    const button = await ui.find({ key: 'repo' })
+    await ui.unmount()
+
+    // Neither the count nor the button that opens the repo.
+    return texts.some(text => /PRs/.test(text.text)) || button !== undefined
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await hasCount()).toBe(false)
+  expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
+    'PR-Zahl nicht verfügbar: gh lässt sich hier nicht starten',
+  )
+
+  fails = 'exit'
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await hasCount()).toBe(false)
+  const text = (await $.command.run({ ...RUN, args: '' })).text
+  expect(text).toContain('PR-Zahl nicht verfügbar: gh meldet: no git remotes found')
+  expect(text).not.toContain('second line')
 })

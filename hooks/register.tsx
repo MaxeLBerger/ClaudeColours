@@ -13,6 +13,9 @@ import {
   findFarbe,
   learnPicks,
   planTitle,
+  PR_LIMIT,
+  prCount,
+  prLabel,
   projectOf,
   readPicks,
   readTried,
@@ -35,6 +38,8 @@ const EMPTY: ProjektfarbenView = {
   mark: null,
   hex: null,
   contextPercent: null,
+  openPrs: null,
+  prsNote: null,
   isPicking: false,
   isHidden: false,
 }
@@ -47,7 +52,7 @@ const CONTEXT_TRACK = 'subtle'
 
 // The color block and the gauge are runs of these on a colored background: on the desktop plain
 // runs of spaces collapse, and empty Boxes sat a few pixels off the line of the text beside them.
-const NBSP = ' '
+const NBSP = String.fromCharCode(0xa0)
 
 const textOf = (content: readonly McpContentBlock[]): string =>
   content.map(block => (block.type === 'text' ? (block.text ?? '') : '')).join('')
@@ -141,6 +146,7 @@ async function recolorSelf($: Engine, force: boolean): Promise<Outcome> {
 /** After a turn: the band follows a color picked in another session, and the title gets its mark. */
 async function afterTurn($: Engine): Promise<void> {
   await refreshView($, await $.session.cwd())
+  void refreshPrs($, false).catch(() => undefined)
   if ((await recolorSelf($, false)) === 'unnamed') {
     $.clock.after(RETRY_MS, () => {
       void recolorSelf($, false).catch(() => undefined)
@@ -194,6 +200,59 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
   }))
 }
 
+const PR_EVERY_MS = 5 * 60_000
+// When the pull requests were last counted; starts over with a reload of the module.
+let prsCheckedAt: number | null = null
+
+const firstLine = (text: string): string => text.trim().split(/\r?\n/)[0]?.slice(0, 120) ?? ''
+
+/** The open pull requests of the session's repository, counted by `gh` with the person's own login. */
+async function readOpenPrs($: Engine): Promise<{ count: number | null; note: string | null }> {
+  try {
+    const { exitCode, stdout, stderr } = await $.process.run(
+      ['gh', 'pr', 'list', '--state', 'open', '--limit', String(PR_LIMIT), '--json', 'number'],
+      { timeoutMs: 20_000 },
+    )
+    if (exitCode !== 0) {
+      return { count: null, note: `gh meldet: ${firstLine(stderr)}` }
+    }
+    const count = prCount(stdout)
+
+    return { count, note: count === null ? 'gh antwortet in einem unerwarteten Format' : null }
+  } catch (error) {
+    return { count: null, note: `gh lässt sich hier nicht starten (${firstLine(String(error))})` }
+  }
+}
+
+/**
+ * Opens the project's repository in the person's own browser: `gh` hands the address to the
+ * system's default browser, not to the browser pane inside the app.
+ */
+async function openRepo($: Engine): Promise<void> {
+  try {
+    const { exitCode, stderr } = await $.process.run(['gh', 'repo', 'view', '--web'], {
+      timeoutMs: 15_000,
+    })
+    if (exitCode !== 0) {
+      $.ui.toast(`Repo lässt sich nicht öffnen: ${firstLine(stderr)}`)
+    }
+  } catch (error) {
+    $.ui.toast(`Repo lässt sich nicht öffnen: ${firstLine(String(error))}`)
+  }
+}
+
+/** Counts the open pull requests into the band's state: at most every five minutes, unless forced. */
+async function refreshPrs($: Engine, isForced: boolean): Promise<void> {
+  const now = await $.clock.now()
+  if (!isForced && prsCheckedAt !== null && now - prsCheckedAt < PR_EVERY_MS) {
+    return
+  }
+  prsCheckedAt = now
+  const { count, note } = await readOpenPrs($)
+  // A reading that fails keeps the number from the last one that worked.
+  await update($, view, v => ({ ...v, openPrs: count ?? v.openPrs, prsNote: note }))
+}
+
 /** Stores the person's color for this project (null: the next free one) and recolors its sessions. */
 async function choose($: Engine, farbe: Farbe | null): Promise<string> {
   const { project } = await read($, view)
@@ -217,6 +276,7 @@ async function choose($: Engine, farbe: Farbe | null): Promise<string> {
 async function startUp($: Engine, cwd: string): Promise<void> {
   await learnOnce($).catch(() => undefined)
   await refreshView($, cwd)
+  void refreshPrs($, true).catch(() => undefined)
   await recolorSelf($, false)
 }
 
@@ -225,7 +285,7 @@ const HILFE = [
   '/projektfarbe <farbe>    setzt sie und färbt alle Sessions des Projekts um',
   '/projektfarbe standard   nächste freie Farbe automatisch',
   '/projektfarbe alle       färbt alle offenen Sessions neu ein',
-  '/projektfarbe band       Band, Kontext-Anzeige und Farbpunkt am Spinner ein- oder ausblenden',
+  '/projektfarbe band       Band, Kontext-Anzeige, PR-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
   '',
   `Farben: ${FARBEN.map(f => `${f.mark} ${f.name}`).join(', ')}`,
 ].join('\n')
@@ -264,7 +324,14 @@ export const register: Register = on => {
           ? 'Diese Session liegt in keinem Projektordner.'
           : `${state.mark ?? ''} ${state.project}: ${name}`
 
-      return { text: `${head}\n\n${HILFE}` }
+      const prs =
+        state.openPrs !== null
+          ? `\nOffene PRs: ${prLabel(state.openPrs)}`
+          : state.prsNote === null
+            ? ''
+            : `\nPR-Zahl nicht verfügbar: ${state.prsNote}`
+
+      return { text: `${head}${prs}\n\n${HILFE}` }
     }
     if (arg === 'alle') {
       const renamed = await recolorAll($, null)
@@ -278,7 +345,7 @@ export const register: Register = on => {
 
       return {
         text: isHidden
-          ? 'Band ausgeblendet (mit Kontext-Anzeige und Farbpunkt am Spinner).'
+          ? 'Band ausgeblendet (mit Kontext-Anzeige, PR-Zahl und Farbpunkt am Spinner).'
           : 'Band eingeblendet.',
       }
     }
@@ -298,7 +365,7 @@ export const register: Register = on => {
       return next(e)
     }
     const state = await read($, view)
-    const { hex, contextPercent: percent } = state
+    const { hex, contextPercent: percent, openPrs } = state
     if (state.isHidden || state.project === null || state.mark === null || hex === null) {
       return next(e)
     }
@@ -357,6 +424,18 @@ export const register: Register = on => {
             )}
             <Text {...tone}>{` ${percent} %`}</Text>
           </Text>
+        )}
+        {openPrs === null ? null : (
+          <Text>
+            {NBSP.repeat(6)}
+            <Text dimColor>PRs: </Text>
+            <Text bold>{prLabel(openPrs)}</Text>
+          </Text>
+        )}
+        {openPrs === null ? null : (
+          <Button key="repo" plain onPress={() => openRepo($)}>
+            <Text dimColor>Repo ↗</Text>
+          </Button>
         )}
         <Button
           key="farbe"

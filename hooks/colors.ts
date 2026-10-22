@@ -248,6 +248,25 @@ export function contextFill(percent: number): number {
   return Math.min(CONTEXT_CELLS, Math.max(percent > 0 ? 1 : 0, cells))
 }
 
+/** `gh pr list` is asked for this many pull requests at most; a list that long shows as "100+". */
+export const PR_LIMIT = 100
+
+/** The number of open pull requests from the JSON `gh pr list --json number` prints; null when it is no list. */
+export function prCount(stdout: string): number | null {
+  try {
+    const list: unknown = JSON.parse(stdout)
+
+    return Array.isArray(list) ? list.length : null
+  } catch {
+    return null
+  }
+}
+
+/** The count as the band shows it. */
+export function prLabel(count: number): string {
+  return count >= PR_LIMIT ? `${PR_LIMIT}+` : String(count)
+}
+
 const TRIED_LIMIT = 300
 
 /** The title each session last tried to recolor, by session id, from the store. */
