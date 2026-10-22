@@ -11,6 +11,18 @@ export type ProjektfarbenView = {
   openPrs: number | null
   /** Why `openPrs` could not be read, for `/projektfarbe`; null when it could. */
   prsNote: string | null
+  /** The numbers of the open pull requests last read (at most 101), to tell the new ones. */
+  prNumbers: number[]
+  /** How many open pull requests are newer than the highest one the person has seen. */
+  newPrs: number
+  /** The open issues of the project's repository, counted by `gh`; null while unknown. */
+  openIssues: number | null
+  /** Why `openIssues` could not be read, for `/projektfarbe`; null when it could. */
+  issuesNote: string | null
+  /** The numbers of the open issues last read (at most 101), to tell the new ones. */
+  issueNumbers: number[]
+  /** How many open issues are newer than the highest one the person has seen. */
+  newIssues: number
   /** Id of the color set in use: `bunt`, or a calm sleep set such as `daemmerung`. */
   satz: string
   /** True while the band shows the color buttons. */

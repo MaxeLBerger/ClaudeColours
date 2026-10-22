@@ -12,20 +12,25 @@ import {
   farbeFor,
   findFarbe,
   findSatz,
+  ghNumbers,
   learnPicks,
+  markSeen,
   modusLabel,
+  newCount,
   planTitle,
   PR_LIMIT,
-  prCount,
   prLabel,
   projectOf,
   readPicks,
+  readSeen,
   readTried,
   rememberTry,
   SAETZE,
   satzOf,
   SCHLAFSAETZE,
+  superscript,
   toRow,
+  type Art,
   type Farbe,
   type Satz,
   type SessionRow,
@@ -46,6 +51,12 @@ const EMPTY: ProjektfarbenView = {
   contextPercent: null,
   openPrs: null,
   prsNote: null,
+  prNumbers: [],
+  newPrs: 0,
+  openIssues: null,
+  issuesNote: null,
+  issueNumbers: [],
+  newIssues: 0,
   satz: BUNT.id,
   isPicking: false,
   isHidden: false,
@@ -56,6 +67,8 @@ const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 // the warning and error colors from where the window is filling up.
 const CONTEXT_FILL = { ok: 'inactive', warn: 'warning', full: 'error' } as const
 const CONTEXT_TRACK = 'subtle'
+// The theme color of the raised "+x" behind a count: new pull requests or issues.
+const NEW_COLOR = 'suggestion'
 
 // The color block and the gauge are runs of these on a colored background: on the desktop plain
 // runs of spaces collapse, and empty Boxes sat a few pixels off the line of the text beside them.
@@ -224,31 +237,46 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
     satz: satz.id,
     isHidden,
   }))
+  await refreshNew($)
+}
+
+/**
+ * How many of the open pull requests and issues are new to the person. The highest numbers seen
+ * are shared by all sessions: one that opened the list in the browser clears the "+x" in the others.
+ */
+async function refreshNew($: Engine): Promise<void> {
+  const { project } = await read($, view)
+  const seen = project === null ? undefined : readSeen(await $.store.get('gesehen'))[project.toLowerCase()]
+  await update($, view, v => ({
+    ...v,
+    newPrs: newCount(v.prNumbers, seen?.pr),
+    newIssues: newCount(v.issueNumbers, seen?.issue),
+  }))
 }
 
 const PR_EVERY_MS = 5 * 60_000
-// When, and in which folder, the pull requests were last counted; starts over with a reload.
+// When, and in which folder, the pull requests and issues were last counted; starts over with a reload.
 let prsCheckedAt: number | null = null
 let prsFor: string | null = null
 
 const firstLine = (text: string): string => text.trim().split(/\r?\n/)[0]?.slice(0, 120) ?? ''
 
-/** The open pull requests of the session's repository, counted by `gh` with the person's own login. */
-async function readOpenPrs($: Engine): Promise<{ count: number | null; note: string | null }> {
+/** The open pull requests or issues of the session's repository, listed by `gh` with the person's own login. */
+async function readOpen($: Engine, art: Art): Promise<{ numbers: number[] | null; note: string | null }> {
   try {
     const { exitCode, stdout, stderr } = await $.process.run(
       // One more than the band shows: that is how "100" and "more than 100" are told apart.
-      ['gh', 'pr', 'list', '--state', 'open', '--limit', String(PR_LIMIT + 1), '--json', 'number'],
+      ['gh', art, 'list', '--state', 'open', '--limit', String(PR_LIMIT + 1), '--json', 'number'],
       { timeoutMs: 20_000 },
     )
     if (exitCode !== 0) {
-      return { count: null, note: `gh meldet: ${firstLine(stderr)}` }
+      return { numbers: null, note: `gh meldet: ${firstLine(stderr)}` }
     }
-    const count = prCount(stdout)
+    const numbers = ghNumbers(stdout)
 
-    return { count, note: count === null ? 'gh antwortet in einem unerwarteten Format' : null }
+    return { numbers, note: numbers === null ? 'gh antwortet in einem unerwarteten Format' : null }
   } catch (error) {
-    return { count: null, note: `gh lässt sich hier nicht starten (${firstLine(String(error))})` }
+    return { numbers: null, note: `gh lässt sich hier nicht starten (${firstLine(String(error))})` }
   }
 }
 
@@ -270,11 +298,46 @@ async function openRepo($: Engine): Promise<void> {
 }
 
 /**
- * Counts the open pull requests into the band's state: at most every five minutes for one
- * folder, at once for another, unless forced. A folder without a project has no band: no count.
+ * Opens the list of open pull requests or issues in the person's browser and, once it opened,
+ * marks every one of them as seen: the "+x" goes, in every session of the project.
+ */
+async function openList($: Engine, art: Art): Promise<void> {
+  const what = art === 'pr' ? 'PR-Liste' : 'Issue-Liste'
+  try {
+    const { exitCode, stderr } = await $.process.run(['gh', art, 'list', '--web'], {
+      timeoutMs: 15_000,
+    })
+    if (exitCode !== 0) {
+      $.ui.toast(`${what} lässt sich nicht öffnen: ${firstLine(stderr)}`)
+
+      return
+    }
+  } catch (error) {
+    $.ui.toast(`${what} lässt sich nicht öffnen: ${firstLine(String(error))}`)
+
+    return
+  }
+  const state = await read($, view)
+  if (state.project === null) {
+    return
+  }
+  const numbers = art === 'pr' ? state.prNumbers : state.issueNumbers
+  const seen = readSeen(await $.store.get('gesehen'))
+  const next = markSeen(seen, state.project, art, numbers, false)
+  if (next !== seen) {
+    await $.store.set('gesehen', next)
+  }
+  await refreshNew($)
+}
+
+/**
+ * Counts the open pull requests and issues into the band's state: at most every five minutes for
+ * one folder, at once for another, unless forced. A folder without a project has no band: no count.
+ * The first reading of a project is its baseline: what is open then is not new.
  */
 async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<void> {
-  if (projectOf(cwd) === null) {
+  const project = projectOf(cwd)
+  if (project === null) {
     return
   }
   const now = await $.clock.now()
@@ -284,13 +347,30 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
   }
   prsCheckedAt = now
   prsFor = cwd
-  const { count, note } = await readOpenPrs($)
-  // A reading that fails keeps the last good number, but only of the same folder.
+  const prs = await readOpen($, 'pr')
+  const issues = await readOpen($, 'issue')
+  // A reading that fails keeps the last good one, but only of the same folder.
   await update($, view, v => ({
     ...v,
-    openPrs: count ?? (isSameFolder ? v.openPrs : null),
-    prsNote: note,
+    openPrs: prs.numbers?.length ?? (isSameFolder ? v.openPrs : null),
+    prNumbers: prs.numbers ?? (isSameFolder ? v.prNumbers : []),
+    prsNote: prs.note,
+    openIssues: issues.numbers?.length ?? (isSameFolder ? v.openIssues : null),
+    issueNumbers: issues.numbers ?? (isSameFolder ? v.issueNumbers : []),
+    issuesNote: issues.note,
   }))
+  const seen = readSeen(await $.store.get('gesehen'))
+  let next = seen
+  if (prs.numbers !== null) {
+    next = markSeen(next, project, 'pr', prs.numbers, true)
+  }
+  if (issues.numbers !== null) {
+    next = markSeen(next, project, 'issue', issues.numbers, true)
+  }
+  if (next !== seen) {
+    await $.store.set('gesehen', next)
+  }
+  await refreshNew($)
 }
 
 /** Stores the person's color for this project (null: the next free one) and recolors its sessions. */
@@ -339,7 +419,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe <farbe>    setzt sie und färbt alle Sessions des Projekts um',
     '/projektfarbe standard   nächste freie Farbe automatisch',
     '/projektfarbe alle       färbt alle offenen Sessions neu ein',
-    '/projektfarbe band       Band, Kontext-Anzeige, PR-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
+    '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -381,14 +461,21 @@ export const register: Register = on => {
           ? 'Diese Session liegt in keinem Projektordner.'
           : `${state.mark ?? ''} ${state.project}: ${name}${satz === BUNT ? '' : ` (Schlafmodus, ${satz.label})`}`
 
+      const neu = (count: number): string => (count > 0 ? ` (${count} neu)` : '')
       const prs =
         state.openPrs !== null
-          ? `\nOffene PRs: ${prLabel(state.openPrs)}`
+          ? `\nOffene PRs: ${prLabel(state.openPrs)}${neu(state.newPrs)}`
           : state.prsNote === null
             ? ''
             : `\nPR-Zahl nicht verfügbar: ${state.prsNote}`
+      const issues =
+        state.openIssues !== null
+          ? `\nOffene Issues: ${prLabel(state.openIssues)}${neu(state.newIssues)}`
+          : state.issuesNote === null
+            ? ''
+            : `\nIssue-Zahl nicht verfügbar: ${state.issuesNote}`
 
-      return { text: `${head}${prs}\n\n${hilfe(satz)}` }
+      return { text: `${head}${prs}${issues}\n\n${hilfe(satz)}` }
     }
     if (arg === 'alle') {
       const renamed = await recolorAll($, null)
@@ -402,7 +489,7 @@ export const register: Register = on => {
 
       return {
         text: isHidden
-          ? 'Band ausgeblendet (mit Kontext-Anzeige, PR-Zahl und Farbpunkt am Spinner).'
+          ? 'Band ausgeblendet (mit Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner).'
           : 'Band eingeblendet.',
       }
     }
@@ -436,7 +523,7 @@ export const register: Register = on => {
       return next(e)
     }
     const state = await read($, view)
-    const { hex, contextPercent: percent, openPrs } = state
+    const { hex, contextPercent: percent, openPrs, openIssues } = state
     if (state.isHidden || state.project === null || state.mark === null || hex === null) {
       return next(e)
     }
@@ -520,14 +607,34 @@ export const register: Register = on => {
             <Text {...tone}>{` ${percent} %`}</Text>
           </Text>
         )}
+        {openPrs === null && openIssues === null ? null : <Text>{NBSP.repeat(4)}</Text>}
         {openPrs === null ? null : (
-          <Text>
-            {NBSP.repeat(6)}
-            <Text dimColor>PRs: </Text>
-            <Text bold>{prLabel(openPrs)}</Text>
-          </Text>
+          <Button key="prs" plain onPress={() => openList($, 'pr')}>
+            <Text>
+              <Text dimColor>PRs: </Text>
+              <Text bold>{prLabel(openPrs)}</Text>
+              {state.newPrs === 0 ? null : (
+                <Text color={NEW_COLOR} bold>
+                  {superscript(state.newPrs)}
+                </Text>
+              )}
+            </Text>
+          </Button>
         )}
-        {openPrs === null ? null : (
+        {openIssues === null ? null : (
+          <Button key="issues" plain onPress={() => openList($, 'issue')}>
+            <Text>
+              <Text dimColor>Issues: </Text>
+              <Text bold>{prLabel(openIssues)}</Text>
+              {state.newIssues === 0 ? null : (
+                <Text color={NEW_COLOR} bold>
+                  {superscript(state.newIssues)}
+                </Text>
+              )}
+            </Text>
+          </Button>
+        )}
+        {openPrs === null && openIssues === null ? null : (
           <Button key="repo" plain onPress={() => openRepo($)}>
             <Text dimColor>Repo ↗</Text>
           </Button>

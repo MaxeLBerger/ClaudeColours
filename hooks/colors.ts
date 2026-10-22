@@ -365,20 +365,101 @@ export function contextFill(percent: number): number {
 /** The band counts open pull requests up to this number; more than that shows as "100+". */
 export const PR_LIMIT = 100
 
-/** The number of open pull requests from the JSON `gh pr list --json number` prints; null when it is no list. */
-export function prCount(stdout: string): number | null {
+/** The numbers in the JSON `gh pr list` / `gh issue list --json number` prints; null when it is no list. */
+export function ghNumbers(stdout: string): number[] | null {
   try {
     const list: unknown = JSON.parse(stdout)
+    if (!Array.isArray(list)) {
+      return null
+    }
 
-    return Array.isArray(list) ? list.length : null
+    return list
+      .map(entry => (entry !== null && typeof entry === 'object' ? (entry as { number?: unknown }).number : undefined))
+      .filter((n): n is number => typeof n === 'number' && Number.isFinite(n))
   } catch {
     return null
   }
 }
 
+/** The number of open pull requests from the JSON `gh pr list --json number` prints; null when it is no list. */
+export function prCount(stdout: string): number | null {
+  return ghNumbers(stdout)?.length ?? null
+}
+
 /** The count as the band shows it. */
 export function prLabel(count: number): string {
   return count > PR_LIMIT ? `${PR_LIMIT}+` : String(count)
+}
+
+/** What the band counts for a repository: its pull requests and its issues. */
+export type Art = 'pr' | 'issue'
+
+/** The highest number seen of each kind, per project (lowercased), from the store key `gesehen`. */
+export type Gesehen = Record<string, Partial<Record<Art, number>>>
+
+const SUPERSCRIPT = '⁰¹²³⁴⁵⁶⁷⁸⁹'
+
+/** How many new entries there are, as small raised digits (`⁺²`); empty for none. */
+export function superscript(count: number): string {
+  if (count <= 0) {
+    return ''
+  }
+  const digits = [...String(Math.floor(count))].map(d => SUPERSCRIPT[Number(d)]).join('')
+
+  return `⁺${digits}`
+}
+
+/** The highest seen numbers from the store; anything that is not a number is left out. */
+export function readSeen(raw: unknown): Gesehen {
+  const seen: Gesehen = {}
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return seen
+  }
+  for (const [project, value] of Object.entries(raw)) {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+      continue
+    }
+    const entry: Partial<Record<Art, number>> = {}
+    for (const art of ['pr', 'issue'] as const) {
+      const n = (value as Record<string, unknown>)[art]
+      if (typeof n === 'number' && Number.isFinite(n)) {
+        entry[art] = n
+      }
+    }
+    seen[project.toLowerCase()] = entry
+  }
+
+  return seen
+}
+
+/** How many of these open numbers are newer than the highest one seen; none while nothing was seen. */
+export function newCount(numbers: readonly number[], seenMax: number | undefined): number {
+  return seenMax === undefined ? 0 : numbers.filter(n => n > seenMax).length
+}
+
+/**
+ * Marks these open numbers as seen for a project. With `isFirstOnly`, only where nothing was seen
+ * yet: the first reading is the baseline, so it shows no "+x". The highest seen never goes down.
+ * Returns the same object when nothing changed.
+ */
+export function markSeen(
+  seen: Gesehen,
+  project: string,
+  art: Art,
+  numbers: readonly number[],
+  isFirstOnly: boolean,
+): Gesehen {
+  const key = project.toLowerCase()
+  const before = seen[key]?.[art]
+  if (isFirstOnly && before !== undefined) {
+    return seen
+  }
+  const after = Math.max(before ?? 0, ...numbers)
+  if (after === before) {
+    return seen
+  }
+
+  return { ...seen, [key]: { ...seen[key], [art]: after } }
 }
 
 const TRIED_LIMIT = 300
