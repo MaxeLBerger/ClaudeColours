@@ -23,6 +23,11 @@ export type ProjektfarbenView = {
   issueNumbers: number[]
   /** How many open issues are newer than the highest one the person has seen. */
   newIssues: number
+  /**
+   * The repository's web address, read by `gh repo view` once per folder; the project's color and
+   * name link to it. A Link, not a Button: the desktop draws a Button natively, without the colors.
+   */
+  repoUrl: string | null
   /** Id of the color set in use: `bunt`, or a calm sleep set such as `daemmerung`. */
   satz: string
   /** True while the band shows the color buttons. */

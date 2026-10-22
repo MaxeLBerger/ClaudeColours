@@ -478,7 +478,10 @@ test('the band counts the open pull requests with gh, at most every five minutes
   on('session.cwd', () => ({ value: self.cwd }))
   on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
-    asked.push([...e.argv])
+    // The repository's address is read once beside the counts; only the counts are timed here.
+    if (e.argv[1] !== 'repo') {
+      asked.push([...e.argv])
+    }
 
     return ghList(open)
   })
@@ -519,7 +522,13 @@ test('the band counts the open pull requests with gh, at most every five minutes
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain('Offene PRs: 3')
 })
 
-test('a click on the project name asks gh to open the repository in the browser', async ($, on) => {
+/** What `$.process.run` answers for `gh repo view --json url`: the address, or a failure. */
+const ghUrl = (url: string | null) =>
+  url === null
+    ? ghFails('no default remote repository\nrun gh repo set-default')
+    : { value: { exitCode: 0, stdout: `${url}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+
+test("the project's color and name link to the repository, read once per folder", async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const asked: string[][] = []
   const clock = mock.clock(on)
@@ -527,19 +536,60 @@ test('a click on the project name asks gh to open the repository in the browser'
   on('mcp.call', fakeDesktop(self, []).hook)
   on('command.register', () => ({ value: { command: 'projektfarbe' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
     asked.push([...e.argv])
 
-    return ghList([1])
+    return e.argv[1] === 'repo' ? ghUrl('https://github.com/me/beta') : ghList([1])
   })
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ key: 'repo' })).toBeDefined()
-  await ui.press({ key: 'repo' })
+  const links = await ui.findAll({ type: 'Link' })
   await ui.unmount()
-  expect(asked[asked.length - 1]).toEqual(['gh', 'repo', 'view', '--web'])
+  expect(links.map(link => link.props.href)).toEqual(['https://github.com/me/beta'])
+  // The link holds the color block and the bold name, as before.
+  expect(links[0]?.text).toContain('Beta')
+  expect(asked).toContainEqual(['gh', 'repo', 'view', '--json', 'url', '--jq', '.url'])
+
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(asked.filter(argv => argv[1] === 'repo')).toHaveLength(1)
+})
+
+test('without an address the name stays plain text, and the next count asks again', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let url: string | null = null
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', (_, e) => (e.argv[1] === 'repo' ? ghUrl(url) : ghList([1])))
+
+  const band = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const links = (await ui.findAll({ type: 'Link' })).map(link => link.props.href)
+    const colored = (await ui.findAll({ type: 'Text' })).some(text => text.props.backgroundColor === '#3b82f6')
+    await ui.unmount()
+
+    return { links, colored }
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await band()).toEqual({ links: [], colored: true })
+
+  url = 'https://github.com/me/beta'
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(await band()).toEqual({ links: ['https://github.com/me/beta'], colored: true })
 })
 
 test('without a working gh the band shows 0, and /projektfarbe says why', async ($, on) => {
@@ -818,41 +868,6 @@ test('the picker reads the mode from the store: another session may have switche
   await ui.unmount()
 })
 
-test('the project name says why gh could not open the repository', async ($, on) => {
-  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
-  const toasts: string[] = []
-  const clock = mock.clock(on)
-  mock.store(on)
-  on('mcp.call', fakeDesktop(self, []).hook)
-  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('process.run', (_, e) =>
-    e.argv[1] === 'repo'
-      ? {
-          value: {
-            exitCode: 1,
-            stdout: '',
-            stderr: 'no default remote repository\nrun gh repo set-default',
-            isStdoutTruncated: false,
-            isStderrTruncated: false,
-          },
-        }
-      : ghList([1]),
-  )
-  on('ui.toast', (_, e) => {
-    toasts.push(e.text)
-
-    return { value: undefined }
-  })
-
-  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await ui.press({ key: 'repo' })
-  await ui.unmount()
-  expect(toasts).toEqual(['Repo lässt sich nicht öffnen: no default remote repository'])
-})
-
 test('a count that cannot be read again is kept for the same folder and dropped for another', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   let cwd = self.cwd
@@ -1121,7 +1136,7 @@ test('a list that cannot be opened says why and keeps the "+x"', async ($, on) =
   expect((await counts($)).prs).toBe('PRs: 2⁺¹')
 })
 
-test('the band puts the project, then the counts before the context gauge; the project name opens the repo', async ($, on) => {
+test('the band puts the project, then the counts before the context gauge', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const clock = mock.clock(on)
   mock.store(on)
@@ -1144,7 +1159,7 @@ test('the band puts the project, then the counts before the context gauge; the p
   expect(at(/Beta$/)).toBeLessThan(at(/^PRs: /))
   expect(at(/^PRs: /)).toBeLessThan(at(/^Issues: /))
   expect(at(/^Issues: /)).toBeLessThan(at(/^Kontext/))
-  // No separate repo button any more: the project name is it.
+  // No separate repo button any more: the project name links to the repository.
   expect(at(/^Repo/)).toBe(-1)
 })
 

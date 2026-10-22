@@ -68,6 +68,7 @@ const EMPTY: ProjektfarbenView = {
   issuesNote: null,
   issueNumbers: [],
   newIssues: 0,
+  repoUrl: null,
   satz: BUNT.id,
   isPicking: false,
   isHidden: false,
@@ -306,22 +307,23 @@ async function readOpen($: Engine, art: Art): Promise<{ numbers: number[] | null
   }
 }
 
-/**
- * Opens the project's repository in the person's own browser: `gh` hands the address to the
- * system's default browser, not to the browser pane inside the app.
- */
-async function openRepo($: Engine): Promise<void> {
+/** The web address of the session's repository, from `gh`; null when it cannot tell. */
+async function readRepoUrl($: Engine): Promise<string | null> {
   try {
-    const { exitCode, stderr } = await $.process.run(['gh', 'repo', 'view', '--web'], {
-      timeoutMs: 15_000,
-    })
-    if (exitCode !== 0) {
-      $.ui.toast(`Repo lässt sich nicht öffnen: ${firstLine(stderr)}`)
-    }
-  } catch (error) {
-    $.ui.toast(`Repo lässt sich nicht öffnen: ${firstLine(String(error))}`)
+    const { exitCode, stdout } = await $.process.run(
+      ['gh', 'repo', 'view', '--json', 'url', '--jq', '.url'],
+      { timeoutMs: 20_000 },
+    )
+    const url = stdout.trim()
+
+    return exitCode === 0 && /^https:\/\/\S+$/.test(url) ? url : null
+  } catch {
+    return null
   }
 }
+
+// The folder whose repository address the band holds; read once per folder, again after a failure.
+let urlFor: string | null = null
 
 /**
  * Opens the list of open pull requests or issues in the person's browser and, once it opened,
@@ -382,10 +384,19 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
   }
   prsCheckedAt = now
   prsFor = cwd
-  const [prs, issues] = await Promise.all([readOpen($, 'pr'), readOpen($, 'issue')])
+  const needsUrl = urlFor !== cwd
+  const [prs, issues, url] = await Promise.all([
+    readOpen($, 'pr'),
+    readOpen($, 'issue'),
+    needsUrl ? readRepoUrl($) : Promise.resolve(undefined),
+  ])
+  if (url !== undefined && url !== null) {
+    urlFor = cwd
+  }
   // A reading that fails keeps the last good one, but only of the same folder.
   await update($, view, v => ({
     ...v,
+    repoUrl: url === undefined ? v.repoUrl : (url ?? (isSameFolder ? v.repoUrl : null)),
     openPrs: prs.numbers?.length ?? (isSameFolder ? v.openPrs : null),
     prNumbers: prs.numbers ?? (isSameFolder ? v.prNumbers : []),
     prsNote: prs.note,
@@ -646,7 +657,7 @@ export const register: Register = on => {
     if (state.isHidden || state.project === null || state.mark === null || hex === null) {
       return next(e)
     }
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const { Box, Button, Link, Text } = $.ui.resolve(e)
     const satz = satzOf(state.satz)
     const isCalm = satz !== BUNT
     const pick = async (farbe: Farbe): Promise<void> => {
@@ -699,22 +710,22 @@ export const register: Register = on => {
       level === 'ok' ? { dimColor: true } : { color: CONTEXT_FILL[level], bold: level === 'full' }
     // Subagent views get no gauge: the number is the main session's.
     const showsGauge = percent !== null && e.props.view.agentId === undefined
+    const name = (
+      <Text>
+        {isCalm ? (
+          <Text color={hex}>{state.mark}</Text>
+        ) : (
+          <Text mono backgroundColor={hex}>
+            {NBSP.repeat(2)}
+          </Text>
+        )}
+        <Text bold={!isCalm}>{` ${state.project}`}</Text>
+      </Text>
+    )
 
     return (
       <Box columnGap={2} flexWrap="wrap">
-        {/* The project's color and name open its repository in the person's browser. */}
-        <Button key="repo" plain onPress={() => openRepo($)}>
-          <Text>
-            {isCalm ? (
-              <Text color={hex}>{state.mark}</Text>
-            ) : (
-              <Text mono backgroundColor={hex}>
-                {NBSP.repeat(2)}
-              </Text>
-            )}
-            <Text bold={!isCalm}>{` ${state.project}`}</Text>
-          </Text>
-        </Button>
+        {state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>}
         <Button key="prs" plain onPress={() => openList($, 'pr')}>
           <Text>
             <Text dimColor>PRs: </Text>
