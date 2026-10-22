@@ -5,5 +5,6 @@
   "author": { "name": "MaxeLBerger", "url": "https://github.com/MaxeLBerger" },
   "homepage": "https://github.com/MaxeLBerger/ClaudeColours",
   "repository": "https://github.com/MaxeLBerger/ClaudeColours",
+  "license": "MIT",
   "types": "./types/index.d.ts"
 }

@@ -70,3 +70,7 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 claude plugin validate .
 claude plugin test .
 ```
+
+## Lizenz
+
+MIT, siehe [LICENSE](LICENSE).
