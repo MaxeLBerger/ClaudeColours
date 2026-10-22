@@ -702,16 +702,19 @@ export const register: Register = on => {
 
     return (
       <Box columnGap={2} flexWrap="wrap">
-        <Text>
-          {isCalm ? (
-            <Text color={hex}>{state.mark}</Text>
-          ) : (
-            <Text mono backgroundColor={hex}>
-              {NBSP.repeat(2)}
-            </Text>
-          )}
-          <Text bold={!isCalm}>{` ${state.project}`}</Text>
-        </Text>
+        {/* The project's color and name open its repository in the person's browser. */}
+        <Button key="repo" plain onPress={() => openRepo($)}>
+          <Text>
+            {isCalm ? (
+              <Text color={hex}>{state.mark}</Text>
+            ) : (
+              <Text mono backgroundColor={hex}>
+                {NBSP.repeat(2)}
+              </Text>
+            )}
+            <Text bold={!isCalm}>{` ${state.project}`}</Text>
+          </Text>
+        </Button>
         <Button key="prs" plain onPress={() => openList($, 'pr')}>
           <Text>
             <Text dimColor>PRs: </Text>
@@ -733,9 +736,6 @@ export const register: Register = on => {
               </Text>
             )}
           </Text>
-        </Button>
-        <Button key="repo" plain onPress={() => openRepo($)}>
-          <Text dimColor>Repo ↗</Text>
         </Button>
         {!showsGauge ? null : (
           <Text>{NBSP.repeat(4)}</Text>

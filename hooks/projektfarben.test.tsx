@@ -519,7 +519,7 @@ test('the band counts the open pull requests with gh, at most every five minutes
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain('Offene PRs: 3')
 })
 
-test('the repo button asks gh to open the repository in the browser', async ($, on) => {
+test('a click on the project name asks gh to open the repository in the browser', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const asked: string[][] = []
   const clock = mock.clock(on)
@@ -818,7 +818,7 @@ test('the picker reads the mode from the store: another session may have switche
   await ui.unmount()
 })
 
-test('the repo button says why gh could not open the repository', async ($, on) => {
+test('the project name says why gh could not open the repository', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const toasts: string[] = []
   const clock = mock.clock(on)
@@ -1121,7 +1121,7 @@ test('a list that cannot be opened says why and keeps the "+x"', async ($, on) =
   expect((await counts($)).prs).toBe('PRs: 2⁺¹')
 })
 
-test('the band puts the counts and the repo button before the context gauge', async ($, on) => {
+test('the band puts the project, then the counts before the context gauge; the project name opens the repo', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const clock = mock.clock(on)
   mock.store(on)
@@ -1140,10 +1140,12 @@ test('the band puts the counts and the repo button before the context gauge', as
   await ui.unmount()
   const at = (pattern: RegExp) => texts.findIndex(text => pattern.test(text))
 
-  expect(at(/^PRs: /)).toBeGreaterThan(-1)
+  expect(at(/Beta$/)).toBeGreaterThan(-1)
+  expect(at(/Beta$/)).toBeLessThan(at(/^PRs: /))
   expect(at(/^PRs: /)).toBeLessThan(at(/^Issues: /))
-  expect(at(/^Issues: /)).toBeLessThan(at(/^Repo/))
-  expect(at(/^Repo/)).toBeLessThan(at(/^Kontext/))
+  expect(at(/^Issues: /)).toBeLessThan(at(/^Kontext/))
+  // No separate repo button any more: the project name is it.
+  expect(at(/^Repo/)).toBe(-1)
 })
 
 const HOUR = 60 * 60_000
