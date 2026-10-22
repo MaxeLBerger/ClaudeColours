@@ -40,7 +40,7 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
   | ✓ / ✖ | PR gemerged / geschlossen (selten: die App archiviert solche Sessions meist selbst) |
   | 💤 | seit mehr als 3 Tagen nichts passiert und kein PR: Kandidat zum Archivieren |
 
-  Den PR findet der Mod über den Branch der Session (`gh pr list --state all`, einmal pro Repository; bei mehreren PRs auf einem Branch zählt der neueste). Kennt `gh` keinen, nimmt er den PR, den die App selbst der Session zuordnet. Jede Session merkt sich dafür nach jeder eigenen Antwort, wie sie endete (Antwort, abgebrochen, Fehler).
+  Den PR nimmt der Mod zuerst von der App, die ihn der Session selbst zuordnet. `gh pr list --state all` (einmal pro Repository) liefert dazu CI, Review und Entwurf und findet den PR über den Branch, wenn die App keinen kennt; bei mehreren PRs auf einem Branch zählt dann der neueste. Jede Session merkt sich dafür nach jeder eigenen Antwort, wie sie endete (Antwort, abgebrochen, Fehler).
 - **Schlafmodus:** `/projektfarbe schlaf` ersetzt die bunten Punkte durch ruhige Formen und das Band durch gedämpfte Farben. `/projektfarbe bunt` stellt alles zurück.
 - **Wechsel in der Farbwahl:** Unter den Farben von „Farbe ändern“ steht, mit etwas Abstand, die Zeile „Modus“: ein Emoji und der Name je Modus (`🎨 Bunt`, `🌙 Dämmerung`). Der aktive Modus ist fett, die anderen sind gedimmt; jeder weitere Modus bekommt ein eigenes Emoji und reiht sich in die Zeile ein. Ein Klick auf den anderen Modus schaltet um und benennt alle offenen Sessions um; ein Klick auf den aktiven Modus tut nichts.
 

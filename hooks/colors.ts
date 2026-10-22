@@ -654,29 +654,36 @@ const TAG_MS = 24 * 60 * 60_000
 
 type SessionPr = { number: number; state: PrState; zusatz: string[]; isUrgent: boolean }
 
-/** The session's pull request: the newest one `gh` lists for its branch, else the one the app names. */
+/**
+ * The session's pull request. The one the app names comes first, with its number and state;
+ * `gh` adds what it waits for (CI, review, draft). Without one from the app, the newest
+ * `gh` lists for the session's branch.
+ */
 function prFor(session: ListedSession, prs: readonly GhPr[] | null): SessionPr | null {
-  const own = (prs ?? [])
-    .filter(pr => session.branch !== null && pr.headRefName === session.branch)
-    .sort((a, b) => b.number - a.number)[0]
-  if (own !== undefined) {
-    const isOpen = own.state === 'OPEN'
-    const zusatz = [
-      own.isCiRed ? 'CI rot' : null,
-      own.reviewDecision === 'CHANGES_REQUESTED' ? 'Änderungen gewünscht' : null,
-      own.reviewDecision === 'REVIEW_REQUIRED' ? 'Review wartet' : null,
-      own.isDraft ? 'Entwurf' : null,
-    ].filter((z): z is string => z !== null)
-
-    return {
-      number: own.number,
-      state: own.state,
-      zusatz: isOpen ? zusatz : [],
-      isUrgent: isOpen && (own.isCiRed || own.reviewDecision === 'CHANGES_REQUESTED'),
-    }
+  const listed = prs ?? []
+  const app = session.appPr
+  const own =
+    app !== null
+      ? listed.find(pr => pr.number === app.number)
+      : listed
+          .filter(pr => session.branch !== null && pr.headRefName === session.branch)
+          .sort((a, b) => b.number - a.number)[0]
+  const number = app?.number ?? own?.number
+  const state = app?.state ?? own?.state
+  if (number === undefined || state === undefined) {
+    return null
   }
+  if (own === undefined || state !== 'OPEN') {
+    return { number, state, zusatz: [], isUrgent: false }
+  }
+  const zusatz = [
+    own.isCiRed ? 'CI rot' : null,
+    own.reviewDecision === 'CHANGES_REQUESTED' ? 'Änderungen gewünscht' : null,
+    own.reviewDecision === 'REVIEW_REQUIRED' ? 'Review wartet' : null,
+    own.isDraft ? 'Entwurf' : null,
+  ].filter((z): z is string => z !== null)
 
-  return session.appPr === null ? null : { ...session.appPr, zusatz: [], isUrgent: false }
+  return { number, state, zusatz, isUrgent: own.isCiRed || own.reviewDecision === 'CHANGES_REQUESTED' }
 }
 
 function prText(pr: SessionPr): string {

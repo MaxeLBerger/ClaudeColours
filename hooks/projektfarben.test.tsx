@@ -1286,9 +1286,33 @@ test("a session's pull request is the newest on its branch, with what it is wait
   // gh not available: no pull request part, still a status; the app's own link fills in when it has one.
   expect(label(null)).toBe('✎ in Arbeit, kein PR')
   expect(label(null, { prNumber: 5, prState: 'MERGED' })).toBe('✓ PR #5 gemerged')
+  expect(label(null, { prNumber: 5, prState: 'OPEN' })).toBe('🔀 PR #5 offen')
   // Running or aborted: the pull request rides along.
   expect(label([pr()], { isRunning: true })).toBe('▶ läuft · PR #7 offen')
   expect(statusOf(session(), { grund: 'aborted', um: NOW }, [pr()], NOW).label).toBe('abgebrochen · PR #7 offen')
+})
+
+test("the app's own pull request comes first; gh only adds what it waits for", async () => {
+  const label = (prs: GhPr[] | null, fields: Record<string, unknown>) => {
+    const status = statusOf(session(fields), undefined, prs, NOW)
+
+    return `${status.mark} ${status.label}`
+  }
+  const app = { prNumber: 3, prState: 'OPEN' }
+  // gh lists a newer one on the branch: the app's number still counts, with gh's details for it.
+  expect(label([pr({ number: 12 }), pr({ number: 3, isCiRed: true, isDraft: true })], app)).toBe(
+    '🔀 PR #3 offen, CI rot, Entwurf',
+  )
+  // gh does not know the app's number (or is not there): the app's PR without details.
+  expect(label([pr({ number: 12 })], app)).toBe('🔀 PR #3 offen')
+  // The app's state wins over gh's; a closed or merged one gets no details.
+  expect(label([pr({ number: 3, state: 'OPEN', isCiRed: true })], { prNumber: 3, prState: 'MERGED' })).toBe(
+    '✓ PR #3 gemerged',
+  )
+  // gh's details for the app's PR count for the order too.
+  expect(statusOf(session(app), undefined, [pr({ number: 3, isCiRed: true })], NOW).rang).toBe(1)
+  // Without a number from the app, gh by branch is the fallback.
+  expect(label([pr({ number: 12 })], {})).toBe('🔀 PR #12 offen')
 })
 
 test('how long ago reads in short German', async () => {
