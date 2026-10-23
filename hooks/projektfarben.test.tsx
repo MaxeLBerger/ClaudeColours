@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   alterText,
+  archiveReason,
   assignFarben,
   buildUebersicht,
   BUNT,
@@ -33,6 +34,7 @@ import {
   stripMark,
   superscript,
   toListed,
+  uebersichtSummary,
   uebersichtText,
   type GhPr,
   type Grund,
@@ -1495,4 +1497,240 @@ test('/projektfarbe status says so when the app cannot be asked', async ($, on) 
   await clock.settle()
   const text = (await $.command.run({ ...RUN, args: 'status' })).text
   expect(text).toContain('Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App)')
+})
+
+const PANE = {
+  plugin: 'projektfarben',
+  component: 'Pane',
+  requestId: 'uebersicht',
+  props: {
+    title: 'Übersicht',
+    isFocused: false,
+    bodyColumns: 80,
+    placement: 'dock',
+    scroll: { offset: 0, bodyRows: 40 },
+    view: {},
+  },
+} as const
+
+type TestEngine = Parameters<Parameters<typeof test>[1]>[0]
+type TestOn = Parameters<Parameters<typeof test>[1]>[1]
+
+test('the footer counts what needs the person; only resting sessions and closed pull requests can be archived', async () => {
+  const sessions = [
+    session({ sessionId: 'a', branch: 'x', lastActivityAt: new Date(NOW - 5 * DAY).toISOString() }),
+    session({ sessionId: 'b', branch: 'y', lastActivityAt: new Date(NOW - 6 * DAY).toISOString() }),
+    session({ sessionId: 'c', branch: 'z', prNumber: 4, prState: 'MERGED' }),
+    session({ sessionId: 'd', branch: 'w', prNumber: 5, prState: 'CLOSED' }),
+    session({ sessionId: 'e', branch: 'v', prNumber: 6, prState: 'OPEN' }),
+    session({ sessionId: 'f', branch: 'u', isRunning: true }),
+    session({ sessionId: 'g', branch: 't' }),
+  ]
+  const overview = buildUebersicht({
+    sessions,
+    selfId: 'g',
+    stand: { f: { grund: 'answer', um: NOW }, g: { grund: 'aborted', um: NOW } },
+    prs: new Map(),
+    markOf: () => '🟦',
+    now: NOW,
+  })
+  expect(uebersichtSummary(overview)).toBe('7 Sessions · 1 abgebrochen · 1 mit offenem PR · 2 ruhen')
+  expect(uebersichtSummary({ gruppen: [], hinweise: [] })).toBe('0 Sessions')
+  const zeilen = overview.gruppen.flatMap(group => group.zeilen)
+  const reasons = Object.fromEntries(zeilen.map(zeile => [zeile.sessionId, archiveReason(zeile)]))
+  expect(reasons).toEqual({
+    a: 'ruht seit 5 Tagen',
+    b: 'ruht seit 6 Tagen',
+    c: 'PR #4 gemerged',
+    d: 'PR #5 geschlossen',
+    e: null,
+    f: null,
+    g: null,
+  })
+  // The session the panel runs in is never offered, even when it rests.
+  const own = buildUebersicht({
+    sessions: [sessions[0]!],
+    selfId: 'a',
+    stand: {},
+    prs: new Map(),
+    markOf: () => '🟦',
+    now: NOW,
+  })
+  expect(archiveReason(own.gruppen[0]!.zeilen[0]!)).toBe(null)
+})
+
+/** The desktop with sessions that carry what the overview needs, and a recorded archive_session. */
+function panelDesktop(options: { refuseArchive?: boolean } = {}) {
+  const self = listed({
+    sessionId: 'local_self',
+    title: '🟦 Panel bauen',
+    cwd: `${ALPHA}\\.claude\\worktrees\\a`,
+    branch: 'claude/panel',
+    isRunning: true,
+  })
+  const others = [
+    listed({
+      sessionId: 'local_alt',
+      title: '🟦 Alte Idee',
+      cwd: `${ALPHA}\\.claude\\worktrees\\b`,
+      branch: 'claude/alt',
+      lastActivityAt: new Date(NOW - 5 * DAY).toISOString(),
+    }),
+    listed({ sessionId: 'local_ab', title: '🟩 Abgebrochen', cwd: `${BETA}\\.claude\\worktrees\\c`, branch: 'claude/ab' }),
+    listed({ sessionId: 'local_pr', title: '🟩 Mit PR', cwd: BETA, branch: 'main', prNumber: 2, prState: 'OPEN' }),
+  ]
+  const archived: { session_id: unknown; reason: unknown }[] = []
+  let lists = 0
+  const reply = (value: unknown, isError = false) => ({
+    value: { content: [{ type: 'text', text: typeof value === 'string' ? value : JSON.stringify(value) }], isError },
+  })
+
+  return {
+    archived,
+    lists: () => lists,
+    hook: (_: unknown, e: { tool: string; args: Record<string, unknown> }) => {
+      if (e.tool === 'get_session') {
+        return reply(self)
+      }
+      if (e.tool === 'list_sessions') {
+        lists += 1
+
+        return reply(others)
+      }
+      if (e.tool === 'archive_session') {
+        archived.push({ session_id: e.args.session_id, reason: e.args.reason })
+
+        return options.refuseArchive === true ? reply('Der Nutzer hat abgelehnt.', true) : reply({ ok: true })
+      }
+
+      return reply({ ok: true })
+    },
+    cwd: self.cwd,
+  }
+}
+
+async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?: boolean } = {}) {
+  const clock = mock.clock(on)
+  await clock.set(NOW)
+  const desktop = panelDesktop(options)
+  const toasts: string[] = []
+  const closed: unknown[] = []
+  mock.store(on, { stand: { local_ab: { grund: 'aborted', um: NOW - 3 * HOUR } }, farben: { alpha: '🟦', beta: '🟩' } })
+  on('mcp.call', desktop.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: desktop.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', (_, e) => {
+    closed.push(e.id)
+
+    return { value: undefined }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  on('process.run', () => ghList([]))
+
+  await $.session.start({ cwd: desktop.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const text = (await $.command.run({ ...RUN, args: 'übersicht' })).text
+  await clock.settle()
+
+  return { clock, desktop, toasts, closed, text }
+}
+
+const panelText = async ($: TestEngine) => {
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const whole = (await ui.find({ type: 'Box' }))?.text ?? ''
+  const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+  await ui.unmount()
+
+  return { whole, keys }
+}
+
+test('/projektfarbe übersicht opens the panel: groups with the urgent project first, a line and the footer', async ($, on) => {
+  const { text } = await openedPanel($, on)
+  expect(text).toBe('Übersicht geöffnet.')
+
+  const { whole, keys } = await panelText($)
+  const at = (part: string) => whole.indexOf(part)
+  // Beta has an aborted session and comes before Alpha, whose best session is still running.
+  expect(at('Beta')).toBeGreaterThan(-1)
+  expect(at('Beta')).toBeLessThan(at('Alpha'))
+  expect(at('Abgebrochen')).toBeLessThan(at('Mit PR'))
+  expect(whole).toContain('abgebrochen · vor 2 Std')
+  expect(whole).toContain('PR #2 offen')
+  expect(whole).toContain('Panel bauen (diese)')
+  expect(whole).toContain('4 Sessions · 1 abgebrochen · 1 mit offenem PR · 1 ruht')
+  // Only the resting session can be archived, never the running one that shows the panel.
+  expect(keys.filter(key => key.startsWith('archivieren-'))).toEqual(['archivieren-local_alt'])
+  expect(keys).toContain('aktualisieren')
+  expect(keys).toContain('schliessen')
+  expect(keys.some(key => key.startsWith('oeffnen-'))).toBe(false)
+})
+
+test('aktualisieren reads the sessions again; schliessen closes the panel', async ($, on) => {
+  const { desktop, closed } = await openedPanel($, on)
+  const before = desktop.lists()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'aktualisieren' })
+  expect(desktop.lists()).toBe(before + 1)
+  await ui.press({ key: 'schliessen' })
+  await ui.unmount()
+  expect(closed).toEqual(['uebersicht'])
+})
+
+test('archivieren asks the app with a reason and reads the list again', async ($, on) => {
+  const { desktop, toasts } = await openedPanel($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'archivieren-local_alt' })
+  await ui.unmount()
+  expect(desktop.archived).toEqual([{ session_id: 'local_alt', reason: 'ruht seit 5 Tagen' }])
+  expect(toasts).toEqual(['„Alte Idee“ archiviert.'])
+})
+
+test('a refused archive is a toast, and the row stays', async ($, on) => {
+  const { desktop, toasts } = await openedPanel($, on, { refuseArchive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'archivieren-local_alt' })
+  await ui.unmount()
+  expect(desktop.archived).toHaveLength(1)
+  expect(toasts).toEqual(['„Alte Idee“ bleibt: Der Nutzer hat abgelehnt.'])
+  expect((await panelText($)).keys).toContain('archivieren-local_alt')
+})
+
+test('an open panel is read again after a turn, at most once a minute', async ($, on) => {
+  const { clock, desktop } = await openedPanel($, on)
+  const base = desktop.lists()
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(desktop.lists()).toBe(base)
+
+  await clock.advance(61_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(desktop.lists()).toBe(base + 1)
+})
+
+test('where no surface places the panel, /projektfarbe übersicht prints the status text', async ($, on) => {
+  const clock = mock.clock(on)
+  await clock.set(NOW)
+  const desktop = panelDesktop()
+  mock.store(on, { farben: { alpha: '🟦', beta: '🟩' } })
+  on('mcp.call', desktop.hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: desktop.cwd }))
+  on('ui.open', () => ({ value: { isPlaced: false, reason: 'no surface' } }))
+  on('process.run', () => ghList([]))
+
+  await $.session.start({ cwd: desktop.cwd, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const viaPanel = (await $.command.run({ ...RUN, args: 'uebersicht' })).text
+  const viaStatus = (await $.command.run({ ...RUN, args: 'status' })).text
+  expect(viaPanel).toBe(viaStatus)
+  expect(viaPanel).toContain('4 offene Session(s)')
 })

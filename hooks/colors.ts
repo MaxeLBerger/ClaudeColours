@@ -886,3 +886,40 @@ export function uebersichtText(uebersicht: Uebersicht): string {
 
   return lines.join('\n')
 }
+
+const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
+
+/** The panel's footer: "12 Sessions · 3 abgebrochen · 4 mit offenem PR · 2 ruhen"; zero counts are left out. */
+export function uebersichtSummary(uebersicht: Uebersicht): string {
+  const zeilen = uebersicht.gruppen.flatMap(group => group.zeilen)
+  const count = (...arten: StatusArt[]): number => zeilen.filter(z => arten.includes(z.status.art)).length
+  const ruht = count('ruht')
+  const parts = [
+    plural(zeilen.length, 'Session', 'Sessions'),
+    count('abgebrochen') === 0 ? null : `${count('abgebrochen')} abgebrochen`,
+    count('fehler') === 0 ? null : `${count('fehler')} mit Fehler`,
+    count('pr-offen') === 0 ? null : `${count('pr-offen')} mit offenem PR`,
+    ruht === 0 ? null : `${ruht} ${ruht === 1 ? 'ruht' : 'ruhen'}`,
+  ]
+
+  return parts.filter((part): part is string => part !== null).join(' · ')
+}
+
+/**
+ * Why the panel may offer to archive a session, or null when it may not: it rests, or its pull
+ * request is merged or closed. The session the panel runs in is never offered (archiving ends it).
+ */
+export function archiveReason(zeile: UebersichtZeile): string | null {
+  if (zeile.isSelf) {
+    return null
+  }
+  const { art, label, pr } = zeile.status
+  if (art === 'ruht') {
+    return label.split(',')[0] ?? null
+  }
+  if ((art === 'pr-gemerged' || art === 'pr-geschlossen') && pr !== null) {
+    return `PR #${pr} ${art === 'pr-gemerged' ? 'gemerged' : 'geschlossen'}`
+  }
+
+  return null
+}

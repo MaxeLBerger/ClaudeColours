@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, McpContentBlock, Register } from 'claude-code'
 
-import type { ProjektfarbenView } from '../types'
+import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
+  archiveReason,
   assignFarben,
   buildUebersicht,
   BUNT,
@@ -36,6 +37,7 @@ import {
   superscript,
   toListed,
   toRow,
+  uebersichtSummary,
   uebersichtText,
   type Art,
   type Farbe,
@@ -46,6 +48,7 @@ import {
   type SessionRow,
   type TitlePlan,
   type Uebersicht,
+  type UebersichtZeile,
 } from './colors'
 
 type Engine = EngineInterface
@@ -74,6 +77,12 @@ const EMPTY: ProjektfarbenView = {
   isHidden: false,
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
+
+// The side panel with the overview of all sessions; its data is the one `/projektfarbe status` prints.
+const PANEL = 'uebersicht'
+const PANEL_EVERY_MS = 60_000
+const EMPTY_PANEL: ProjektfarbenPanel = { daten: null, isLoading: false, fehler: null, um: null, isOpen: false }
+const panel = atom({ plugin: 'projektfarben', key: 'uebersicht' } as const, EMPTY_PANEL)
 
 // Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
 // the warning and error colors from where the window is filling up.
@@ -209,6 +218,7 @@ async function afterTurn($: Engine, grund: Grund): Promise<void> {
   const cwd = await $.session.cwd()
   await refreshView($, cwd)
   void refreshPrs($, cwd, false).catch(() => undefined)
+  void refreshPanel($).catch(() => undefined)
   if ((await recolorSelf($, false, await self)) === 'unnamed') {
     $.clock.after(RETRY_MS, () => {
       void recolorSelf($, false).catch(() => undefined)
@@ -489,6 +499,67 @@ async function readUebersicht($: Engine): Promise<Uebersicht> {
   })
 }
 
+/** Reads the overview into the panel's state; a reading already under way is not started twice. */
+async function loadPanel($: Engine): Promise<void> {
+  if ((await read($, panel)).isLoading) {
+    return
+  }
+  await update($, panel, p => ({ ...p, isLoading: true }))
+  try {
+    const daten = await readUebersicht($)
+    const um = await $.clock.now()
+    await update($, panel, p => ({ ...p, daten, um, fehler: null, isLoading: false }))
+  } catch (error) {
+    await update($, panel, p => ({
+      ...p,
+      isLoading: false,
+      fehler: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
+    }))
+  }
+}
+
+/** After a turn: an open panel is read again, at most once a minute. */
+async function refreshPanel($: Engine): Promise<void> {
+  const { isOpen, um } = await read($, panel)
+  if (isOpen && (um === null || (await $.clock.now()) - um >= PANEL_EVERY_MS)) {
+    await loadPanel($)
+  }
+}
+
+/** Opens the panel and reads the overview; false where no surface places it (the terminal, mostly). */
+async function openPanel($: Engine): Promise<boolean> {
+  const opened = await $.ui.open({ id: PANEL, title: 'Übersicht' })
+  if (!opened.isPlaced) {
+    return false
+  }
+  await update($, panel, p => ({ ...p, isOpen: true }))
+  void loadPanel($).catch(() => undefined)
+
+  return true
+}
+
+/** Archives one session on the person's yes in the app; a no or an error is a toast, the row stays. */
+async function archive($: Engine, zeile: UebersichtZeile): Promise<void> {
+  const reason = archiveReason(zeile)
+  if (reason === null) {
+    return
+  }
+  try {
+    const result = await $.mcp.call(SERVER, 'archive_session', { session_id: zeile.sessionId, reason })
+    if (result.isError) {
+      $.ui.toast(`„${zeile.title}“ bleibt: ${firstLine(textOf(result.content)) || 'nicht archiviert'}`)
+
+      return
+    }
+  } catch (error) {
+    $.ui.toast(`„${zeile.title}“ bleibt: ${firstLine(String(error))}`)
+
+    return
+  }
+  $.ui.toast(`„${zeile.title}“ archiviert.`)
+  await loadPanel($)
+}
+
 /** Stores the person's color for this project (null: the next free one) and recolors its sessions. */
 async function choose($: Engine, farbe: Farbe | null): Promise<string> {
   const { project } = await read($, view)
@@ -536,6 +607,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe standard   nächste freie Farbe automatisch',
     '/projektfarbe alle       färbt alle offenen Sessions neu ein',
     '/projektfarbe status     Stand aller offenen Sessions nach Projekt (läuft, abgebrochen, PR, ruht …)',
+    '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
@@ -548,7 +620,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'projektfarbe',
       description: 'Farbe dieses Projekts zeigen oder ändern (Farbpunkt vor den Session-Namen)',
-      argumentHint: '[farbe | standard | alle | status | band | schlaf | bunt]',
+      argumentHint: '[farbe | standard | alle | status | übersicht | band | schlaf | bunt]',
     })
     // In the background, so the session start never waits on the app.
     void startUp($, e.cwd).catch(() => undefined)
@@ -600,6 +672,19 @@ export const register: Register = on => {
       return { text: `${renamed} Session(s) mit ihrer Projektfarbe umbenannt.` }
     }
     if (arg === 'status') {
+      try {
+        return { text: uebersichtText(await readUebersicht($)) }
+      } catch (error) {
+        return {
+          text: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
+        }
+      }
+    }
+    if (arg === 'übersicht' || arg === 'uebersicht') {
+      if (await openPanel($)) {
+        return { text: 'Übersicht geöffnet.' }
+      }
+      // No surface places the panel: the same data as text.
       try {
         return { text: uebersichtText(await readUebersicht($)) }
       } catch (error) {
@@ -770,6 +855,17 @@ export const register: Register = on => {
           </Text>
         )}
         <Button
+          key="uebersicht"
+          plain
+          onPress={async () => {
+            if (!(await openPanel($))) {
+              $.ui.toast('Hier ist kein Platz für das Panel; /projektfarbe status zeigt den Stand als Text.')
+            }
+          }}
+        >
+          <Text dimColor>Übersicht ☰</Text>
+        </Button>
+        <Button
           key="farbe"
           plain
           onPress={async () => {
@@ -790,6 +886,81 @@ export const register: Register = on => {
         >
           <Text dimColor>ausblenden</Text>
         </Button>
+      </Box>
+    )
+  })
+
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANEL) {
+      await update($, panel, p => ({ ...p, isOpen: false }))
+    }
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANEL }, async ($, e) => {
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const state = await read($, panel)
+    const satz = await satzNow($)
+    const picks = await picksOf($, satz)
+    const isCalm = satz !== BUNT
+    const gruppen = state.daten?.gruppen ?? []
+
+    return (
+      <Box flexDirection="column">
+        {state.fehler === null ? null : <Text color="error">{state.fehler}</Text>}
+        {state.daten === null && state.fehler === null ? <Text dimColor>Lädt …</Text> : null}
+        {state.daten !== null && gruppen.length === 0 ? <Text dimColor>Keine offenen Sessions gefunden.</Text> : null}
+        {gruppen.map(gruppe => {
+          const farbe = gruppe.project === null ? null : farbeFor(gruppe.project, picks, satz)
+
+          return (
+            <Box key={`gruppe-${gruppe.project ?? ''}`} flexDirection="column" marginBottom="md">
+              <Box columnGap={1}>
+                {farbe === null ? null : isCalm ? (
+                  <Text color={farbe.hex}>{farbe.mark}</Text>
+                ) : (
+                  <Text mono backgroundColor={farbe.hex}>
+                    {NBSP.repeat(2)}
+                  </Text>
+                )}
+                <Text bold>{`${gruppe.mark ?? ''} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
+                <Text dimColor>{`${gruppe.zeilen.length}`}</Text>
+              </Box>
+              {gruppe.zeilen.map(zeile => (
+                <Box key={`zeile-${zeile.sessionId}`} columnGap={1} flexWrap="wrap">
+                  <Text>{zeile.status.mark}</Text>
+                  <Text bold={zeile.isSelf}>{zeile.isSelf ? `${zeile.title} (diese)` : zeile.title}</Text>
+                  <Text dimColor>{`· ${zeile.status.label}${zeile.alter === '' ? '' : ` · ${zeile.alter}`}`}</Text>
+                  {archiveReason(zeile) === null ? null : (
+                    <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
+                      <Text dimColor>archivieren</Text>
+                    </Button>
+                  )}
+                </Box>
+              ))}
+            </Box>
+          )
+        })}
+        {state.daten === null ? null : <Text bold>{uebersichtSummary(state.daten)}</Text>}
+        {state.daten === null || state.daten.hinweise.length === 0 ? null : (
+          <Text dimColor>{state.daten.hinweise.join('\n')}</Text>
+        )}
+        <Box columnGap={2} marginTop="md">
+          <Button key="aktualisieren" plain onPress={() => loadPanel($)}>
+            <Text>{state.isLoading ? 'lädt …' : 'aktualisieren'}</Text>
+          </Button>
+          <Button
+            key="schliessen"
+            plain
+            onPress={async () => {
+              await update($, panel, p => ({ ...p, isOpen: false }))
+              await $.ui.close({ id: PANEL })
+            }}
+          >
+            <Text>schließen</Text>
+          </Button>
+        </Box>
       </Box>
     )
   })

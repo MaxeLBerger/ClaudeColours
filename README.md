@@ -41,6 +41,7 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
   | 💤 | seit mehr als 3 Tagen nichts passiert und kein PR: Kandidat zum Archivieren |
 
   Den PR nimmt der Mod zuerst von der App, die ihn der Session selbst zuordnet. `gh pr list --state all` (einmal pro Repository) liefert dazu CI, Review und Entwurf und findet den PR über den Branch, wenn die App keinen kennt; bei mehreren PRs auf einem Branch zählt dann der neueste. Jede Session merkt sich dafür nach jeder eigenen Antwort, wie sie endete (Antwort, abgebrochen, Fehler).
+- **Übersicht als Seitenpanel (`/projektfarbe übersicht`, auch `uebersicht`, oder der Knopf `Übersicht ☰` im Band):** dieselben Daten wie `/projektfarbe status`, rechts neben dem Chat. Pro Projekt eine Kopfzeile (Farbblock, Emoji, Name, Anzahl Sessions), Projekte mit Abgebrochenem oder dringenden PRs stehen oben. Pro Session eine Zeile mit Zeichen, Name, Stand und Alter. Unten die Zusammenfassung, etwa „12 Sessions · 3 abgebrochen · 4 mit offenem PR · 2 ruhen“. Knöpfe: `aktualisieren`, `schließen` und bei 💤 ruht sowie ✓ / ✖ (PR gemerged oder geschlossen) `archivieren`: Die App fragt dich dann selbst; sagst du nein, bleibt die Zeile und eine Meldung sagt es. Die Session, in der das Panel läuft, lässt sich nicht archivieren. Das Panel lädt beim Öffnen, per Knopf und, solange es offen ist, nach einer Antwort höchstens einmal pro Minute neu. Wo kein Panel Platz hat (Terminal), druckt der Befehl stattdessen den Text von `/projektfarbe status`.
 - **Schlafmodus:** `/projektfarbe schlaf` ersetzt die bunten Punkte durch ruhige Formen und das Band durch gedämpfte Farben. `/projektfarbe bunt` stellt alles zurück.
 - **Wechsel in der Farbwahl:** Unter den Farben von „Farbe ändern“ steht, mit etwas Abstand, die Zeile „Modus“: ein Emoji und der Name je Modus (`🎨 Bunt`, `🌙 Dämmerung`). Der aktive Modus ist fett, die anderen sind gedimmt; jeder weitere Modus bekommt ein eigenes Emoji und reiht sich in die Zeile ein. Ein Klick auf den anderen Modus schaltet um und benennt alle offenen Sessions um; ein Klick auf den aktiven Modus tut nichts.
 
@@ -75,6 +76,7 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 | `/projektfarbe standard` | gibt dem Projekt die nächste freie Farbe |
 | `/projektfarbe alle` | färbt alle offenen Sessions neu ein |
 | `/projektfarbe status` | zeigt den Stand aller offenen Sessions nach Projekt: läuft, abgebrochen, PR offen, in Arbeit, ruht … |
+| `/projektfarbe übersicht` | öffnet die Übersicht aller Sessions als Seitenpanel (ohne Platz dafür: dieselbe Auskunft als Text) |
 | `/projektfarbe band` | blendet Band, Kontext-Anzeige, PR- und Issue-Zahl und den Farbpunkt am Spinner ein oder aus |
 | `/projektfarbe schlaf` | schaltet den Schlafmodus ein und benennt alle offenen Sessions um |
 | `/projektfarbe bunt` | schaltet zurück zu den bunten Farben und benennt alle offenen Sessions um |
@@ -115,6 +117,8 @@ Der Schlafmodus nimmt den Farben die Reizwirkung, ohne die Projekte schwerer unt
 - `/projektfarbe status` sieht nicht, ob eine Session auf deine Eingabe wartet (eine Rückfrage, eine Freigabe): Die App verrät das dem Mod nicht. Eine solche Session erscheint als „in Arbeit“ oder mit ihrem PR.
 - Ob eine Antwort abgebrochen wurde, weiß der Mod erst für Antworten nach diesem Update; ältere Sessions zeigen ihren Stand ohne diese Angabe. Sessions, die gerade nicht geladen sind (etwa nach einem Neustart der App), merken sich ihren Stand erst mit ihrer nächsten Antwort.
 - `/projektfarbe status` geht nur in der Desktop-App. Ohne angemeldetes `gh` fehlen CI- und Review-Angaben; die Ausgabe sagt dann, für welches Projekt.
+- Das Übersichts-Panel kann Sessions nicht öffnen: `open_session_in` der App wirkt nur für die eigene Session und die, die diese gestartet hat. Zum Wechseln bleibt die Seitenleiste.
+- Das Panel braucht eine Oberfläche, die Panels platziert (Desktop-App). Im Terminal gibt `/projektfarbe übersicht` den Text aus. Archivieren fragt die App bei jedem Aufruf selbst; im Modus „Bypass“ oder „Auto“ geht es dort ohne Nachfrage durch.
 - Der Speicher des Mods schreibt nicht atomar: Beenden zwei Sessions im selben Moment eine Antwort, kann der Stand der einen verloren gehen (sie meldet ihn mit der nächsten Antwort wieder). Dasselbe gilt für das „+x“.
 - Der Prozentwert ist der von Claude Code gemeldete Füllstand des Fensters; er kann von der Zahl in `/context` leicht abweichen.
 - Hast du einen Session-Namen selbst vergeben, fragt die App einmal nach, bevor der Mod den Farbpunkt davorsetzt. Sagst du nein, fragt sie für diesen Namen nicht wieder.
