@@ -952,11 +952,16 @@ export const register: Register = on => {
     const picks = await picksOf($, satz)
     const isCalm = satz !== BUNT
     const gruppen = state.daten?.gruppen ?? []
-    const isStatus = state.ansicht === 'status'
+    const isStatus = (state.ansicht ?? EMPTY_PANEL.ansicht) === 'status'
     const zaehler = state.daten === null ? null : uebersichtZaehler(state.daten)
-    const isFolded = (id: string): boolean => state.zu.includes(id)
+    // A state kept from before the fold lists existed (a reload keeps the session's state) has no `zu`.
+    const isFolded = (id: string): boolean => (state.zu ?? EMPTY_PANEL.zu).includes(id)
     const fold = (id: string) =>
-      update($, panel, p => ({ ...p, zu: p.zu.includes(id) ? p.zu.filter(one => one !== id) : [...p.zu, id] }))
+      update($, panel, p => {
+        const zu = p.zu ?? EMPTY_PANEL.zu
+
+        return { ...p, zu: zu.includes(id) ? zu.filter(one => one !== id) : [...zu, id] }
+      })
 
     // The project's color, as in the band: a block on the desktop, a colored shape in sleep mode.
     const block = (project: string | null) => {
