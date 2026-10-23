@@ -355,11 +355,192 @@ export function contextLevel(percent: number): ContextLevel {
   return percent >= CONTEXT_FULL ? 'full' : percent >= CONTEXT_WARN ? 'warn' : 'ok'
 }
 
-/** How many of the gauge's cells are filled: in proportion to the percentage, at least one once there is any use. */
-export function contextFill(percent: number): number {
-  const cells = Math.round((percent / 100) * CONTEXT_CELLS)
+/** How many of the gauge's `width` cells are filled: in proportion to the percentage, at least one once there is any use. */
+export function contextFill(percent: number, width: number = CONTEXT_CELLS): number {
+  const cells = Math.round((percent / 100) * width)
 
-  return Math.min(CONTEXT_CELLS, Math.max(percent > 0 ? 1 : 0, cells))
+  return Math.min(width, Math.max(percent > 0 ? 1 : 0, cells))
+}
+
+/**
+ * The band's layouts, from the roomiest down. The one-row layouts: `voll` writes the three actions out,
+ * `icons` turns them into icons, `kompakt` also drops the gauge's word and shortens its bar, `dicht`
+ * moves the items closer together, `minimal` keeps only the percentage of the gauge. `zwei` is the
+ * last resort: two rows, name and gauge above, counts and icons below.
+ */
+export type BandStufe = 'voll' | 'icons' | 'kompakt' | 'dicht' | 'minimal' | 'zwei'
+
+/** The gauge's bar in the compact layouts; the roomier ones keep the full `CONTEXT_CELLS`. */
+export const COMPACT_CELLS = 4
+
+/** What a one-row layout draws. */
+export type BandForm = {
+  /** The `columnGap` of its rows, in cells. */
+  gap: number
+  /** The actions are written out; else they are icons. */
+  isWritten: boolean
+  /** The gauge's bar in cells; null: the percentage alone. */
+  bar: number | null
+  /** The word "Kontext" before the bar. */
+  hasWord: boolean
+  /** A blank node before the gauge, which sets the gauge apart by a wider gap. */
+  hasSpacer: boolean
+}
+
+export const BAND_FORMEN: Record<Exclude<BandStufe, 'zwei'>, BandForm> = {
+  voll: { gap: 2, isWritten: true, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
+  icons: { gap: 2, isWritten: false, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
+  kompakt: { gap: 2, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: true },
+  dicht: { gap: 1, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: false },
+  minimal: { gap: 1, isWritten: false, bar: null, hasWord: false, hasSpacer: false },
+}
+
+/** What the band's width depends on, in characters. */
+export type BandInhalt = {
+  /** The project's name. */
+  name: number
+  /** What stands after `PRs:`: the blank, the number and any raised "+x" (` 12⁺¹`, ` ?`). */
+  prs: number
+  /** The same after `Issues:`. */
+  issues: number
+  /** The digits of the context percentage; null where there is no gauge. */
+  percent: number | null
+}
+
+// An icon's field and the gap between two: three icons take as many cells as `ICON_BOX` and `ICON_GAP` say.
+export const ICON_BOX = 3
+export const ICON_GAP = 1
+const BLOCK_CELLS = 2
+const ACTION_CHARS = [11, 12, 10] as const
+// The shortest a name is cut to before the band lets the row run over instead.
+const NAME_MIN = 8
+
+/** What the band's widths are measured in: the cells a character, a gap and a node take on a surface. */
+type Metrics = {
+  /** Cells per character of plain text, of the bold name and of a button's label. */
+  text: number
+  name: number
+  button: number
+  /** Cells of the gap `columnGap: 2` and `columnGap: 1` draw, of the gap between two written-out buttons and between two icon fields. */
+  gap: number
+  gapTight: number
+  buttonGap: number
+  iconGap: number
+  /** The blank node before the gauge. */
+  spacer: number
+  /** How far the room a row really has reaches past `bodyColumns`. */
+  slack: number
+}
+
+// Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
+// font, so a character takes less than a cell, the bold name a little more; the gap between the items
+// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), a native button adds some to its own gaps, and the blank
+// spacer before the gauge takes no room of its own. The gauge's bar is a run of blanks on a background:
+// exact cells. The band's padding is less than the engine's marks at its right end, hence the slack.
+const DESKTOP: Metrics = {
+  text: 0.83,
+  name: 0.89,
+  button: 0.82,
+  gap: 2.85,
+  gapTight: 1.85,
+  buttonGap: 3.55,
+  iconGap: 1.5,
+  spacer: 0,
+  slack: 0.5,
+}
+
+// On the terminal a character is one cell and a gap is what `columnGap` says; the spacer is its four blanks.
+const TERMINAL: Metrics = {
+  text: 1,
+  name: 1,
+  button: 1,
+  gap: 2,
+  gapTight: 1,
+  buttonGap: 2,
+  iconGap: ICON_GAP,
+  spacer: 4,
+  slack: 0,
+}
+
+/**
+ * The cells a layout takes in one row (`isMono`: on the terminal, not the desktop); `zwei` has no
+ * one-row width and answers Infinity. The row has two parts, spread to its two ends: the project with
+ * the counts and the gauge at the left, the actions at the right; the gap between them is the least it
+ * keeps.
+ */
+export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false): number {
+  if (stufe === 'zwei') {
+    return Number.POSITIVE_INFINITY
+  }
+  const m = isMono ? TERMINAL : DESKTOP
+  const form = BAND_FORMEN[stufe]
+  const gapCells = form.gap === 1 ? m.gapTight : m.gap
+  const items = [
+    BLOCK_CELLS + (1 + inhalt.name) * m.name,
+    (4 + inhalt.prs) * m.text,
+    (7 + inhalt.issues) * m.text,
+  ]
+  if (inhalt.percent !== null) {
+    // The blank spacer before the gauge is a node of its own, with a gap on each side.
+    if (form.hasSpacer) {
+      items.push(m.spacer)
+    }
+    // " 8 %" after a bar, "8 %" alone.
+    const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * m.text
+    items.push((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
+  }
+  const actions = form.isWritten
+    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * m.button, 0) + 2 * m.buttonGap
+    : 3 * ICON_BOX + 2 * m.iconGap
+
+  return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
+}
+
+// Going back to a roomier layout than the one drawn last takes this many cells more than fitting does,
+// so a window settled again and again along a threshold does not flip the band back and forth. Small: a
+// window at rest must show the roomiest layout that fits.
+const HYSTERESIS_CELLS = 1
+
+/** The one-row layouts, the roomiest first. */
+export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['voll', 'icons', 'kompakt', 'dicht', 'minimal']
+
+const STUFEN: readonly BandStufe[] = [...EINZEILER, 'zwei']
+
+/**
+ * The roomiest layout that fits `columns` cells in one row; `zwei` when none does. `previous`, the
+ * layout drawn last, holds the band in it until the room for a roomier one is clear.
+ */
+export function bandStufe(
+  columns: number,
+  inhalt: BandInhalt,
+  previous: BandStufe | null = null,
+  isMono = false,
+): BandStufe {
+  const last = previous === null ? -1 : STUFEN.indexOf(previous)
+  const room = columns + (isMono ? TERMINAL : DESKTOP).slack
+
+  return (
+    EINZEILER.find((stufe, rank) => {
+      const bias = last > rank ? HYSTERESIS_CELLS : 0
+
+      return bandBreite(stufe, inhalt, isMono) <= room - bias
+    }) ?? 'zwei'
+  )
+}
+
+/** How many characters of the name fit the first row of `zwei`, beside the block and the gauge. */
+export function nameBudget(columns: number, inhalt: BandInhalt, isMono = false): number {
+  const m = isMono ? TERMINAL : DESKTOP
+  const gauge = inhalt.percent === null ? 0 : m.gapTight + COMPACT_CELLS + (inhalt.percent + 3) * m.text
+
+  return Math.max(NAME_MIN, Math.floor((columns - BLOCK_CELLS - m.name - gauge) / m.name))
+}
+
+/** The name cut to `max` characters with an ellipsis; as it is when it fits. */
+export function shortName(name: string, max: number): string {
+  const chars = [...name]
+
+  return chars.length <= max ? name : `${chars.slice(0, Math.max(1, max - 1)).join('')}…`
 }
 
 /** The band counts open pull requests up to this number; more than that shows as "100+". */

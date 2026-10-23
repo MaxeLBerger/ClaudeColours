@@ -5,11 +5,15 @@ import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
   archiveReason,
   assignFarben,
+  BAND_FORMEN,
+  bandBreite,
+  bandStufe,
+  EINZEILER,
   bereichOf,
   buildBereiche,
   buildUebersicht,
   BUNT,
-  CONTEXT_CELLS,
+  COMPACT_CELLS,
   contextFill,
   contextLevel,
   contextPercent,
@@ -18,10 +22,13 @@ import {
   findSatz,
   ghNumbers,
   ghPrs,
+  ICON_BOX,
+  ICON_GAP,
   learnPicks,
   markSeen,
   mergePrs,
   modusLabel,
+  nameBudget,
   newCount,
   planTitle,
   PR_LIMIT,
@@ -38,12 +45,15 @@ import {
   SAETZE,
   satzOf,
   SCHLAFSAETZE,
+  shortName,
   superscript,
   toListed,
   toRow,
   uebersichtZaehler,
   uebersichtText,
   type Art,
+  type BandInhalt,
+  type BandStufe,
   type BereichId,
   type BereichZeile,
   type Farbe,
@@ -709,6 +719,8 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe status     Stand aller offenen Sessions nach Projekt (läuft, abgebrochen, PR, ruht …)',
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
+    '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
+    '                         Symbole im Band: ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -716,11 +728,14 @@ const hilfe = (satz: Satz): string =>
   ].join('\n')
 
 export const register: Register = on => {
+  // What the band was last drawn in, for `/projektfarbe breite`; a plain variable, as drawing must not write state.
+  let lastBand: { columns: number; stufe: BandStufe; inhalt: BandInhalt; isMono: boolean } | null = null
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'projektfarbe',
       description: 'Farbe dieses Projekts zeigen oder ändern (Farbpunkt vor den Session-Namen)',
-      argumentHint: '[farbe | standard | alle | status | übersicht | band | schlaf | bunt]',
+      argumentHint: '[farbe | standard | alle | status | übersicht | band | breite | schlaf | bunt]',
     })
     // In the background, so the session start never waits on the app.
     void startUp($, e.cwd).catch(() => undefined)
@@ -802,6 +817,19 @@ export const register: Register = on => {
         text: isHidden
           ? 'Band ausgeblendet (mit Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner).'
           : 'Band eingeblendet.',
+      }
+    }
+    if (arg === 'breite') {
+      // A hidden band is not drawn at all, in every session: say so rather than "not drawn yet".
+      if (state.isHidden) {
+        return { text: 'Das Band ist ausgeblendet; /projektfarbe band blendet es wieder ein.' }
+      }
+
+      return {
+        text:
+          lastBand === null
+            ? 'Das Band wurde in dieser Session noch nicht gezeichnet.'
+            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${EINZEILER.map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt, lastBand!.isMono))}`).join(', ')} Zellen.`,
       }
     }
     if (arg === 'bunt') {
@@ -889,11 +917,32 @@ export const register: Register = on => {
     }
 
     const level = percent === null ? 'ok' : contextLevel(percent)
-    const filled = percent === null ? 0 : contextFill(percent)
     const tone =
       level === 'ok' ? { dimColor: true } : { color: CONTEXT_FILL[level], bold: level === 'full' }
     // Subagent views get no gauge: the number is the main session's.
     const showsGauge = percent !== null && e.props.view.agentId === undefined
+    // How the band is laid out follows the cells its tree has (`bandStufe`); the counts are measured
+    // by the text they will show.
+    const countRest = (open: number | null, fresh: number): string =>
+      `${open === null ? ' ?' : ` ${prLabel(open)}`}${superscript(fresh)}`
+    const inhalt: BandInhalt = {
+      name: [...state.project].length,
+      prs: countRest(openPrs, state.newPrs).length,
+      issues: countRest(openIssues, state.newIssues).length,
+      percent: showsGauge ? String(percent).length : null,
+    }
+    // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
+    const columns = Number.isFinite(e.props.bodyColumns) ? e.props.bodyColumns : 120
+    // On the terminal a character is one cell, on the desktop it is less: the widths differ.
+    const isMono = e.surface === 'terminal'
+    // Only the session's own view is remembered and held in its layout: a subagent's has other content.
+    const isMain = e.props.view.agentId === undefined
+    const stufe = bandStufe(columns, inhalt, isMain ? (lastBand?.stufe ?? null) : null, isMono)
+    if (isMain) {
+      lastBand = { columns, stufe, inhalt, isMono }
+    }
+    const form = stufe === 'zwei' ? null : BAND_FORMEN[stufe]
+    const isWritten = form?.isWritten ?? false
     const name = (
       <Text>
         {isCalm ? (
@@ -904,7 +953,10 @@ export const register: Register = on => {
           </Text>
         )}
         {/* The theme's text color, so the link around it does not paint the name in its own. */}
-        <Text color="text" bold={!isCalm}>{` ${state.project}`}</Text>
+        {/* No break inside the name: a row squeezed by a resize would split "My Project" in two lines. */}
+        <Text color="text" bold={!isCalm}>
+          {` ${(stufe === 'zwei' ? shortName(state.project, nameBudget(columns, inhalt, isMono)) : state.project).split(' ').join(NBSP)}`}
+        </Text>
       </Text>
     )
     // Only the word is the button: the desktop draws a Button natively and drops the bold count
@@ -928,63 +980,122 @@ export const register: Register = on => {
         </Box>
       )
     }
+    // The gauge: the word, a bar of `bar` cells (none: the percentage alone) and the percentage.
+    const gauge = (bar: number | null, hasLabel: boolean) => {
+      const filled = percent === null || bar === null ? 0 : contextFill(percent, bar)
 
+      return (
+        <Text>
+          {hasLabel ? <Text dimColor>{`Kontext${NBSP}`}</Text> : null}
+          {bar === null || filled === 0 ? null : (
+            <Text mono backgroundColor={CONTEXT_FILL[level]}>
+              {NBSP.repeat(filled)}
+            </Text>
+          )}
+          {bar === null || filled === bar ? null : (
+            <Text mono backgroundColor={CONTEXT_TRACK}>
+              {NBSP.repeat(bar - filled)}
+            </Text>
+          )}
+          {/* The percent sign never breaks away from its number, however tight the row gets. */}
+          <Text {...tone}>{`${bar === null ? '' : ' '}${percent}${NBSP}%`}</Text>
+        </Text>
+      )
+    }
+    // Written out while there is room, else the icon alone (☰ overview, ◐ color, ✕ hide), each in a
+    // field of one width so the three are evenly spaced.
+    const defs = [
+      {
+        key: 'uebersicht',
+        label: 'Übersicht ☰',
+        hint: 'Übersicht',
+        icon: '☰',
+        press: async () => {
+          if (!(await openPanel($))) {
+            $.ui.toast('Hier ist kein Platz für das Panel; /projektfarbe status zeigt den Stand als Text.')
+          }
+        },
+      },
+      {
+        key: 'farbe',
+        label: 'Farbe ändern',
+        hint: 'Farbe ändern',
+        icon: '◐',
+        press: async () => {
+          // The picker offers the colors of the set in the store, not of the last turn's reading.
+          const current = await satzNow($)
+          await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
+        },
+      },
+      {
+        key: 'ausblenden',
+        label: 'ausblenden',
+        hint: 'Band ausblenden',
+        icon: '✕',
+        press: async () => {
+          await $.store.set('bandAus', true)
+          await update($, view, v => ({ ...v, isHidden: true }))
+        },
+      },
+    ]
+    const actions = defs.map(def => {
+      const button = (
+        <Button key={def.key} plain onPress={def.press}>
+          <Text dimColor>{isWritten ? def.label : def.icon}</Text>
+        </Button>
+      )
+
+      return isWritten ? (
+        button
+      ) : (
+        <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center">
+          {button}
+          {/* What the icon does, as a card to its left in the band's own row (a card is clipped to the band),
+              shown while the pointer is over the field; the surface does it, no hook runs. */}
+          <Box position="absolute" top={0} right={ICON_BOX} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>
+            <Text>{def.hint}</Text>
+          </Box>
+        </Box>
+      )
+    })
+    const project = state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>
+    const prs = count('pr', 'PRs:', openPrs, state.newPrs)
+    const issues = count('issue', 'Issues:', openIssues, state.newIssues)
+
+    // Too narrow for one row: two rows, name and gauge above, counts and icons below. The gauge stays in
+    // the first row; the second is indented to stand under the name.
+    if (form === null) {
+      return (
+        <Box flexDirection="column">
+          <Box columnGap={1} justifyContent="space-between">
+            {project}
+            {!showsGauge ? null : gauge(COMPACT_CELLS, false)}
+          </Box>
+          <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
+            <Box columnGap={2}>
+              {prs}
+              {issues}
+            </Box>
+            <Box columnGap={ICON_GAP}>{actions}</Box>
+          </Box>
+        </Box>
+      )
+    }
+
+    // One row of two parts spread to its ends: the project, counts and gauge at the left, the actions
+    // flush right. It never wraps: after a resize the surface draws the old tree in the new width until
+    // the hook answers, and a wrap then made the band jump to two rows and back; what does not fit is
+    // cut off at the right for that moment. The narrower layouts move the items closer together.
     return (
-      <Box columnGap={2} flexWrap="wrap">
-        {state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>}
-        {count('pr', 'PRs:', openPrs, state.newPrs)}
-        {count('issue', 'Issues:', openIssues, state.newIssues)}
-        {!showsGauge ? null : (
-          <Text>{NBSP.repeat(4)}</Text>
-        )}
-        {!showsGauge ? null : (
-          <Text>
-            <Text dimColor>Kontext </Text>
-            {filled === 0 ? null : (
-              <Text mono backgroundColor={CONTEXT_FILL[level]}>
-                {NBSP.repeat(filled)}
-              </Text>
-            )}
-            {filled === CONTEXT_CELLS ? null : (
-              <Text mono backgroundColor={CONTEXT_TRACK}>
-                {NBSP.repeat(CONTEXT_CELLS - filled)}
-              </Text>
-            )}
-            <Text {...tone}>{` ${percent} %`}</Text>
-          </Text>
-        )}
-        <Button
-          key="uebersicht"
-          plain
-          onPress={async () => {
-            if (!(await openPanel($))) {
-              $.ui.toast('Hier ist kein Platz für das Panel; /projektfarbe status zeigt den Stand als Text.')
-            }
-          }}
-        >
-          <Text dimColor>Übersicht ☰</Text>
-        </Button>
-        <Button
-          key="farbe"
-          plain
-          onPress={async () => {
-            // The picker offers the colors of the set in the store, not of the last turn's reading.
-            const current = await satzNow($)
-            await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
-          }}
-        >
-          <Text dimColor>Farbe ändern</Text>
-        </Button>
-        <Button
-          key="ausblenden"
-          plain
-          onPress={async () => {
-            await $.store.set('bandAus', true)
-            await update($, view, v => ({ ...v, isHidden: true }))
-          }}
-        >
-          <Text dimColor>ausblenden</Text>
-        </Button>
+      <Box columnGap={form.gap} flexWrap="nowrap" overflow="hidden" justifyContent="space-between">
+        <Box columnGap={form.gap}>
+          {project}
+          {prs}
+          {issues}
+          {!showsGauge || !form.hasSpacer ? null : <Text>{NBSP.repeat(4)}</Text>}
+          {!showsGauge ? null : gauge(form.bar, form.hasWord)}
+        </Box>
+        <Box columnGap={isWritten ? 2 : ICON_GAP}>{actions}</Box>
       </Box>
     )
   })
