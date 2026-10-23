@@ -15,6 +15,7 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
 
 - **Farbpunkt im Session-Namen:** Nach der ersten Antwort einer Session setzt der Mod den Farbpunkt ihres Projekts vor den Namen, den die App vergeben hat.
 - **Band über dem Eingabefeld:** zeigt das Projekt mit einem Farbblock in seiner Farbe und dem Namen in der Schrift deines Themes. Dazu „Farbe ändern“ (Auswahl per Klick) und „ausblenden“.
+- **Das Band passt sich der Breite an:** Wo der Platz reicht, steht alles in einer Zeile: Name, PRs, Issues, Kontext-Anzeige und die ausgeschriebenen Aktionen „Übersicht ☰“, „Farbe ändern“ und „ausblenden“. Wird es enger, werden daraus erst die Symbole `☰` (Übersicht), `◐` (Farbe ändern) und `✕` (ausblenden), dann fällt das Wort „Kontext“ weg und der Balken wird kürzer. Reicht auch das nicht, bleibt die erste Zeile (Farbblock, Name, PRs, Issues) stehen, und Kontext-Anzeige und Symbole stehen bündig unter dem Namen in einer zweiten; ein zu langer Projektname wird dann mit „…“ gekürzt. Das Band hat nie mehr als zwei Zeilen. `/projektfarbe breite` sagt, wie breit das Band gerade ist und in welchem Layout es gezeichnet wird.
 - **Kontext-Anzeige im Band:** ein Balken mit Prozentwert zeigt, wie voll das Kontextfenster nach der letzten Antwort ist: grau unter 70 %, in der Warnfarbe deines Themes ab 70 %, in der Fehlerfarbe und mit fettem Prozentwert ab 85 % (dann ist `/compact` fällig). Der Mod liest dafür nur die Werte, die Claude Code ohnehin hat; es entstehen keine Modellaufrufe und keine Kosten.
 - **Farbpunkt am Spinner:** Während Claude arbeitet, steht der Farbpunkt des Projekts vor der Statuszeile („🟦 Sauteing…“).
 - **Offene PRs und Issues im Band:** Direkt hinter dem Projektnamen, vor der Kontext-Anzeige, steht `PRs: 2  Issues: 7`, die Zahl der offenen Pull Requests und Issues des Repositories dieses Projekts (ab 100 als `100+`). Der Mod fragt dafür im Hintergrund `gh pr list` und `gh issue list` ab: beim Start der Session und danach höchstens alle 5 Minuten nach einer Antwort. Ohne angemeldetes `gh`, ohne GitHub-Repository oder ohne eingeschaltete Issues zeigt das Band dort ein graues `?` (unbekannt, nicht „keine“), damit es immer gleich aussieht; `/projektfarbe` sagt dann, woran es liegt.
@@ -78,6 +79,7 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 | `/projektfarbe status` | zeigt den Stand aller offenen Sessions nach Projekt: läuft, abgebrochen, PR offen, in Arbeit, ruht … |
 | `/projektfarbe übersicht` | öffnet die Übersicht aller Sessions als Seitenpanel (ohne Platz dafür: dieselbe Auskunft als Text) |
 | `/projektfarbe band` | blendet Band, Kontext-Anzeige, PR- und Issue-Zahl und den Farbpunkt am Spinner ein oder aus |
+| `/projektfarbe breite` | zeigt, wie viele Zellen das Band hat und in welchem Layout es gezeichnet wird (`voll`, `icons`, `kompakt`, `zwei`) |
 | `/projektfarbe schlaf` | schaltet den Schlafmodus ein und benennt alle offenen Sessions um |
 | `/projektfarbe bunt` | schaltet zurück zu den bunten Farben und benennt alle offenen Sessions um |
 
@@ -112,6 +114,7 @@ Der Schlafmodus nimmt den Farben die Reizwirkung, ohne die Projekte schwerer unt
 - Die Seitenleiste selbst färbt kein Mod: Die Projekt-Überschriften bleiben grau, die Farbe steht im Session-Namen.
 - Umbenennen geht nur in der Desktop-App. In einer Terminal-Session zeigen sich nur Band, Kontext-Anzeige und Spinner-Punkt.
 - Die Kontext-Anzeige aktualisiert sich nach jeder Antwort, nach `/compact` also erst mit der nächsten. Vor der ersten Antwort einer Session zeigt sie nichts. In einem Ordner ohne Projekt erscheint das Band und damit die Anzeige nicht.
+- Die Breite des Bandes ist eine Schätzung: Die Schrift der Desktop-App hat keine feste Zeichenbreite, der Mod rechnet mit gemessenen Näherungswerten. Springt das Band zu früh oder zu spät auf das nächste Layout, zeigt `/projektfarbe breite` die Zellenzahl, mit der er rechnet. Die Symbole im Band haben keinen Hover-Hinweis; was sie bedeuten, steht in `/projektfarbe`.
 - PR- und Issue-Zahl zählen alle offenen Einträge des Repositories, nicht nur die dieser Session. Läuft `gh` in der Desktop-App nicht, steht dort `0`; ob es wirklich keine gibt, zeigt `/projektfarbe`.
 - Das „+x“ zählt auch PRs und Issues, die du selbst angelegt hast. Es verschwindet nur über den Klick auf die Zahl; die Liste nur im Browser zu öffnen reicht nicht. In anderen Sessions geht es mit deren nächster Antwort weg.
 - `/projektfarbe status` sieht nicht, ob eine Session auf deine Eingabe wartet (eine Rückfrage, eine Freigabe): Die App verrät das dem Mod nicht. Eine solche Session erscheint als „in Arbeit“ oder mit ihrem PR.

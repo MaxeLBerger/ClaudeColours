@@ -355,11 +355,95 @@ export function contextLevel(percent: number): ContextLevel {
   return percent >= CONTEXT_FULL ? 'full' : percent >= CONTEXT_WARN ? 'warn' : 'ok'
 }
 
-/** How many of the gauge's cells are filled: in proportion to the percentage, at least one once there is any use. */
-export function contextFill(percent: number): number {
-  const cells = Math.round((percent / 100) * CONTEXT_CELLS)
+/** How many of the gauge's `width` cells are filled: in proportion to the percentage, at least one once there is any use. */
+export function contextFill(percent: number, width: number = CONTEXT_CELLS): number {
+  const cells = Math.round((percent / 100) * width)
 
-  return Math.min(CONTEXT_CELLS, Math.max(percent > 0 ? 1 : 0, cells))
+  return Math.min(width, Math.max(percent > 0 ? 1 : 0, cells))
+}
+
+/**
+ * The band's layouts, from the roomiest down: `voll` writes the three actions out, `icons` turns them
+ * into icons, `kompakt` also drops the gauge's word and shortens its bar, `zwei` moves the gauge and
+ * the icons into a second row.
+ */
+export type BandStufe = 'voll' | 'icons' | 'kompakt' | 'zwei'
+
+/** The gauge's bar in `kompakt`; the other layouts keep the full `CONTEXT_CELLS`. */
+export const COMPACT_CELLS = 4
+
+/** What the band's width depends on, in characters. */
+export type BandInhalt = {
+  /** The project's name. */
+  name: number
+  /** What stands after `PRs:`: the blank, the number and any raised "+x" (` 12⁺¹`, ` ?`). */
+  prs: number
+  /** The same after `Issues:`. */
+  issues: number
+  /** The digits of the context percentage; null where there is no gauge. */
+  percent: number | null
+}
+
+// Measured on the desktop, where the text is set in a proportional font: a character takes less than a
+// cell (the bold name a little more), a native button adds padding and the gap is under two cells. The
+// gauge's bar runs of blanks on a background are exact cells.
+const TEXT_CELL = 0.85
+const NAME_CELL = 0.93
+const GAP_CELLS = 1.8
+const BUTTON_PAD = 0.6
+const BLOCK_CELLS = 2
+const SPACER_CELLS = 1.5
+const ICON_CELLS = 1
+const ACTION_CHARS = [11, 12, 10] as const
+// The shortest a name is cut to before the band lets the row run over instead.
+const NAME_MIN = 8
+
+const countCells = (label: number, rest: number): number => (label + rest) * TEXT_CELL
+
+/** The cells the band's first row (block, name, both counts) takes, less the name itself. */
+function kernRest(inhalt: BandInhalt): number {
+  return BLOCK_CELLS + NAME_CELL + 2 * GAP_CELLS + countCells(4, inhalt.prs) + countCells(7, inhalt.issues)
+}
+
+/** The cells a layout takes in one row; `zwei` has no one-row width and answers Infinity. */
+export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
+  if (stufe === 'zwei') {
+    return Number.POSITIVE_INFINITY
+  }
+  const items = [
+    BLOCK_CELLS + (1 + inhalt.name) * NAME_CELL,
+    countCells(4, inhalt.prs),
+    countCells(7, inhalt.issues),
+  ]
+  if (inhalt.percent !== null) {
+    const percent = (inhalt.percent + 3) * TEXT_CELL
+    const bar = stufe === 'kompakt' ? COMPACT_CELLS : 8 * TEXT_CELL + 8
+    items.push(SPACER_CELLS + bar + percent)
+  }
+  if (stufe === 'voll') {
+    items.push(...ACTION_CHARS.map(chars => chars * TEXT_CELL + BUTTON_PAD))
+  } else {
+    items.push(...ACTION_CHARS.map(() => ICON_CELLS + BUTTON_PAD))
+  }
+
+  return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * GAP_CELLS
+}
+
+/** The roomiest layout that fits `columns` cells in one row; `zwei` when none does. */
+export function bandStufe(columns: number, inhalt: BandInhalt): BandStufe {
+  return (['voll', 'icons', 'kompakt'] as const).find(stufe => bandBreite(stufe, inhalt) <= columns) ?? 'zwei'
+}
+
+/** How many characters of the name fit the first row of `zwei` beside the block and the counts. */
+export function nameBudget(columns: number, inhalt: BandInhalt): number {
+  return Math.max(NAME_MIN, Math.floor((columns - kernRest(inhalt)) / NAME_CELL))
+}
+
+/** The name cut to `max` characters with an ellipsis; as it is when it fits. */
+export function shortName(name: string, max: number): string {
+  const chars = [...name]
+
+  return chars.length <= max ? name : `${chars.slice(0, Math.max(1, max - 1)).join('')}…`
 }
 
 /** The band counts open pull requests up to this number; more than that shows as "100+". */
