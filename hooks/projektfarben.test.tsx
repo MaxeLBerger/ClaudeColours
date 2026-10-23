@@ -1452,6 +1452,29 @@ test('the icons press what the written actions do, in every layout', async ($, o
   await ui.unmount()
 })
 
+test('each icon has a hover card saying what it does; the written-out actions need none', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  const cardsAt = async (bodyColumns: number) => {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+    const boxes = await ui.findAll({ type: 'Box' })
+    await ui.unmount()
+
+    return boxes.filter(box => box.props.position === 'absolute')
+  }
+
+  expect(await cardsAt(120)).toHaveLength(0)
+  for (const bodyColumns of [70, 56, 48, 42, 30]) {
+    const cards = await cardsAt(bodyColumns)
+    expect(cards.map(card => card.text)).toEqual(['Übersicht', 'Farbe ändern', 'Band ausblenden'])
+    // Hidden until the pointer is on the icon's field (its `hover` reveals it), and out of the flow, so
+    // showing it moves nothing; it stands to the left of the icon's field.
+    for (const card of cards) {
+      expect(card.props).toMatchObject({ display: 'none', position: 'absolute', top: 0, right: 3 })
+    }
+  }
+})
+
 test('a project name too long for the two-row band is cut; the other layouts keep it whole', async ($, on) => {
   await startBand($, on, 'C:\\Users\\me\\Repos\\AVeryLongProjectNameForTheBandTest')
 

@@ -999,6 +999,7 @@ export const register: Register = on => {
       {
         key: 'uebersicht',
         label: 'Übersicht ☰',
+        hint: 'Übersicht',
         icon: '☰',
         press: async () => {
           if (!(await openPanel($))) {
@@ -1009,6 +1010,7 @@ export const register: Register = on => {
       {
         key: 'farbe',
         label: 'Farbe ändern',
+        hint: 'Farbe ändern',
         icon: '◐',
         press: async () => {
           // The picker offers the colors of the set in the store, not of the last turn's reading.
@@ -1019,6 +1021,7 @@ export const register: Register = on => {
       {
         key: 'ausblenden',
         label: 'ausblenden',
+        hint: 'Band ausblenden',
         icon: '✕',
         press: async () => {
           await $.store.set('bandAus', true)
@@ -1038,6 +1041,11 @@ export const register: Register = on => {
       ) : (
         <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center">
           {button}
+          {/* What the icon does, as a card to its left in the band's own row (a card is clipped to the band),
+              shown while the pointer is over the field; the surface does it, no hook runs. */}
+          <Box position="absolute" top={0} right={ICON_BOX} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>
+            <Text>{def.hint}</Text>
+          </Box>
         </Box>
       )
     })
