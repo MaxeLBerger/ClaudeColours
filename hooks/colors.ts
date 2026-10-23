@@ -389,7 +389,10 @@ export function prLabel(count: number): string {
 /** What the band counts for a repository: its pull requests and its issues. */
 export type Art = 'pr' | 'issue'
 
-/** The highest number seen of each kind, per project (lowercased), from the store key `gesehen`. */
+/**
+ * The highest number seen of each kind, per repository folder (`repoKeyOf`), from the store key
+ * `gesehen`; entries of older versions are keyed by project name (see `seenFor`).
+ */
 export type Gesehen = Record<string, Partial<Record<Art, number>>>
 
 const SUPERSCRIPT = '⁰¹²³⁴⁵⁶⁷⁸⁹'
@@ -433,28 +436,41 @@ export function newCount(numbers: readonly number[], seenMax: number | undefined
 }
 
 /**
- * Marks these open numbers as seen for a project. With `isFirstOnly`, only where nothing was seen
- * yet: the first reading is the baseline, so it shows no "+x". The highest seen never goes down.
- * Returns the same object when nothing changed.
+ * What was seen in one repository. `key` is the repository's folder (`repoKeyOf`); `legacyKey`, its
+ * project name, is where versions before it kept the entry: it still counts until the repository
+ * has one of its own, so updating shows no "+x" that was already seen.
+ */
+export function seenFor(seen: Gesehen, key: string, legacyKey?: string): Partial<Record<Art, number>> {
+  const legacy = legacyKey === undefined ? undefined : seen[legacyKey.toLowerCase()]
+
+  return { ...legacy, ...seen[key.toLowerCase()] }
+}
+
+/**
+ * Marks these open numbers as seen for a repository (`key`, see `seenFor`). With `isFirstOnly`,
+ * only where nothing was seen yet: the first reading is the baseline, so it shows no "+x". The
+ * highest seen never goes down. Returns the same object when nothing changed.
  */
 export function markSeen(
   seen: Gesehen,
-  project: string,
+  key: string,
   art: Art,
   numbers: readonly number[],
   isFirstOnly: boolean,
+  legacyKey?: string,
 ): Gesehen {
-  const key = project.toLowerCase()
-  const before = seen[key]?.[art]
+  const own = key.toLowerCase()
+  const known = seenFor(seen, own, legacyKey)
+  const before = known[art]
   if (isFirstOnly && before !== undefined) {
     return seen
   }
   const after = Math.max(before ?? 0, ...numbers)
-  if (after === before) {
+  if (after === seen[own]?.[art]) {
     return seen
   }
 
-  return { ...seen, [key]: { ...seen[key], [art]: after } }
+  return { ...seen, [own]: { ...known, [art]: after } }
 }
 
 const TRIED_LIMIT = 300
@@ -579,8 +595,11 @@ export type GhPr = {
   isCiRed: boolean
 }
 
-/** Conclusions (check runs) and states (commit statuses) that make the CI red. */
-const CI_ROT = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE'])
+/**
+ * Conclusions (check runs) and states (commit statuses) that make the CI red. Not CANCELLED: a
+ * workflow that cancels its older run on a new push leaves that run in the rollup while CI is green.
+ */
+const CI_ROT = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'])
 
 function ciRed(rollup: unknown): boolean {
   if (!Array.isArray(rollup)) {
@@ -631,6 +650,26 @@ export function ghPrs(stdout: string): GhPr[] | null {
   return prs
 }
 
+/**
+ * One list from two gh readings: the open pull requests with their checks, review and draft, and
+ * all pull requests with number, state and branch only (cheap). An open one's full entry wins;
+ * null when neither could be read.
+ */
+export function mergePrs(open: readonly GhPr[] | null, all: readonly GhPr[] | null): GhPr[] | null {
+  if (open === null && all === null) {
+    return null
+  }
+  const byNumber = new Map<number, GhPr>()
+  for (const pr of all ?? []) {
+    byNumber.set(pr.number, pr)
+  }
+  for (const pr of open ?? []) {
+    byNumber.set(pr.number, pr)
+  }
+
+  return [...byNumber.values()].sort((a, b) => b.number - a.number)
+}
+
 export type StatusArt =
   | 'laeuft'
   | 'abgebrochen'
@@ -649,6 +688,8 @@ export type Status = {
   rang: number
   /** The pull request the status names, if any. */
   pr: number | null
+  /** For a resting session: the whole days since it was last active; null otherwise. */
+  tage: number | null
 }
 
 /** A session with no activity for longer than this rests: a candidate to archive. */
@@ -698,8 +739,10 @@ function prText(pr: SessionPr): string {
 /**
  * Where a session stands, from its list_sessions row, its last turn (`stand`; absent for a
  * session from before this version), its repository's pull requests (null when `gh` could not
- * list them) and the time now. Running beats an aborted or failed turn, that beats the pull
- * request; without one the session is in work or, inactive for more than three days, rests.
+ * list them) and the time now. Running comes first; then a merged or closed pull request (the
+ * work is done, whatever the last turn was); then an aborted or failed turn, but only while the
+ * session is recent: one left alone for more than three days rests like any other; then an open
+ * pull request; without one the session is in work or rests.
  */
 export function statusOf(
   session: ListedSession,
@@ -710,34 +753,42 @@ export function statusOf(
   const pr = prFor(session, prs)
   const id = pr?.number ?? null
   const withPr = (text: string): string => (pr === null ? text : `${text} · ${prText(pr)}`)
+  const status = (art: StatusArt, mark: string, label: string, rang: number): Status => ({
+    art,
+    mark,
+    label,
+    rang,
+    pr: id,
+    tage: null,
+  })
   if (session.isRunning) {
-    return { art: 'laeuft', mark: '▶', label: withPr('läuft'), rang: 5, pr: id }
+    return status('laeuft', '▶', withPr('läuft'), 5)
   }
-  if (stand?.grund === 'aborted') {
-    return { art: 'abgebrochen', mark: '⚠', label: withPr('abgebrochen'), rang: 0, pr: id }
-  }
-  if (stand?.grund === 'error' || stand?.grund === 'refusal') {
-    const text = stand.grund === 'error' ? 'Fehler' : 'Fehler (Modell lehnte ab)'
-
-    return { art: 'fehler', mark: '⚠', label: withPr(text), rang: 0, pr: id }
-  }
-  if (pr !== null) {
-    if (pr.state === 'OPEN') {
-      return { art: 'pr-offen', mark: '🔀', label: prText(pr), rang: pr.isUrgent ? 1 : 2, pr: id }
-    }
-
+  if (pr !== null && pr.state !== 'OPEN') {
     return pr.state === 'MERGED'
-      ? { art: 'pr-gemerged', mark: '✓', label: prText(pr), rang: 6, pr: id }
-      : { art: 'pr-geschlossen', mark: '✖', label: prText(pr), rang: 6, pr: id }
+      ? status('pr-gemerged', '✓', prText(pr), 6)
+      : status('pr-geschlossen', '✖', prText(pr), 6)
   }
   const last = lastActive(session, stand)
-  if (last !== null && now - last > RUHT_AB_MS) {
+  const rests = last !== null && now - last > RUHT_AB_MS
+  const isFailed = stand?.grund === 'error' || stand?.grund === 'refusal'
+  if (!rests && stand?.grund === 'aborted') {
+    return status('abgebrochen', '⚠', withPr('abgebrochen'), 0)
+  }
+  if (!rests && isFailed) {
+    return status('fehler', '⚠', withPr(stand?.grund === 'error' ? 'Fehler' : 'Fehler (Modell lehnte ab)'), 0)
+  }
+  if (pr !== null) {
+    return status('pr-offen', '🔀', prText(pr), pr.isUrgent ? 1 : 2)
+  }
+  if (last !== null && rests) {
     const tage = Math.floor((now - last) / TAG_MS)
+    const zuletzt = stand?.grund === 'aborted' ? ', zuletzt abgebrochen' : isFailed ? ', zuletzt Fehler' : ''
 
-    return { art: 'ruht', mark: '💤', label: `ruht seit ${tage} Tagen, kein PR`, rang: 7, pr: null }
+    return { ...status('ruht', '💤', `ruht seit ${tage} Tagen, kein PR${zuletzt}`, 7), tage }
   }
 
-  return { art: 'in-arbeit', mark: '✎', label: 'in Arbeit, kein PR', rang: 4, pr: null }
+  return status('in-arbeit', '✎', 'in Arbeit, kein PR', 4)
 }
 
 /** When the session was last active: the later of the app's figure and its last turn; null when neither is known. */
@@ -893,9 +944,7 @@ export function uebersichtText(uebersicht: Uebersicht): string {
   return lines.join('\n')
 }
 
-const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
-
-/** The figures of the panel's top line; the ones that are zero are left out of its text. */
+/** The figures of the panel's top line; the panel leaves out the ones that are zero. */
 export type Zaehler = { sessions: number; dringend: number; dudran: number; pr: number; ruht: number }
 
 export function uebersichtZaehler(uebersicht: Uebersicht): Zaehler {
@@ -913,20 +962,6 @@ export function uebersichtZaehler(uebersicht: Uebersicht): Zaehler {
   }
 }
 
-/** The panel's top line as text: "12 Sessions · 2 dringend · 3 warten auf dich · 4 mit offenem PR · 2 ruhen". */
-export function uebersichtSummary(uebersicht: Uebersicht): string {
-  const z = uebersichtZaehler(uebersicht)
-  const parts = [
-    plural(z.sessions, 'Session', 'Sessions'),
-    z.dringend === 0 ? null : `${z.dringend} dringend`,
-    z.dudran === 0 ? null : `${z.dudran} ${z.dudran === 1 ? 'wartet' : 'warten'} auf dich`,
-    z.pr === 0 ? null : `${z.pr} mit offenem PR`,
-    z.ruht === 0 ? null : `${z.ruht} ${z.ruht === 1 ? 'ruht' : 'ruhen'}`,
-  ]
-
-  return parts.filter((part): part is string => part !== null).join(' · ')
-}
-
 /**
  * Why the panel may offer to archive a session, or null when it may not: it rests, or its pull
  * request is merged or closed. The session the panel runs in is never offered (archiving ends it).
@@ -935,9 +970,9 @@ export function archiveReason(zeile: UebersichtZeile): string | null {
   if (zeile.isSelf) {
     return null
   }
-  const { art, label, pr } = zeile.status
-  if (art === 'ruht') {
-    return label.split(',')[0] ?? null
+  const { art, pr, tage } = zeile.status
+  if (art === 'ruht' && tage !== null) {
+    return `ruht seit ${tage} ${tage === 1 ? 'Tag' : 'Tagen'}`
   }
   if ((art === 'pr-gemerged' || art === 'pr-geschlossen') && pr !== null) {
     return `PR #${pr} ${art === 'pr-gemerged' ? 'gemerged' : 'geschlossen'}`
@@ -999,7 +1034,7 @@ export function buildBereiche(uebersicht: Uebersicht): Bereich[] {
     ...bereich,
     zeilen: alle
       .filter(zeile => bereichOf(zeile) === bereich.id)
-      .sort((x, y) => x.status.rang - y.status.rang || (y.lastActive ?? 0) - (x.lastActive ?? 0)),
+      .sort(byRang),
   }))
 
   return bereiche.filter(bereich => bereich.zeilen.length > 0)

@@ -43,6 +43,7 @@ export type PanelStatus = {
   label: string
   rang: number
   pr: number | null
+  tage: number | null
 }
 
 export type PanelZeile = {

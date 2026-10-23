@@ -20,6 +20,7 @@ import {
   ghPrs,
   learnPicks,
   markSeen,
+  mergePrs,
   modusLabel,
   newCount,
   planTitle,
@@ -33,6 +34,7 @@ import {
   rememberStand,
   rememberTry,
   repoKeyOf,
+  seenFor,
   SAETZE,
   satzOf,
   SCHLAFSAETZE,
@@ -301,16 +303,19 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
     satz: satz.id,
     isHidden,
   }))
-  await refreshNew($)
+  await refreshNew($, cwd)
 }
 
 /**
  * How many of the open pull requests and issues are new to the person. The highest numbers seen
- * are shared by all sessions: one that opened the list in the browser clears the "+x" in the others.
+ * are kept per repository and shared by all sessions: one that opened the list in the browser
+ * clears the "+x" in the others.
  */
-async function refreshNew($: Engine): Promise<void> {
-  const { project } = await read($, view)
-  const seen = project === null ? undefined : readSeen(await $.store.get('gesehen'))[project.toLowerCase()]
+async function refreshNew($: Engine, cwd: string): Promise<void> {
+  const repo = repoKeyOf(cwd)
+  const project = projectOf(cwd)
+  const seen =
+    repo === null || project === null ? undefined : seenFor(readSeen(await $.store.get('gesehen')), repo, project)
   await update($, view, v => ({
     ...v,
     newPrs: newCount(v.prNumbers, seen?.pr),
@@ -395,13 +400,18 @@ async function openList($: Engine, art: Art): Promise<void> {
   if (state.project === null) {
     return
   }
+  const cwd = await $.session.cwd()
+  const repo = repoKeyOf(cwd)
+  if (repo === null) {
+    return
+  }
   const numbers = art === 'pr' ? state.prNumbers : state.issueNumbers
   const seen = readSeen(await $.store.get('gesehen'))
-  const next = markSeen(seen, state.project, art, numbers, false)
+  const next = markSeen(seen, repo, art, numbers, false, state.project)
   if (next !== seen) {
     await $.store.set('gesehen', next)
   }
-  await refreshNew($)
+  await refreshNew($, cwd)
 }
 
 /**
@@ -441,34 +451,36 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
     issueNumbers: issues.numbers ?? (isSameFolder ? v.issueNumbers : []),
     issuesNote: issues.note,
   }))
+  const repo = repoKeyOf(cwd) ?? project
   const seen = readSeen(await $.store.get('gesehen'))
   let next = seen
   if (prs.numbers !== null) {
-    next = markSeen(next, project, 'pr', prs.numbers, true)
+    next = markSeen(next, repo, 'pr', prs.numbers, true, project)
   }
   if (issues.numbers !== null) {
-    next = markSeen(next, project, 'issue', issues.numbers, true)
+    next = markSeen(next, repo, 'issue', issues.numbers, true, project)
   }
   if (next !== seen) {
     await $.store.set('gesehen', next)
   }
-  await refreshNew($)
+  await refreshNew($, cwd)
 }
 
 // Newest first, as gh lists them: enough to reach the pull requests of every open session.
 const STATUS_PR_LIMIT = 200
+// The open ones carry their checks, the costly part of the query: fewer of them.
+const STATUS_OPEN_LIMIT = 100
 const STATUS_GH_MS = 20_000
 
-/** Every pull request of one repository, read in a folder of it; null and why when gh could not list them. */
-async function readRepoPrs($: Engine, cwd: string): Promise<{ prs: GhPr[] | null; note: string | null }> {
+type RepoPrs = { prs: GhPr[] | null; note: string | null }
+
+/** One `gh pr list` in a folder of the repository; null and why when gh could not list them. */
+async function ghPrList($: Engine, cwd: string, args: readonly string[]): Promise<RepoPrs> {
   try {
-    const { exitCode, stdout, stderr } = await $.process.run(
-      [
-        'gh', 'pr', 'list', '--state', 'all', '--limit', String(STATUS_PR_LIMIT),
-        '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
-      ],
-      { cwd, timeoutMs: STATUS_GH_MS },
-    )
+    const { exitCode, stdout, stderr } = await $.process.run(['gh', 'pr', 'list', ...args], {
+      cwd,
+      timeoutMs: STATUS_GH_MS,
+    })
     if (exitCode !== 0) {
       return { prs: null, note: `gh meldet: ${firstLine(stderr)}` }
     }
@@ -481,11 +493,45 @@ async function readRepoPrs($: Engine, cwd: string): Promise<{ prs: GhPr[] | null
 }
 
 /**
- * Where every open session stands, by project: the data `/projektfarbe status` prints (and a side
- * panel can draw). Asks the app for the sessions, and gh once per repository, all repositories
- * at once, each in the folder of one of its sessions.
+ * Every pull request of one repository: the open ones with checks, review and draft, the rest
+ * with number, state and branch only, so the costly checks are fetched for the few that are open.
  */
-async function readUebersicht($: Engine): Promise<Uebersicht> {
+async function readRepoPrs($: Engine, cwd: string): Promise<RepoPrs> {
+  const [open, all] = await Promise.all([
+    ghPrList($, cwd, [
+      '--state', 'open', '--limit', String(STATUS_OPEN_LIMIT),
+      '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
+    ]),
+    ghPrList($, cwd, ['--state', 'all', '--limit', String(STATUS_PR_LIMIT), '--json', 'number,state,headRefName']),
+  ])
+  const prs = mergePrs(open.prs, all.prs)
+
+  return { prs, note: prs === null ? open.note : null }
+}
+
+// Each repository's pull requests, by `repoKeyOf`, with when they were read: the panel reloads the
+// sessions every minute, but asks gh at most every five minutes, like the band.
+const prCache = new Map<string, RepoPrs & { um: number }>()
+
+/** A repository's pull requests from the cache while fresh, else from gh; `isForced` always asks gh. */
+async function repoPrs($: Engine, repo: string, cwd: string, isForced: boolean): Promise<RepoPrs> {
+  const now = await $.clock.now()
+  const cached = prCache.get(repo)
+  if (!isForced && cached !== undefined && now - cached.um < PR_EVERY_MS) {
+    return cached
+  }
+  const fresh = await readRepoPrs($, cwd)
+  prCache.set(repo, { ...fresh, um: now })
+
+  return fresh
+}
+
+/**
+ * Where every open session stands, by project: the data `/projektfarbe status` prints and the side
+ * panel draws. Asks the app for the sessions, and gh per repository (see `repoPrs`), all
+ * repositories at once, each in the folder of one of its sessions.
+ */
+async function readUebersicht($: Engine, isForced: boolean): Promise<Uebersicht> {
   const [selfRaw, listed] = await Promise.all([
     callJson($, 'get_session', { session_id: 'self' }),
     callJson($, 'list_sessions', { limit: 500 }),
@@ -505,7 +551,11 @@ async function readUebersicht($: Engine): Promise<Uebersicht> {
     }
   }
   const gelesen = await Promise.all(
-    [...folders].map(async ([repo, { cwd, project }]) => ({ repo, project, ...(await readRepoPrs($, cwd)) })),
+    [...folders].map(async ([repo, { cwd, project }]) => ({
+      repo,
+      project,
+      ...(await repoPrs($, repo, cwd, isForced)),
+    })),
   )
   const prs = new Map(gelesen.map(entry => [entry.repo, entry.prs] as const))
   const hinweise = gelesen
@@ -526,14 +576,17 @@ async function readUebersicht($: Engine): Promise<Uebersicht> {
   })
 }
 
-/** Reads the overview into the panel's state; a reading already under way is not started twice. */
-async function loadPanel($: Engine): Promise<void> {
+/**
+ * Reads the overview into the panel's state; a reading already under way is not started twice.
+ * `isForced` (the `aktualisieren` button) asks gh even when its last answer is fresh.
+ */
+async function loadPanel($: Engine, isForced = false): Promise<void> {
   if ((await read($, panel)).isLoading) {
     return
   }
   await update($, panel, p => ({ ...p, isLoading: true }))
   try {
-    const daten = await readUebersicht($)
+    const daten = await readUebersicht($, isForced)
     const um = await $.clock.now()
     await update($, panel, p => ({ ...p, daten, um, fehler: null, isLoading: false }))
   } catch (error) {
@@ -545,7 +598,7 @@ async function loadPanel($: Engine): Promise<void> {
   }
 }
 
-/** After a turn: an open panel is read again, at most once a minute. */
+/** After a turn: an open panel is read again, at most once a minute (gh at most every five). */
 async function refreshPanel($: Engine): Promise<void> {
   const { isOpen, um } = await read($, panel)
   if (isOpen && (um === null || (await $.clock.now()) - um >= PANEL_EVERY_MS)) {
@@ -720,7 +773,7 @@ export const register: Register = on => {
     }
     if (arg === 'status') {
       try {
-        return { text: uebersichtText(await readUebersicht($)) }
+        return { text: uebersichtText(await readUebersicht($, true)) }
       } catch (error) {
         return {
           text: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
@@ -733,7 +786,7 @@ export const register: Register = on => {
       }
       // No surface places the panel: the same data as text.
       try {
-        return { text: uebersichtText(await readUebersicht($)) }
+        return { text: uebersichtText(await readUebersicht($, true)) }
       } catch (error) {
         return {
           text: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
@@ -782,10 +835,9 @@ export const register: Register = on => {
     }
     const state = await read($, view)
     const { hex, contextPercent: percent } = state
-    // A count that could not be read shows as 0, so the band keeps one shape and never wraps
-    // differently; /projektfarbe says why it could not be read.
-    const openPrs = state.openPrs ?? 0
-    const openIssues = state.openIssues ?? 0
+    // A count that could not be read shows as a dimmed "?", not 0 (which would read as "none open"),
+    // so the band keeps one shape; /projektfarbe says why it could not be read.
+    const { openPrs, openIssues } = state
     if (state.isHidden || state.project === null || state.mark === null || hex === null) {
       return next(e)
     }
@@ -857,7 +909,7 @@ export const register: Register = on => {
     )
     // Only the word is the button: the desktop draws a Button natively and drops the bold count
     // and the colored "+x" inside it, so those stand beside it.
-    const count = (art: Art, label: string, open: number, fresh: number) => {
+    const count = (art: Art, label: string, open: number | null, fresh: number) => {
       const key = art === 'pr' ? 'prs' : 'issues'
 
       return (
@@ -866,7 +918,7 @@ export const register: Register = on => {
             {label}
           </Button>
           <Text>
-            <Text bold>{` ${prLabel(open)}`}</Text>
+            {open === null ? <Text dimColor>{' ?'}</Text> : <Text bold>{` ${prLabel(open)}`}</Text>}
             {fresh === 0 ? null : (
               <Text color={NEW_COLOR} bold>
                 {superscript(fresh)}
@@ -1032,7 +1084,7 @@ export const register: Register = on => {
           <Button key="ansicht" plain onPress={() => update($, panel, p => ({ ...p, ansicht: p.ansicht === 'status' ? 'projekt' : 'status' }))}>
             <Text color="suggestion">{isStatus ? 'nach Projekt' : 'nach Status'}</Text>
           </Button>
-          <Button key="aktualisieren" plain onPress={() => loadPanel($)}>
+          <Button key="aktualisieren" plain onPress={() => loadPanel($, true)}>
             <Text color="suggestion">{state.isLoading ? 'lädt …' : '↻ aktualisieren'}</Text>
           </Button>
           <Button
@@ -1084,7 +1136,8 @@ export const register: Register = on => {
                     id,
                     <Box columnGap={1}>
                       {block(gruppe.project)}
-                      <Text bold>{`${gruppe.mark ?? ''} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
+                      {/* In sleep mode the block already is the mark: it stands once. */}
+                      <Text bold>{`${isCalm ? '' : (gruppe.mark ?? '')} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
                     </Box>,
                     gruppe.zeilen.length,
                   )}
