@@ -895,19 +895,33 @@ export function uebersichtText(uebersicht: Uebersicht): string {
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
-/** The panel's top line: "12 Sessions · 2 dringend · 3 warten auf dich · 4 mit offenem PR · 2 ruhen"; zero counts are left out. */
-export function uebersichtSummary(uebersicht: Uebersicht): string {
+/** The figures of the panel's top line; the ones that are zero are left out of its text. */
+export type Zaehler = { sessions: number; dringend: number; dudran: number; pr: number; ruht: number }
+
+export function uebersichtZaehler(uebersicht: Uebersicht): Zaehler {
   const zeilen = uebersicht.gruppen.flatMap(group => group.zeilen)
   const bereiche = buildBereiche(uebersicht)
   const size = (id: BereichId): number => bereiche.find(bereich => bereich.id === id)?.zeilen.length ?? 0
   const count = (art: StatusArt): number => zeilen.filter(z => z.status.art === art).length
-  const ruht = count('ruht')
+
+  return {
+    sessions: zeilen.length,
+    dringend: size('dringend'),
+    dudran: size('dudran'),
+    pr: count('pr-offen'),
+    ruht: count('ruht'),
+  }
+}
+
+/** The panel's top line as text: "12 Sessions · 2 dringend · 3 warten auf dich · 4 mit offenem PR · 2 ruhen". */
+export function uebersichtSummary(uebersicht: Uebersicht): string {
+  const z = uebersichtZaehler(uebersicht)
   const parts = [
-    plural(zeilen.length, 'Session', 'Sessions'),
-    size('dringend') === 0 ? null : `${size('dringend')} dringend`,
-    size('dudran') === 0 ? null : `${size('dudran')} ${size('dudran') === 1 ? 'wartet' : 'warten'} auf dich`,
-    count('pr-offen') === 0 ? null : `${count('pr-offen')} mit offenem PR`,
-    ruht === 0 ? null : `${ruht} ${ruht === 1 ? 'ruht' : 'ruhen'}`,
+    plural(z.sessions, 'Session', 'Sessions'),
+    z.dringend === 0 ? null : `${z.dringend} dringend`,
+    z.dudran === 0 ? null : `${z.dudran} ${z.dudran === 1 ? 'wartet' : 'warten'} auf dich`,
+    z.pr === 0 ? null : `${z.pr} mit offenem PR`,
+    z.ruht === 0 ? null : `${z.ruht} ${z.ruht === 1 ? 'ruht' : 'ruhen'}`,
   ]
 
   return parts.filter((part): part is string => part !== null).join(' · ')
@@ -955,7 +969,7 @@ const BEREICHE: readonly { id: BereichId; titel: string; zeichen: string }[] = [
  * this very session counts as running. Open pull requests wait on others, running ones need nothing,
  * merged, closed and resting ones can be archived.
  */
-function bereichOf(zeile: UebersichtZeile): BereichId {
+export function bereichOf(zeile: UebersichtZeile): BereichId {
   const { art, rang } = zeile.status
   if (art === 'abgebrochen' || art === 'fehler' || (art === 'pr-offen' && rang <= 1)) {
     return 'dringend'

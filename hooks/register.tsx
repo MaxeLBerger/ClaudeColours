@@ -5,6 +5,7 @@ import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
   archiveReason,
   assignFarben,
+  bereichOf,
   buildBereiche,
   buildUebersicht,
   BUNT,
@@ -38,7 +39,7 @@ import {
   superscript,
   toListed,
   toRow,
-  uebersichtSummary,
+  uebersichtZaehler,
   uebersichtText,
   type Art,
   type BereichId,
@@ -48,6 +49,7 @@ import {
   type Grund,
   type ListedSession,
   type Satz,
+  type Status,
   type SessionRow,
   type TitlePlan,
   type Uebersicht,
@@ -84,9 +86,29 @@ const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 // The side panel with the overview of all sessions; its data is the one `/projektfarbe status` prints.
 const PANEL = 'uebersicht'
 const PANEL_EVERY_MS = 60_000
-const EMPTY_PANEL: ProjektfarbenPanel = { daten: null, isLoading: false, fehler: null, um: null, isOpen: false, ansicht: 'status' }
+const EMPTY_PANEL: ProjektfarbenPanel = { daten: null, isLoading: false, fehler: null, um: null, isOpen: false, ansicht: 'status', zu: ['laeuft'] }
 // Only the sections that want the person are colored: a problem in the error color, a waiting session in the warning's.
 const BEREICH_FARBE: Partial<Record<BereichId, 'error' | 'warning'>> = { dringend: 'error', dudran: 'warning' }
+
+/** The theme color a status label is drawn in; none for what is only history. */
+function statusFarbe(status: Status): 'error' | 'warning' | 'success' | 'suggestion' | 'merged' | undefined {
+  switch (status.art) {
+    case 'abgebrochen':
+    case 'fehler':
+      return 'error'
+    case 'pr-offen':
+      return status.rang <= 1 ? 'error' : 'suggestion'
+    case 'in-arbeit':
+      return 'warning'
+    case 'laeuft':
+      return 'success'
+    case 'pr-gemerged':
+      return 'merged'
+    default:
+      return undefined
+  }
+}
+
 const panel = atom({ plugin: 'projektfarben', key: 'uebersicht' } as const, EMPTY_PANEL)
 
 // Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
@@ -931,6 +953,10 @@ export const register: Register = on => {
     const isCalm = satz !== BUNT
     const gruppen = state.daten?.gruppen ?? []
     const isStatus = state.ansicht === 'status'
+    const zaehler = state.daten === null ? null : uebersichtZaehler(state.daten)
+    const isFolded = (id: string): boolean => state.zu.includes(id)
+    const fold = (id: string) =>
+      update($, panel, p => ({ ...p, zu: p.zu.includes(id) ? p.zu.filter(one => one !== id) : [...p.zu, id] }))
 
     // The project's color, as in the band: a block on the desktop, a colored shape in sleep mode.
     const block = (project: string | null) => {
@@ -947,35 +973,49 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // Two lines per session: the sign, the title (and project), then what it waits for and how long ago.
+    // A session: a rail in the section's color along both lines; the sign, color, title and the
+    // actions on the first, what it waits for and how long ago on the second.
     const zeileBox = (zeile: BereichZeile, withProject: boolean) => (
-      <Box key={`zeile-${zeile.sessionId}`} flexDirection="column" marginBottom="sm" paddingLeft={3}>
-        <Box columnGap={1}>
-          <Text>{zeile.status.mark}</Text>
-          {withProject ? block(zeile.project) : null}
-          <Text bold>{zeile.isSelf ? `${zeile.title} (diese)` : zeile.title}</Text>
-          {withProject && zeile.project !== null ? <Text dimColor>{zeile.project}</Text> : null}
-        </Box>
-        <Box columnGap={2} flexWrap="wrap" paddingLeft={withProject ? 5 : 2}>
-          <Text dimColor>{`${zeile.status.label}${zeile.alter === '' ? '' : ` · ${zeile.alter}`}`}</Text>
-          {zeile.link === null ? null : (
-            <Button key={`oeffnen-${zeile.sessionId}`} plain onPress={() => openSession($, zeile)}>
-              <Text color="suggestion">öffnen ↗</Text>
-            </Button>
-          )}
-          {archiveReason(zeile) === null ? null : (
-            <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
-              <Text color="suggestion">archivieren</Text>
-            </Button>
-          )}
+      <Box key={`zeile-${zeile.sessionId}`} columnGap={1} marginBottom="sm" paddingLeft={2}>
+        <Box width={1} backgroundColor={BEREICH_FARBE[bereichOf(zeile)]} />
+        <Box flexDirection="column" flexGrow={1}>
+          <Box justifyContent="space-between" columnGap={2} flexWrap="wrap">
+            <Box columnGap={1}>
+              <Text>{zeile.status.mark}</Text>
+              {withProject ? block(zeile.project) : null}
+              <Text bold>{zeile.title}</Text>
+              {zeile.isSelf ? <Text dimColor>diese Session</Text> : null}
+              {withProject && zeile.project !== null ? <Text dimColor>{zeile.project}</Text> : null}
+            </Box>
+            <Box columnGap={2}>
+              {zeile.link === null ? null : (
+                <Button key={`oeffnen-${zeile.sessionId}`} plain onPress={() => openSession($, zeile)}>
+                  <Text color="suggestion">öffnen ↗</Text>
+                </Button>
+              )}
+              {archiveReason(zeile) === null ? null : (
+                <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
+                  <Text dimColor>archivieren</Text>
+                </Button>
+              )}
+            </Box>
+          </Box>
+          <Box columnGap={1} paddingLeft={withProject ? 5 : 2}>
+            <Text color={statusFarbe(zeile.status)} dimColor={statusFarbe(zeile.status) === undefined}>
+              {zeile.status.label}
+            </Text>
+            {zeile.alter === '' ? null : <Text dimColor>{`· ${zeile.alter}`}</Text>}
+          </Box>
         </Box>
       </Box>
     )
-    const title = (text: string, count: number, color?: 'error' | 'warning') => (
+    // A heading: the fold button, the title in its color, the count.
+    const heading = (id: string, titel: unknown, count: number) => (
       <Box columnGap={1} marginTop="md" marginBottom="sm">
-        <Text bold color={color}>
-          {text}
-        </Text>
+        <Button key={`falten-${id}`} plain onPress={() => fold(id)}>
+          <Text dimColor>{isFolded(id) ? '▸' : '▾'}</Text>
+        </Button>
+        {titel}
         <Text dimColor>{`${count}`}</Text>
       </Box>
     )
@@ -983,15 +1023,12 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Box columnGap={2} flexWrap="wrap">
-          <Button key="aktualisieren" plain onPress={() => loadPanel($)}>
-            <Text>{state.isLoading ? 'lädt …' : 'aktualisieren'}</Text>
+          <Text bold>{isStatus ? 'Nach Status' : 'Nach Projekt'}</Text>
+          <Button key="ansicht" plain onPress={() => update($, panel, p => ({ ...p, ansicht: p.ansicht === 'status' ? 'projekt' : 'status' }))}>
+            <Text color="suggestion">{isStatus ? 'nach Projekt' : 'nach Status'}</Text>
           </Button>
-          <Button
-            key="ansicht"
-            plain
-            onPress={() => update($, panel, p => ({ ...p, ansicht: p.ansicht === 'status' ? 'projekt' : 'status' }))}
-          >
-            <Text>{isStatus ? 'nach Projekt' : 'nach Status'}</Text>
+          <Button key="aktualisieren" plain onPress={() => loadPanel($)}>
+            <Text color="suggestion">{state.isLoading ? 'lädt …' : '↻ aktualisieren'}</Text>
           </Button>
           <Button
             key="schliessen"
@@ -1004,29 +1041,54 @@ export const register: Register = on => {
             <Text dimColor>schließen</Text>
           </Button>
         </Box>
-        {state.daten === null ? null : <Text bold>{uebersichtSummary(state.daten)}</Text>}
+        {zaehler === null ? null : (
+          <Box columnGap={2} flexWrap="wrap" marginTop="sm">
+            <Text bold>{`${zaehler.sessions} ${zaehler.sessions === 1 ? 'Session' : 'Sessions'}`}</Text>
+            {zaehler.dringend === 0 ? null : (
+              <Text bold color="error">{`⚠ ${zaehler.dringend} dringend`}</Text>
+            )}
+            {zaehler.dudran === 0 ? null : (
+              <Text bold color="warning">{`💬 ${zaehler.dudran} ${zaehler.dudran === 1 ? 'wartet' : 'warten'} auf dich`}</Text>
+            )}
+            {zaehler.pr === 0 ? null : <Text dimColor>{`${zaehler.pr} mit offenem PR`}</Text>}
+            {zaehler.ruht === 0 ? null : <Text dimColor>{`${zaehler.ruht} ${zaehler.ruht === 1 ? 'ruht' : 'ruhen'}`}</Text>}
+          </Box>
+        )}
         {state.fehler === null ? null : <Text color="error">{state.fehler}</Text>}
         {state.daten === null && state.fehler === null ? <Text dimColor>Lädt …</Text> : null}
         {state.daten !== null && gruppen.length === 0 ? <Text dimColor>Keine offenen Sessions gefunden.</Text> : null}
         {state.daten !== null && isStatus
           ? buildBereiche(state.daten).map(bereich => (
               <Box key={`bereich-${bereich.id}`} flexDirection="column">
-                {title(`${bereich.zeichen} ${bereich.titel}`, bereich.zeilen.length, BEREICH_FARBE[bereich.id])}
-                {bereich.zeilen.map(zeile => zeileBox(zeile, true))}
+                {heading(
+                  bereich.id,
+                  <Text bold color={BEREICH_FARBE[bereich.id]}>{`${bereich.zeichen} ${bereich.titel}`}</Text>,
+                  bereich.zeilen.length,
+                )}
+                {isFolded(bereich.id) ? null : bereich.zeilen.map(zeile => zeileBox(zeile, true))}
               </Box>
             ))
           : null}
         {state.daten !== null && !isStatus
-          ? gruppen.map(gruppe => (
-              <Box key={`gruppe-${gruppe.project ?? ''}`} flexDirection="column">
-                <Box columnGap={1} marginTop="md" marginBottom="sm">
-                  {block(gruppe.project)}
-                  <Text bold>{`${gruppe.mark ?? ''} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
-                  <Text dimColor>{`${gruppe.zeilen.length}`}</Text>
+          ? gruppen.map(gruppe => {
+              const id = `projekt-${gruppe.project ?? ''}`
+
+              return (
+                <Box key={`gruppe-${gruppe.project ?? ''}`} flexDirection="column">
+                  {heading(
+                    id,
+                    <Box columnGap={1}>
+                      {block(gruppe.project)}
+                      <Text bold>{`${gruppe.mark ?? ''} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
+                    </Box>,
+                    gruppe.zeilen.length,
+                  )}
+                  {isFolded(id)
+                    ? null
+                    : gruppe.zeilen.map(zeile => zeileBox({ ...zeile, project: gruppe.project, mark: gruppe.mark }, false))}
                 </Box>
-                {gruppe.zeilen.map(zeile => zeileBox({ ...zeile, project: gruppe.project, mark: gruppe.mark }, false))}
-              </Box>
-            ))
+              )
+            })
           : null}
         {state.daten === null || state.daten.hinweise.length === 0 ? null : (
           <Text dimColor>{state.daten.hinweise.join('\n')}</Text>

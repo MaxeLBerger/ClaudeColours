@@ -1676,10 +1676,12 @@ test('/projektfarbe übersicht opens the panel: groups with the urgent project f
   expect(at('Beta')).toBeGreaterThan(-1)
   expect(at('Beta')).toBeLessThan(at('Alpha'))
   expect(at('Abgebrochen')).toBeLessThan(at('Mit PR'))
-  expect(whole).toContain('abgebrochen · vor 2 Std')
+  expect(whole).toContain('abgebrochen· vor 2 Std')
   expect(whole).toContain('PR #2 offen')
-  expect(whole).toContain('Panel bauen (diese)')
-  expect(whole).toContain('5 Sessions · 1 dringend · 1 wartet auf dich · 1 mit offenem PR · 1 ruht')
+  // What runs is folded by default: its heading shows, its session does not.
+  expect(whole).toContain('Läuft, nichts zu tun')
+  expect(whole).not.toContain('Panel bauen')
+  expect(whole).toContain('5 Sessions⚠ 1 dringend💬 1 wartet auf dich1 mit offenem PR1 ruht')
   // Only the resting session can be archived, never the running one that shows the panel.
   expect(keys.filter(key => key.startsWith('archivieren-'))).toEqual(['archivieren-local_alt'])
   expect(keys).toContain('aktualisieren')
@@ -1824,4 +1826,16 @@ test('only plain claude:// addresses count as a link to open', async () => {
   expect(session({ link: 'claude://x/y & calc' }).link).toBe(null)
   expect(session({ link: 'https://example.com' }).link).toBe(null)
   expect(session().link).toBe(null)
+})
+
+test('a heading folds its section, and the running ones are folded at first', async ($, on) => {
+  await openedPanel($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'falten-laeuft' })
+  await ui.press({ key: 'falten-aufraeumen' })
+  const whole = (await ui.find({ type: 'Box' }))?.text ?? ''
+  await ui.unmount()
+  expect(whole).toContain('Panel bauen')
+  expect(whole).toContain('diese Session')
+  expect(whole).not.toContain('Alte Idee')
 })

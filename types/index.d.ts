@@ -74,6 +74,8 @@ export type ProjektfarbenPanel = {
   isOpen: boolean
   /** `status`: sections by what to do (default); `projekt`: grouped by project. */
   ansicht: 'status' | 'projekt'
+  /** Sections and projects the person folded: `laeuft` (default), a section id, or `projekt-<name>`. */
+  zu: string[]
 }
 
 declare module 'claude-code' {
