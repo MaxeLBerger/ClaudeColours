@@ -7,6 +7,9 @@ import {
   assignFarben,
   BAND_FORMEN,
   bandBreite,
+  brambleKandidaten,
+  brambleRoot,
+  brambleStart,
   bandStufe,
   EINZEILER,
   bereichOf,
@@ -29,6 +32,7 @@ import {
   mergePrs,
   modusLabel,
   nameBudget,
+  neuesterBuild,
   newCount,
   planTitle,
   PR_LIMIT,
@@ -89,6 +93,7 @@ const EMPTY: ProjektfarbenView = {
   issueNumbers: [],
   newIssues: 0,
   repoUrl: null,
+  bramble: null,
   satz: BUNT.id,
   isPicking: false,
   isHidden: false,
@@ -377,25 +382,90 @@ async function readRepoUrl($: Engine): Promise<string | null> {
 // The folder whose repository address the band holds; read once per folder, again after a failure.
 let urlFor: string | null = null
 
+/** The newest release build of Bramble, the person's own browser; null where there is none. */
+async function findBramble($: Engine): Promise<string | null> {
+  const root = await Promise.all([$.env.get('BRAMBLE_REPO'), $.env.get('USERPROFILE')])
+    .then(([own, home]) => brambleRoot(own, home))
+    .catch(() => null)
+  if (root === null) {
+    return null
+  }
+  const worktrees = await $.fs
+    .list(`${root}\\.claude\\worktrees`)
+    .then(entries => entries.filter(entry => entry.kind === 'dir').map(entry => entry.name))
+    .catch(() => [] as string[])
+  const builds = await Promise.all(
+    brambleKandidaten(root, worktrees).map(path =>
+      $.fs
+        .stat(path)
+        .then(stat => (stat.kind === 'file' ? { path, mtimeMs: stat.mtimeMs } : null))
+        .catch(() => null),
+    ),
+  )
+
+  return neuesterBuild(builds.filter(build => build !== null))
+}
+
+/**
+ * Opens an address in the newest Bramble build, looked up again on every press: a build made since
+ * the band last looked is the one that opens. False where there is no build or it would not start.
+ */
+async function openInBramble($: Engine, url: string): Promise<boolean> {
+  const exe = await findBramble($)
+  if (exe === null) {
+    return false
+  }
+  const { argv, env } = brambleStart(exe, url)
+  try {
+    const { exitCode } = await $.process.run(argv, { env, timeoutMs: 15_000 })
+
+    return exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+/** Opens the repository's page in Bramble, or, without it, where the system opens web addresses. */
+async function openRepo($: Engine, url: string): Promise<void> {
+  if (await openInBramble($, url)) {
+    return
+  }
+  for (const opener of OPENERS) {
+    try {
+      if ((await $.process.run([...opener, url], { timeoutMs: 10_000 })).exitCode === 0) {
+        return
+      }
+    } catch {
+      // This system has no such opener: the next one is tried.
+    }
+  }
+  $.ui.toast(`Das Repository lässt sich nicht öffnen: ${url}`)
+}
+
 /**
  * Opens the list of open pull requests or issues in the person's browser and, once it opened,
  * marks every one open now as seen: the "+x" goes, in every session of the project.
  */
 async function openList($: Engine, art: Art): Promise<void> {
   const what = art === 'pr' ? 'PR-Liste' : 'Issue-Liste'
-  try {
-    const { exitCode, stderr } = await $.process.run(['gh', art, 'list', '--web'], {
-      timeoutMs: 15_000,
-    })
-    if (exitCode !== 0) {
-      $.ui.toast(`${what} lässt sich nicht öffnen: ${firstLine(stderr)}`)
+  const { repoUrl } = await read($, view)
+  // In Bramble when there is a build and the address is known; else gh opens the default browser.
+  const isInBramble = repoUrl !== null && (await openInBramble($, `${repoUrl}/${art === 'pr' ? 'pulls' : 'issues'}`))
+  if (!isInBramble) {
+    try {
+      const { exitCode, stderr } = await $.process.run(['gh', art, 'list', '--web'], {
+        timeoutMs: 15_000,
+      })
+      if (exitCode !== 0) {
+        $.ui.toast(`${what} lässt sich nicht öffnen: ${firstLine(stderr)}`)
+
+        return
+      }
+    } catch (error) {
+      $.ui.toast(`${what} lässt sich nicht öffnen: ${firstLine(String(error))}`)
 
       return
     }
-  } catch (error) {
-    $.ui.toast(`${what} lässt sich nicht öffnen: ${firstLine(String(error))}`)
-
-    return
   }
   // Read again: the list in the browser can hold entries newer than the band's last reading.
   const fresh = (await readOpen($, art)).numbers
@@ -442,10 +512,11 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
   prsCheckedAt = now
   prsFor = cwd
   const needsUrl = urlFor !== cwd
-  const [prs, issues, url] = await Promise.all([
+  const [prs, issues, url, bramble] = await Promise.all([
     readOpen($, 'pr'),
     readOpen($, 'issue'),
     needsUrl ? readRepoUrl($) : Promise.resolve(undefined),
+    findBramble($),
   ])
   if (url !== undefined && url !== null) {
     urlFor = cwd
@@ -454,6 +525,7 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
   await update($, view, v => ({
     ...v,
     repoUrl: url === undefined ? v.repoUrl : (url ?? (isSameFolder ? v.repoUrl : null)),
+    bramble,
     openPrs: prs.numbers?.length ?? (isSameFolder ? v.openPrs : null),
     prNumbers: prs.numbers ?? (isSameFolder ? v.prNumbers : []),
     prsNote: prs.note,
@@ -943,19 +1015,21 @@ export const register: Register = on => {
     }
     const form = stufe === 'zwei' ? null : BAND_FORMEN[stufe]
     const isWritten = form?.isWritten ?? false
+    const block = isCalm ? (
+      <Text color={hex}>{state.mark}</Text>
+    ) : (
+      <Text mono backgroundColor={hex}>
+        {NBSP.repeat(2)}
+      </Text>
+    )
+    // No break inside the name: a row squeezed by a resize would split "My Project" in two lines.
+    const nameText = ` ${(stufe === 'zwei' ? shortName(state.project, nameBudget(columns, inhalt, isMono)) : state.project).split(' ').join(NBSP)}`
     const name = (
       <Text>
-        {isCalm ? (
-          <Text color={hex}>{state.mark}</Text>
-        ) : (
-          <Text mono backgroundColor={hex}>
-            {NBSP.repeat(2)}
-          </Text>
-        )}
+        {block}
         {/* The theme's text color, so the link around it does not paint the name in its own. */}
-        {/* No break inside the name: a row squeezed by a resize would split "My Project" in two lines. */}
         <Text color="text" bold={!isCalm}>
-          {` ${(stufe === 'zwei' ? shortName(state.project, nameBudget(columns, inhalt, isMono)) : state.project).split(' ').join(NBSP)}`}
+          {nameText}
         </Text>
       </Text>
     )
@@ -1058,7 +1132,22 @@ export const register: Register = on => {
         </Box>
       )
     })
-    const project = state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>
+    const repoUrl = state.repoUrl
+    // With a Bramble build the name is a Button that opens the repository there: a Link is opened by
+    // the surface, in the system's browser. The block stays beside it, since a Button drops its color.
+    const project =
+      repoUrl === null ? (
+        name
+      ) : state.bramble === null ? (
+        <Link href={repoUrl}>{name}</Link>
+      ) : (
+        <Box key="repo-feld">
+          <Text>{block}</Text>
+          <Button key="repo" plain onPress={() => openRepo($, repoUrl)}>
+            {nameText}
+          </Button>
+        </Box>
+      )
     const prs = count('pr', 'PRs:', openPrs, state.newPrs)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
 
