@@ -342,7 +342,7 @@ test('the band shows the project in its color and hides on request', async ($, o
     // No usage figure yet, so no gauge.
     expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
     // No gh in this test: the counts show 0 rather than leave a gap.
-    expect(texts.some(text => text.text === 'PRs: 0')).toBe(true)
+    expect(await countOf(ui, 'prs')).toBe('PRs: 0')
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
@@ -489,14 +489,12 @@ test('the band counts the open pull requests with gh, at most every five minutes
   const shown = async () => {
     const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
     const texts = await ui.findAll({ type: 'Text' })
+    const shownCount = await countOf(ui, 'prs')
     await ui.unmount()
+    // The number stands in bold beside the word, outside the button.
+    expect(texts.some(text => text.props.bold === true && /^ \d+\+?$/.test(text.text))).toBe(true)
 
-    // The label, then the number in bold.
-    const number = texts.find(text => text.props.bold === true && /^\d+\+?$/.test(text.text))?.text
-
-    return texts.some(text => /^PRs:/.test(text.text)) && number !== undefined
-      ? `PRs: ${number}`
-      : undefined
+    return shownCount
   }
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
@@ -518,7 +516,8 @@ test('the band counts the open pull requests with gh, at most every five minutes
   await $.turn.complete(TURN)
   await clock.settle()
   expect(asked).toHaveLength(4)
-  expect(await shown()).toBe('PRs: 3')
+  // #3 is newer than the #2 seen at the start: raised as new.
+  expect(await shown()).toBe('PRs: 3⁺¹')
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain('Offene PRs: 3')
 })
 
@@ -1002,15 +1001,23 @@ function fakeGh(lists: { pr: number[]; issue: number[] | 'disabled' }) {
 type Tested = Parameters<Parameters<typeof test>[1]>[0]
 
 /** The PR and issue counts as the band shows them, with the color of each raised "+x". */
+/** A count as the band shows it: the word (the button), then the bold number and any "+x". */
+async function countOf(ui: Awaited<ReturnType<Tested['ui']['mount']>>, key: 'prs' | 'issues') {
+  const box = await ui.find({ key: `${key}-zahl` })
+
+  return box?.text.replace(/\s+/g, ' ')
+}
+
 async function counts($: Tested) {
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const texts = await ui.findAll({ type: 'Text' })
+  const prs = await countOf(ui, 'prs')
+  const issues = await countOf(ui, 'issues')
   await ui.unmount()
-  const label = (prefix: string) => texts.find(text => text.text.startsWith(prefix))?.text
 
   return {
-    prs: label('PRs: '),
-    issues: label('Issues: '),
+    prs,
+    issues,
     raised: texts.filter(text => text.text.startsWith('⁺')).map(text => text.props.color),
   }
 }
@@ -1151,16 +1158,23 @@ test('the band puts the project, then the counts before the context gauge', asyn
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+  // The whole band's text in document order.
+  const whole = (await ui.find({ type: 'Box' }))?.text ?? ''
+  const name = (await ui.findAll({ type: 'Text' })).find(text => text.props.color === 'text')
+  const button = await ui.find({ key: 'prs' })
   await ui.unmount()
-  const at = (pattern: RegExp) => texts.findIndex(text => pattern.test(text))
+  const at = (part: string) => whole.indexOf(part)
 
-  expect(at(/Beta$/)).toBeGreaterThan(-1)
-  expect(at(/Beta$/)).toBeLessThan(at(/^PRs: /))
-  expect(at(/^PRs: /)).toBeLessThan(at(/^Issues: /))
-  expect(at(/^Issues: /)).toBeLessThan(at(/^Kontext/))
+  expect(at('Beta')).toBeGreaterThan(-1)
+  expect(at('Beta')).toBeLessThan(at('PRs:'))
+  expect(at('PRs:')).toBeLessThan(at('Issues:'))
+  expect(at('Issues:')).toBeLessThan(at('Kontext'))
   // No separate repo button any more: the project name links to the repository.
-  expect(at(/^Repo/)).toBe(-1)
+  expect(at('Repo')).toBe(-1)
+  // The name keeps the theme's text color and bold inside the link; only the word is a button.
+  expect(name?.text).toBe(' Beta')
+  expect(name?.props.bold).toBe(true)
+  expect(button?.text).toBe('PRs:')
 })
 
 const HOUR = 60 * 60_000

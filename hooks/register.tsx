@@ -719,35 +719,37 @@ export const register: Register = on => {
             {NBSP.repeat(2)}
           </Text>
         )}
-        <Text bold={!isCalm}>{` ${state.project}`}</Text>
+        {/* The theme's text color, so the link around it does not paint the name in its own. */}
+        <Text color="text" bold={!isCalm}>{` ${state.project}`}</Text>
       </Text>
     )
+    // Only the word is the button: the desktop draws a Button natively and drops the bold count
+    // and the colored "+x" inside it, so those stand beside it.
+    const count = (art: Art, label: string, open: number, fresh: number) => {
+      const key = art === 'pr' ? 'prs' : 'issues'
+
+      return (
+        <Box key={`${key}-zahl`}>
+          <Button key={key} plain dimColor onPress={() => openList($, art)}>
+            {label}
+          </Button>
+          <Text>
+            <Text bold>{` ${prLabel(open)}`}</Text>
+            {fresh === 0 ? null : (
+              <Text color={NEW_COLOR} bold>
+                {superscript(fresh)}
+              </Text>
+            )}
+          </Text>
+        </Box>
+      )
+    }
 
     return (
       <Box columnGap={2} flexWrap="wrap">
         {state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>}
-        <Button key="prs" plain onPress={() => openList($, 'pr')}>
-          <Text>
-            <Text dimColor>PRs: </Text>
-            <Text bold>{prLabel(openPrs)}</Text>
-            {state.newPrs === 0 ? null : (
-              <Text color={NEW_COLOR} bold>
-                {superscript(state.newPrs)}
-              </Text>
-            )}
-          </Text>
-        </Button>
-        <Button key="issues" plain onPress={() => openList($, 'issue')}>
-          <Text>
-            <Text dimColor>Issues: </Text>
-            <Text bold>{prLabel(openIssues)}</Text>
-            {state.newIssues === 0 ? null : (
-              <Text color={NEW_COLOR} bold>
-                {superscript(state.newIssues)}
-              </Text>
-            )}
-          </Text>
-        </Button>
+        {count('pr', 'PRs:', openPrs, state.newPrs)}
+        {count('issue', 'Issues:', openIssues, state.newIssues)}
         {!showsGauge ? null : (
           <Text>{NBSP.repeat(4)}</Text>
         )}
