@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A Claude Code plugin ("mod") named `projektfarben`, published through the marketplace `max-mods` defined in this repo (`.claude-plugin/marketplace.json`, manifest and version in `.claude-plugin/plugin.json`). It gives every project a color emoji, puts that emoji in front of each session title in the Claude desktop app's sidebar, draws a colored project band above the prompt, and adds the `/projektfarbe` command. A sleep mode (`/projektfarbe schlaf`) swaps the bright emoji for plain shapes and the band for muted colors.
 
-All user-facing text (command output, band labels, README) is German. Many identifiers and all persistent store keys are German too (`Farbe`, `FARBEN`, `farben`, `gelernt`, `versucht`, `bandAus`, `gesehen`). Code comments are English. Keep this split.
+All user-facing text (command output, band labels, README) is German. Many identifiers and all persistent store keys are German too (`Farbe`, `FARBEN`, `farben`, `gelernt`, `versucht`, `bandAus`, `gesehen`, `stand`). Code comments are English. Keep this split.
 
 ## Commands
 
@@ -21,9 +21,9 @@ There is no `package.json`, build step or linter. The plugin runtime loads the T
 
 - `hooks/hooks.json` lists the module entry, `hooks/register.tsx`, which exports `register` and wires these engine events:
   - `session.start`: registers `/projektfarbe`, then in the background learns existing sidebar colors once, fills the band state, counts the open pull requests and issues, and recolors this session's title.
-  - `turn.complete`: only for the session's own turns (`e.agentId === undefined`; subagent turns are skipped). Refreshes the band (a color may have been picked in another session; the context gauge reads `$.session.usage()`), counts the pull requests and issues again at most every five minutes, and recolors the title. If the app has not named the session yet, it retries once after 20 s via `$.clock.after`.
-  - `command.run` for `projektfarbe`: show / set color / `standard` / `alle` / `band` / `schlaf [satz]` / `bunt`.
-  - `ui.render` for `AbovePrompt`: the band (color block and name, `PRs: n` and `Issues: n` with any new ones raised, the repo button, then the context gauge) and its color picker with the mode switch. Passes through to `next(e)` when there's a survey, no project, or the band is hidden.
+  - `turn.complete`: only for the session's own turns (`e.agentId === undefined`; subagent turns are skipped). Stores why the turn ended (`e.reason`) under `stand`, refreshes the band (a color may have been picked in another session; the context gauge reads `$.session.usage()`), counts the pull requests and issues again at most every five minutes, and recolors the title. If the app has not named the session yet, it retries once after 20 s via `$.clock.after`.
+  - `command.run` for `projektfarbe`: show / set color / `standard` / `alle` / `status` / `band` / `schlaf [satz]` / `bunt`.
+  - `ui.render` for `AbovePrompt`: the band (color block and name, which open the repository when pressed, `PRs: n` and `Issues: n` with any new ones raised, then the context gauge) and its color picker with the mode switch. Passes through to `next(e)` when there's a survey, no project, or the band is hidden.
   - `ui.render` for `Spinner`: puts the project's mark in front of the spinner's word or message; passes through when the band is hidden.
 - `hooks/colors.ts` holds the pure logic with no engine dependency: project detection, color assignment, title planning, store parsing. Put new logic here when it can be tested without the engine. Colors come in sets (`Satz`: `BUNT`, `DAEMMERUNG`) that are plain data; the functions take the set as a last, optional argument (default `BUNT`), and `register.tsx` reads the active one from the store (`satzNow`). A further sleep set is one more `Satz` in `SAETZE` and `SCHLAFSAETZE`, with an `emoji` of its own: the color picker's mode switch (`modusLabel`) lists every set in `SAETZE` by its emoji and name, so a new set shows up there without a UI change.
 - `types/index.d.ts` declares the per-session `view` atom's shape by augmenting `PluginState` in `claude-code`. Change it together with the `view` atom in `register.tsx`.
@@ -32,7 +32,9 @@ There is no `package.json`, build step or linter. The plugin runtime loads the T
 
 Titles are changed through the desktop app's own MCP server `ccd_session_mgmt`: `get_session` (with `session_id: 'self'`), `list_sessions` (returns the other sessions), and `set_session_title`. Results come back as JSON in text content blocks (`callJson`). This only works in the desktop app; in a terminal session only the band shows.
 
-The pull request and issue counts and the repo button run the person's own `gh` through `$.process.run` (`gh pr list`, `gh issue list`, `gh repo view --web`, and `gh pr list --web` / `gh issue list --web` behind the counts), so they need `gh` on the PATH and logged in; when a count cannot be read it stays out of the band and `/projektfarbe` shows why (`prsNote`, `issuesNote`). New entries (a number above the highest in `gesehen`) show as raised digits behind the count (`superscript`); the first reading of a project only sets the baseline (`markSeen` with `isFirstOnly`), and pressing a count raises it to what is open now. The block and the gauge are runs of non-breaking spaces on a colored background (`NBSP`), not empty Boxes: on the desktop those sat off the line of the text beside them.
+The pull request and issue counts and the repository link run the person's own `gh` through `$.process.run` (`gh pr list`, `gh issue list`, `gh repo view --json url` once per folder for `repoUrl`, and `gh pr list --web` / `gh issue list --web` behind the counts), so they need `gh` on the PATH and logged in; when a count cannot be read the band shows 0 (so it keeps one shape) and `/projektfarbe` shows why (`prsNote`, `issuesNote`). New entries (a number above the highest in `gesehen`) show as raised digits behind the count (`superscript`); the first reading of a project only sets the baseline (`markSeen` with `isFirstOnly`), and pressing a count raises it to what is open now. The project's block and name are a `Link` to `repoUrl`, not a Button: the desktop draws a Button as its native control and drops the colors and bold inside it; without an address they stay plain text. For the same reason only the words `PRs:` / `Issues:` are Buttons; the bold count and the raised "+x" stand beside them in a keyed Box (`prs-zahl`, `issues-zahl`), and the name carries `color="text"` so the link does not paint it. The block and the gauge are runs of non-breaking spaces on a colored background (`NBSP`), not empty Boxes: on the desktop those sat off the line of the text beside them.
+
+`/projektfarbe status` is split in two so the planned side panel can reuse the data: `readUebersicht` (register.tsx) asks `get_session`, `list_sessions` (whose rows carry `branch`, `isRunning`, `isArchived`, `lastActivityAt` and sometimes the app's own `prNumber` / `prState`) and runs `gh pr list --state all --json number,state,headRefName,isDraft,reviewDecision,statusCheckRollup` once per repository (`repoKeyOf`), all at once, in the folder of one of its sessions; the pure `statusOf`, `buildUebersicht` and `uebersichtText` (colors.ts) turn that into a status per session, groups and text. A session's pull request is the app's `prNumber` / `prState` when the row has one, with `gh`'s entry of that number adding CI, review and draft; without it, the newest `gh` lists for the session's branch. The app does not say whether a session waits for input, so no status covers that.
 
 Engine work in `session.start` and `turn.complete` runs fire-and-forget (`void … .catch(() => undefined)`) so a session or turn never waits on the app, or on the person answering the app's rename prompt.
 
@@ -47,6 +49,7 @@ Engine work in `session.start` and `turn.complete` runs fire-and-forget (`void �
 | `versucht` | session id → the title last tried, capped at 300 entries |
 | `bandAus` | `true` when the band is hidden |
 | `gesehen` | project name, lowercased → `{ pr, issue }`: the highest pull request and issue number the person has seen |
+| `stand` | session id → `{ grund, um }`: why the session's last own turn ended (`answer`, `aborted`, `refusal`, `error`) and when (`$.clock.now()`), capped at 300 entries |
 
 These keys hold existing users' data: renaming them or changing their format needs a migration. `versucht` is written *before* `set_session_title`: renaming a title the person set makes the app ask them, and a "no" must not be asked again, even after a restart.
 
@@ -68,6 +71,6 @@ These keys hold existing users' data: renaming them or changing their format nee
 - `mock.store(on, initial?)` for the persistent store;
 - stubs for `command.register`, `session.start`, `session.cwd` and `turn.complete`.
 
-UI tests find and press buttons by their React `key` (`farbe`, `farbe-<name>`, `abbrechen`, `ausblenden`, `repo`, `prs`, `issues`, `modus-<id>`), so keep those keys stable. Sleep mode is driven through `$.command.run` with `args: 'schlaf'`; the picker's `farbe-<name>` keys then carry the sleep set's names.
+UI tests find the repository link by its type (`Link`, `href`) and press buttons by their React `key` (`farbe`, `farbe-<name>`, `abbrechen`, `ausblenden`, `prs`, `issues`, `modus-<id>`), so keep those keys stable. Sleep mode is driven through `$.command.run` with `args: 'schlaf'`; the picker's `farbe-<name>` keys then carry the sleep set's names.
 
 When behavior or commands change, update the German README (`Was der Mod macht`, `Befehle`, `Grenzen`).

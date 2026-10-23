@@ -4,6 +4,7 @@ import type { EngineInterface, McpContentBlock, Register } from 'claude-code'
 import type { ProjektfarbenView } from '../types'
 import {
   assignFarben,
+  buildUebersicht,
   BUNT,
   CONTEXT_CELLS,
   contextFill,
@@ -13,6 +14,7 @@ import {
   findFarbe,
   findSatz,
   ghNumbers,
+  ghPrs,
   learnPicks,
   markSeen,
   modusLabel,
@@ -23,18 +25,27 @@ import {
   projectOf,
   readPicks,
   readSeen,
+  readStand,
   readTried,
+  rememberStand,
   rememberTry,
+  repoKeyOf,
   SAETZE,
   satzOf,
   SCHLAFSAETZE,
   superscript,
+  toListed,
   toRow,
+  uebersichtText,
   type Art,
   type Farbe,
+  type GhPr,
+  type Grund,
+  type ListedSession,
   type Satz,
   type SessionRow,
   type TitlePlan,
+  type Uebersicht,
 } from './colors'
 
 type Engine = EngineInterface
@@ -57,6 +68,7 @@ const EMPTY: ProjektfarbenView = {
   issuesNote: null,
   issueNumbers: [],
   newIssues: 0,
+  repoUrl: null,
   satz: BUNT.id,
   isPicking: false,
   isHidden: false,
@@ -156,8 +168,8 @@ async function recolor(
  * Recolors this session's own title. A title it already tried is left alone, even
  * after a restart: a title the person set makes the app ask them, and one no is enough.
  */
-async function recolorSelf($: Engine, force: boolean): Promise<Outcome> {
-  const row = toRow(await callJson($, 'get_session', { session_id: 'self' }), 'self')
+async function recolorSelf($: Engine, force: boolean, known?: SessionRow | null): Promise<Outcome> {
+  const row = known !== undefined ? known : toRow(await callJson($, 'get_session', { session_id: 'self' }), 'self')
   if (row === null) {
     return 'failed'
   }
@@ -177,12 +189,27 @@ async function recolorSelf($: Engine, force: boolean): Promise<Outcome> {
   return rename($, 'self', plan.title)
 }
 
-/** After a turn: the band follows a color picked in another session, and the title gets its mark. */
-async function afterTurn($: Engine): Promise<void> {
+/** Stores why this session's turn ended and when, for `/projektfarbe status` in every session. */
+async function recordStand($: Engine, sessionId: string, grund: Grund): Promise<void> {
+  const um = await $.clock.now()
+  const stand = readStand(await $.store.get('stand'))
+  await $.store.set('stand', rememberStand(stand, sessionId, { grund, um }))
+}
+
+/**
+ * After a turn: the session's last turn is stored, the band follows a color picked
+ * in another session, and the title gets its mark.
+ */
+async function afterTurn($: Engine, grund: Grund): Promise<void> {
+  // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
+  const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
+  void self
+    .then(row => (row === null ? undefined : recordStand($, row.sessionId, grund)))
+    .catch(() => undefined)
   const cwd = await $.session.cwd()
   await refreshView($, cwd)
   void refreshPrs($, cwd, false).catch(() => undefined)
-  if ((await recolorSelf($, false)) === 'unnamed') {
+  if ((await recolorSelf($, false, await self)) === 'unnamed') {
     $.clock.after(RETRY_MS, () => {
       void recolorSelf($, false).catch(() => undefined)
     })
@@ -280,22 +307,23 @@ async function readOpen($: Engine, art: Art): Promise<{ numbers: number[] | null
   }
 }
 
-/**
- * Opens the project's repository in the person's own browser: `gh` hands the address to the
- * system's default browser, not to the browser pane inside the app.
- */
-async function openRepo($: Engine): Promise<void> {
+/** The web address of the session's repository, from `gh`; null when it cannot tell. */
+async function readRepoUrl($: Engine): Promise<string | null> {
   try {
-    const { exitCode, stderr } = await $.process.run(['gh', 'repo', 'view', '--web'], {
-      timeoutMs: 15_000,
-    })
-    if (exitCode !== 0) {
-      $.ui.toast(`Repo lässt sich nicht öffnen: ${firstLine(stderr)}`)
-    }
-  } catch (error) {
-    $.ui.toast(`Repo lässt sich nicht öffnen: ${firstLine(String(error))}`)
+    const { exitCode, stdout } = await $.process.run(
+      ['gh', 'repo', 'view', '--json', 'url', '--jq', '.url'],
+      { timeoutMs: 20_000 },
+    )
+    const url = stdout.trim()
+
+    return exitCode === 0 && /^https:\/\/\S+$/.test(url) ? url : null
+  } catch {
+    return null
   }
 }
+
+// The folder whose repository address the band holds; read once per folder, again after a failure.
+let urlFor: string | null = null
 
 /**
  * Opens the list of open pull requests or issues in the person's browser and, once it opened,
@@ -356,10 +384,19 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
   }
   prsCheckedAt = now
   prsFor = cwd
-  const [prs, issues] = await Promise.all([readOpen($, 'pr'), readOpen($, 'issue')])
+  const needsUrl = urlFor !== cwd
+  const [prs, issues, url] = await Promise.all([
+    readOpen($, 'pr'),
+    readOpen($, 'issue'),
+    needsUrl ? readRepoUrl($) : Promise.resolve(undefined),
+  ])
+  if (url !== undefined && url !== null) {
+    urlFor = cwd
+  }
   // A reading that fails keeps the last good one, but only of the same folder.
   await update($, view, v => ({
     ...v,
+    repoUrl: url === undefined ? v.repoUrl : (url ?? (isSameFolder ? v.repoUrl : null)),
     openPrs: prs.numbers?.length ?? (isSameFolder ? v.openPrs : null),
     prNumbers: prs.numbers ?? (isSameFolder ? v.prNumbers : []),
     prsNote: prs.note,
@@ -379,6 +416,77 @@ async function refreshPrs($: Engine, cwd: string, isForced: boolean): Promise<vo
     await $.store.set('gesehen', next)
   }
   await refreshNew($)
+}
+
+// Newest first, as gh lists them: enough to reach the pull requests of every open session.
+const STATUS_PR_LIMIT = 200
+const STATUS_GH_MS = 20_000
+
+/** Every pull request of one repository, read in a folder of it; null and why when gh could not list them. */
+async function readRepoPrs($: Engine, cwd: string): Promise<{ prs: GhPr[] | null; note: string | null }> {
+  try {
+    const { exitCode, stdout, stderr } = await $.process.run(
+      [
+        'gh', 'pr', 'list', '--state', 'all', '--limit', String(STATUS_PR_LIMIT),
+        '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
+      ],
+      { cwd, timeoutMs: STATUS_GH_MS },
+    )
+    if (exitCode !== 0) {
+      return { prs: null, note: `gh meldet: ${firstLine(stderr)}` }
+    }
+    const prs = ghPrs(stdout)
+
+    return { prs, note: prs === null ? 'gh antwortet in einem unerwarteten Format' : null }
+  } catch (error) {
+    return { prs: null, note: `gh lässt sich nicht starten (${firstLine(String(error))})` }
+  }
+}
+
+/**
+ * Where every open session stands, by project: the data `/projektfarbe status` prints (and a side
+ * panel can draw). Asks the app for the sessions, and gh once per repository, all repositories
+ * at once, each in the folder of one of its sessions.
+ */
+async function readUebersicht($: Engine): Promise<Uebersicht> {
+  const [selfRaw, listed] = await Promise.all([
+    callJson($, 'get_session', { session_id: 'self' }),
+    callJson($, 'list_sessions', { limit: 500 }),
+  ])
+  const self = toListed(selfRaw, 'self')
+  const others = (Array.isArray(listed) ? listed : [])
+    .map(entry => toListed(entry))
+    .filter((row): row is ListedSession => row !== null && row.sessionId !== self?.sessionId)
+  const sessions = self === null ? others : [self, ...others]
+
+  const folders = new Map<string, { cwd: string; project: string }>()
+  for (const session of sessions) {
+    const repo = repoKeyOf(session.cwd)
+    const project = projectOf(session.cwd)
+    if (repo !== null && project !== null && !session.isArchived && !folders.has(repo)) {
+      folders.set(repo, { cwd: session.cwd, project })
+    }
+  }
+  const gelesen = await Promise.all(
+    [...folders].map(async ([repo, { cwd, project }]) => ({ repo, project, ...(await readRepoPrs($, cwd)) })),
+  )
+  const prs = new Map(gelesen.map(entry => [entry.repo, entry.prs] as const))
+  const hinweise = gelesen
+    .filter(entry => entry.note !== null)
+    .map(entry => `PR-Stand für ${entry.project} nicht verfügbar: ${entry.note}`)
+
+  const satz = await satzNow($)
+  const picks = await picksOf($, satz)
+
+  return buildUebersicht({
+    sessions,
+    selfId: self?.sessionId ?? null,
+    stand: readStand(await $.store.get('stand')),
+    prs,
+    markOf: project => farbeFor(project, picks, satz).mark,
+    now: await $.clock.now(),
+    hinweise,
+  })
 }
 
 /** Stores the person's color for this project (null: the next free one) and recolors its sessions. */
@@ -427,6 +535,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe <farbe>    setzt sie und färbt alle Sessions des Projekts um',
     '/projektfarbe standard   nächste freie Farbe automatisch',
     '/projektfarbe alle       färbt alle offenen Sessions neu ein',
+    '/projektfarbe status     Stand aller offenen Sessions nach Projekt (läuft, abgebrochen, PR, ruht …)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
@@ -439,7 +548,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'projektfarbe',
       description: 'Farbe dieses Projekts zeigen oder ändern (Farbpunkt vor den Session-Namen)',
-      argumentHint: '[farbe | standard | alle | band | schlaf | bunt]',
+      argumentHint: '[farbe | standard | alle | status | band | schlaf | bunt]',
     })
     // In the background, so the session start never waits on the app.
     void startUp($, e.cwd).catch(() => undefined)
@@ -451,7 +560,7 @@ export const register: Register = on => {
   // background: the turn never waits on the app or on the person's answer there.
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
-      void afterTurn($).catch(() => undefined)
+      void afterTurn($, e.reason).catch(() => undefined)
     }
 
     return next(e)
@@ -489,6 +598,15 @@ export const register: Register = on => {
       const renamed = await recolorAll($, null)
 
       return { text: `${renamed} Session(s) mit ihrer Projektfarbe umbenannt.` }
+    }
+    if (arg === 'status') {
+      try {
+        return { text: uebersichtText(await readUebersicht($)) }
+      } catch (error) {
+        return {
+          text: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
+        }
+      }
     }
     if (arg === 'band') {
       const isHidden = !state.isHidden
@@ -531,11 +649,15 @@ export const register: Register = on => {
       return next(e)
     }
     const state = await read($, view)
-    const { hex, contextPercent: percent, openPrs, openIssues } = state
+    const { hex, contextPercent: percent } = state
+    // A count that could not be read shows as 0, so the band keeps one shape and never wraps
+    // differently; /projektfarbe says why it could not be read.
+    const openPrs = state.openPrs ?? 0
+    const openIssues = state.openIssues ?? 0
     if (state.isHidden || state.project === null || state.mark === null || hex === null) {
       return next(e)
     }
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const { Box, Button, Link, Text } = $.ui.resolve(e)
     const satz = satzOf(state.satz)
     const isCalm = satz !== BUNT
     const pick = async (farbe: Farbe): Promise<void> => {
@@ -588,51 +710,47 @@ export const register: Register = on => {
       level === 'ok' ? { dimColor: true } : { color: CONTEXT_FILL[level], bold: level === 'full' }
     // Subagent views get no gauge: the number is the main session's.
     const showsGauge = percent !== null && e.props.view.agentId === undefined
+    const name = (
+      <Text>
+        {isCalm ? (
+          <Text color={hex}>{state.mark}</Text>
+        ) : (
+          <Text mono backgroundColor={hex}>
+            {NBSP.repeat(2)}
+          </Text>
+        )}
+        {/* The theme's text color, so the link around it does not paint the name in its own. */}
+        <Text color="text" bold={!isCalm}>{` ${state.project}`}</Text>
+      </Text>
+    )
+    // Only the word is the button: the desktop draws a Button natively and drops the bold count
+    // and the colored "+x" inside it, so those stand beside it.
+    const count = (art: Art, label: string, open: number, fresh: number) => {
+      const key = art === 'pr' ? 'prs' : 'issues'
+
+      return (
+        <Box key={`${key}-zahl`}>
+          <Button key={key} plain dimColor onPress={() => openList($, art)}>
+            {label}
+          </Button>
+          <Text>
+            <Text bold>{` ${prLabel(open)}`}</Text>
+            {fresh === 0 ? null : (
+              <Text color={NEW_COLOR} bold>
+                {superscript(fresh)}
+              </Text>
+            )}
+          </Text>
+        </Box>
+      )
+    }
 
     return (
       <Box columnGap={2} flexWrap="wrap">
-        <Text>
-          {isCalm ? (
-            <Text color={hex}>{state.mark}</Text>
-          ) : (
-            <Text mono backgroundColor={hex}>
-              {NBSP.repeat(2)}
-            </Text>
-          )}
-          <Text bold={!isCalm}>{` ${state.project}`}</Text>
-        </Text>
-        {openPrs === null ? null : (
-          <Button key="prs" plain onPress={() => openList($, 'pr')}>
-            <Text>
-              <Text dimColor>PRs: </Text>
-              <Text bold>{prLabel(openPrs)}</Text>
-              {state.newPrs === 0 ? null : (
-                <Text color={NEW_COLOR} bold>
-                  {superscript(state.newPrs)}
-                </Text>
-              )}
-            </Text>
-          </Button>
-        )}
-        {openIssues === null ? null : (
-          <Button key="issues" plain onPress={() => openList($, 'issue')}>
-            <Text>
-              <Text dimColor>Issues: </Text>
-              <Text bold>{prLabel(openIssues)}</Text>
-              {state.newIssues === 0 ? null : (
-                <Text color={NEW_COLOR} bold>
-                  {superscript(state.newIssues)}
-                </Text>
-              )}
-            </Text>
-          </Button>
-        )}
-        {openPrs === null && openIssues === null ? null : (
-          <Button key="repo" plain onPress={() => openRepo($)}>
-            <Text dimColor>Repo ↗</Text>
-          </Button>
-        )}
-        {!showsGauge || (openPrs === null && openIssues === null) ? null : (
+        {state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>}
+        {count('pr', 'PRs:', openPrs, state.newPrs)}
+        {count('issue', 'Issues:', openIssues, state.newIssues)}
+        {!showsGauge ? null : (
           <Text>{NBSP.repeat(4)}</Text>
         )}
         {!showsGauge ? null : (

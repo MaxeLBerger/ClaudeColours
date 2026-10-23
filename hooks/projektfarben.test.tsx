@@ -1,7 +1,9 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import {
+  alterText,
   assignFarben,
+  buildUebersicht,
   BUNT,
   contextFill,
   contextLevel,
@@ -13,6 +15,7 @@ import {
   findFarbe,
   findSatz,
   ghNumbers,
+  ghPrs,
   learnPicks,
   markOf,
   markSeen,
@@ -23,9 +26,16 @@ import {
   readPicks,
   SAETZE,
   readSeen,
+  readStand,
+  rememberStand,
   satzOf,
+  statusOf,
   stripMark,
   superscript,
+  toListed,
+  uebersichtText,
+  type GhPr,
+  type Grund,
 } from './colors'
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
@@ -331,8 +341,8 @@ test('the band shows the project in its color and hides on request', async ($, o
     expect(texts.find(text => text.props.backgroundColor === '#3b82f6')?.children).toEqual([NBSP.repeat(2)])
     // No usage figure yet, so no gauge.
     expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
-    // No gh in this test, so no pull request count either.
-    expect(texts.some(text => /PRs/.test(text.text))).toBe(false)
+    // No gh in this test: the counts show 0 rather than leave a gap.
+    expect(await countOf(ui, 'prs')).toBe('PRs: 0')
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
@@ -468,7 +478,10 @@ test('the band counts the open pull requests with gh, at most every five minutes
   on('session.cwd', () => ({ value: self.cwd }))
   on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
-    asked.push([...e.argv])
+    // The repository's address is read once beside the counts; only the counts are timed here.
+    if (e.argv[1] !== 'repo') {
+      asked.push([...e.argv])
+    }
 
     return ghList(open)
   })
@@ -476,14 +489,12 @@ test('the band counts the open pull requests with gh, at most every five minutes
   const shown = async () => {
     const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
     const texts = await ui.findAll({ type: 'Text' })
+    const shownCount = await countOf(ui, 'prs')
     await ui.unmount()
+    // The number stands in bold beside the word, outside the button.
+    expect(texts.some(text => text.props.bold === true && /^ \d+\+?$/.test(text.text))).toBe(true)
 
-    // The label, then the number in bold.
-    const number = texts.find(text => text.props.bold === true && /^\d+\+?$/.test(text.text))?.text
-
-    return texts.some(text => /^PRs:/.test(text.text)) && number !== undefined
-      ? `PRs: ${number}`
-      : undefined
+    return shownCount
   }
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
@@ -505,11 +516,18 @@ test('the band counts the open pull requests with gh, at most every five minutes
   await $.turn.complete(TURN)
   await clock.settle()
   expect(asked).toHaveLength(4)
-  expect(await shown()).toBe('PRs: 3')
+  // #3 is newer than the #2 seen at the start: raised as new.
+  expect(await shown()).toBe('PRs: 3⁺¹')
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain('Offene PRs: 3')
 })
 
-test('the repo button asks gh to open the repository in the browser', async ($, on) => {
+/** What `$.process.run` answers for `gh repo view --json url`: the address, or a failure. */
+const ghUrl = (url: string | null) =>
+  url === null
+    ? ghFails('no default remote repository\nrun gh repo set-default')
+    : { value: { exitCode: 0, stdout: `${url}\n`, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+
+test("the project's color and name link to the repository, read once per folder", async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const asked: string[][] = []
   const clock = mock.clock(on)
@@ -517,22 +535,63 @@ test('the repo button asks gh to open the repository in the browser', async ($, 
   on('mcp.call', fakeDesktop(self, []).hook)
   on('command.register', () => ({ value: { command: 'projektfarbe' } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
     asked.push([...e.argv])
 
-    return ghList([1])
+    return e.argv[1] === 'repo' ? ghUrl('https://github.com/me/beta') : ghList([1])
   })
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ key: 'repo' })).toBeDefined()
-  await ui.press({ key: 'repo' })
+  const links = await ui.findAll({ type: 'Link' })
   await ui.unmount()
-  expect(asked[asked.length - 1]).toEqual(['gh', 'repo', 'view', '--web'])
+  expect(links.map(link => link.props.href)).toEqual(['https://github.com/me/beta'])
+  // The link holds the color block and the bold name, as before.
+  expect(links[0]?.text).toContain('Beta')
+  expect(asked).toContainEqual(['gh', 'repo', 'view', '--json', 'url', '--jq', '.url'])
+
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(asked.filter(argv => argv[1] === 'repo')).toHaveLength(1)
 })
 
-test('without a working gh the band shows no count, and /projektfarbe says why', async ($, on) => {
+test('without an address the name stays plain text, and the next count asks again', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  let url: string | null = null
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', (_, e) => (e.argv[1] === 'repo' ? ghUrl(url) : ghList([1])))
+
+  const band = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const links = (await ui.findAll({ type: 'Link' })).map(link => link.props.href)
+    const colored = (await ui.findAll({ type: 'Text' })).some(text => text.props.backgroundColor === '#3b82f6')
+    await ui.unmount()
+
+    return { links, colored }
+  }
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await band()).toEqual({ links: [], colored: true })
+
+  url = 'https://github.com/me/beta'
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(await band()).toEqual({ links: ['https://github.com/me/beta'], colored: true })
+})
+
+test('without a working gh the band shows 0, and /projektfarbe says why', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   let fails: 'start' | 'exit' = 'start'
   const clock = mock.clock(on)
@@ -557,19 +616,11 @@ test('without a working gh the band shows no count, and /projektfarbe says why',
     }
   })
 
-  const hasCount = async () => {
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-    const texts = await ui.findAll({ type: 'Text' })
-    const button = await ui.find({ key: 'repo' })
-    await ui.unmount()
-
-    // Neither the count nor the button that opens the repo.
-    return texts.some(text => /PRs/.test(text.text)) || button !== undefined
-  }
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await hasCount()).toBe(false)
+  // The band keeps its shape: 0 for what could not be read; /projektfarbe says why.
+  expect(await counts($)).toEqual({ prs: 'PRs: 0', issues: 'Issues: 0', raised: [] })
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
     'PR-Zahl nicht verfügbar: gh lässt sich hier nicht starten',
   )
@@ -577,7 +628,7 @@ test('without a working gh the band shows no count, and /projektfarbe says why',
   fails = 'exit'
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await hasCount()).toBe(false)
+  expect(await counts($)).toEqual({ prs: 'PRs: 0', issues: 'Issues: 0', raised: [] })
   const text = (await $.command.run({ ...RUN, args: '' })).text
   expect(text).toContain('PR-Zahl nicht verfügbar: gh meldet: no git remotes found')
   expect(text).not.toContain('second line')
@@ -816,41 +867,6 @@ test('the picker reads the mode from the store: another session may have switche
   await ui.unmount()
 })
 
-test('the repo button says why gh could not open the repository', async ($, on) => {
-  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
-  const toasts: string[] = []
-  const clock = mock.clock(on)
-  mock.store(on)
-  on('mcp.call', fakeDesktop(self, []).hook)
-  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
-  on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('process.run', (_, e) =>
-    e.argv[1] === 'repo'
-      ? {
-          value: {
-            exitCode: 1,
-            stdout: '',
-            stderr: 'no default remote repository\nrun gh repo set-default',
-            isStdoutTruncated: false,
-            isStderrTruncated: false,
-          },
-        }
-      : ghList([1]),
-  )
-  on('ui.toast', (_, e) => {
-    toasts.push(e.text)
-
-    return { value: undefined }
-  })
-
-  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
-  await clock.settle()
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await ui.press({ key: 'repo' })
-  await ui.unmount()
-  expect(toasts).toEqual(['Repo lässt sich nicht öffnen: no default remote repository'])
-})
-
 test('a count that cannot be read again is kept for the same folder and dropped for another', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   let cwd = self.cwd
@@ -876,30 +892,23 @@ test('a count that cannot be read again is kept for the same folder and dropped 
       : ghList([1, 2]),
   )
 
-  const hasCount = async () => {
-    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-    const texts = await ui.findAll({ type: 'Text' })
-    await ui.unmount()
-
-    return texts.some(text => /^PRs:/.test(text.text))
-  }
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await hasCount()).toBe(true)
+  expect((await counts($)).prs).toBe('PRs: 2')
 
   // gh fails five minutes later, in the same folder: the number of before stays.
   isBroken = true
   await clock.advance(5 * 60_000)
   await $.turn.complete(TURN)
   await clock.settle()
-  expect(await hasCount()).toBe(true)
+  expect((await counts($)).prs).toBe('PRs: 2')
 
-  // In another folder the old number says nothing about the new repository.
+  // In another folder the old number says nothing about the new repository: 0 until read.
   cwd = `${ALPHA}\\.claude\\worktrees\\a`
   await $.turn.complete(TURN)
   await clock.settle()
-  expect(await hasCount()).toBe(false)
+  expect((await counts($)).prs).toBe('PRs: 0')
 })
 
 test("the gauge shows the main conversation's window, not an agent's view", async ($, on) => {
@@ -992,15 +1001,23 @@ function fakeGh(lists: { pr: number[]; issue: number[] | 'disabled' }) {
 type Tested = Parameters<Parameters<typeof test>[1]>[0]
 
 /** The PR and issue counts as the band shows them, with the color of each raised "+x". */
+/** A count as the band shows it: the word (the button), then the bold number and any "+x". */
+async function countOf(ui: Awaited<ReturnType<Tested['ui']['mount']>>, key: 'prs' | 'issues') {
+  const box = await ui.find({ key: `${key}-zahl` })
+
+  return box?.text.replace(/\s+/g, ' ')
+}
+
 async function counts($: Tested) {
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const texts = await ui.findAll({ type: 'Text' })
+  const prs = await countOf(ui, 'prs')
+  const issues = await countOf(ui, 'issues')
   await ui.unmount()
-  const label = (prefix: string) => texts.find(text => text.text.startsWith(prefix))?.text
 
   return {
-    prs: label('PRs: '),
-    issues: label('Issues: '),
+    prs,
+    issues,
     raised: texts.filter(text => text.text.startsWith('⁺')).map(text => text.props.color),
   }
 }
@@ -1092,7 +1109,7 @@ test('a repository without issues still shows its pull requests; /projektfarbe s
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await counts($)).toEqual({ prs: 'PRs: 1', issues: undefined, raised: [] })
+  expect(await counts($)).toEqual({ prs: 'PRs: 1', issues: 'Issues: 0', raised: [] })
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
     'Issue-Zahl nicht verfügbar: gh meldet: the repository has disabled issues',
   )
@@ -1126,7 +1143,7 @@ test('a list that cannot be opened says why and keeps the "+x"', async ($, on) =
   expect((await counts($)).prs).toBe('PRs: 2⁺¹')
 })
 
-test('the band puts the counts and the repo button before the context gauge', async ($, on) => {
+test('the band puts the project, then the counts before the context gauge', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const clock = mock.clock(on)
   mock.store(on)
@@ -1141,12 +1158,341 @@ test('the band puts the counts and the repo button before the context gauge', as
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+  // The whole band's text in document order.
+  const whole = (await ui.find({ type: 'Box' }))?.text ?? ''
+  const name = (await ui.findAll({ type: 'Text' })).find(text => text.props.color === 'text')
+  const button = await ui.find({ key: 'prs' })
   await ui.unmount()
-  const at = (pattern: RegExp) => texts.findIndex(text => pattern.test(text))
+  const at = (part: string) => whole.indexOf(part)
 
-  expect(at(/^PRs: /)).toBeGreaterThan(-1)
-  expect(at(/^PRs: /)).toBeLessThan(at(/^Issues: /))
-  expect(at(/^Issues: /)).toBeLessThan(at(/^Repo/))
-  expect(at(/^Repo/)).toBeLessThan(at(/^Kontext/))
+  expect(at('Beta')).toBeGreaterThan(-1)
+  expect(at('Beta')).toBeLessThan(at('PRs:'))
+  expect(at('PRs:')).toBeLessThan(at('Issues:'))
+  expect(at('Issues:')).toBeLessThan(at('Kontext'))
+  // No separate repo button any more: the project name links to the repository.
+  expect(at('Repo')).toBe(-1)
+  // The name keeps the theme's text color and bold inside the link; only the word is a button.
+  expect(name?.text).toBe(' Beta')
+  expect(name?.props.bold).toBe(true)
+  expect(button?.text).toBe('PRs:')
+})
+
+const HOUR = 60 * 60_000
+const DAY = 24 * HOUR
+const NOW = Date.parse('2026-10-23T12:00:00.000Z')
+
+/** A list_sessions entry as the app gives it, with fields as needed. */
+const listed = (fields: Record<string, unknown>) => ({
+  sessionId: 'local_s',
+  title: '🟦 Fix the login bug',
+  cwd: `${ALPHA}\\.claude\\worktrees\\a`,
+  branch: 'claude/login',
+  isRunning: false,
+  isArchived: false,
+  lastActivityAt: new Date(NOW - 2 * HOUR).toISOString(),
+  ...fields,
+})
+
+const session = (fields: Record<string, unknown> = {}) => toListed(listed(fields))!
+
+const pr = (fields: Partial<GhPr> = {}): GhPr => ({
+  number: 7,
+  state: 'OPEN',
+  headRefName: 'claude/login',
+  isDraft: false,
+  reviewDecision: null,
+  isCiRed: false,
+  ...fields,
+})
+
+test('the stand of each session is read safely and kept for the newest 300 sessions', async () => {
+  expect(readStand({ a: { grund: 'aborted', um: 5 }, b: { grund: 'nope', um: 1 }, c: 'x', d: { grund: 'answer' } })).toEqual({
+    a: { grund: 'aborted', um: 5 },
+  })
+  expect(readStand(null)).toEqual({})
+  let stand = {}
+  for (let i = 0; i < 305; i += 1) {
+    stand = rememberStand(stand, `s${i}`, { grund: 'answer', um: i })
+  }
+  stand = rememberStand(stand, 's10', { grund: 'error', um: 999 })
+  const ids = Object.keys(stand)
+  expect(ids).toHaveLength(300)
+  expect(ids[0]).toBe('s5')
+  expect(ids[299]).toBe('s10')
+})
+
+test('the sessions list and gh pr list are read into what the status needs', async () => {
+  const row = session({ prNumber: 3, prState: 'OPEN' })
+  expect(row.lastActivityAt).toBe(NOW - 2 * HOUR)
+  expect(row.appPr).toEqual({ number: 3, state: 'OPEN' })
+  expect(session({ branch: '', lastActivityAt: 'later' })).toMatchObject({ branch: null, lastActivityAt: null, appPr: null })
+  expect(toListed({ title: 'x' })).toBe(null)
+
+  const stdout = JSON.stringify([
+    {
+      number: 9, state: 'OPEN', headRefName: 'a', isDraft: true, reviewDecision: 'REVIEW_REQUIRED',
+      statusCheckRollup: [
+        { __typename: 'CheckRun', status: 'COMPLETED', conclusion: 'SUCCESS' },
+        { __typename: 'StatusContext', state: 'FAILURE' },
+      ],
+    },
+    { number: 8, state: 'MERGED', headRefName: 'b', isDraft: false, reviewDecision: '', statusCheckRollup: [] },
+    { number: 'x', state: 'OPEN', headRefName: 'c' },
+  ])
+  expect(ghPrs(stdout)).toEqual([
+    { number: 9, state: 'OPEN', headRefName: 'a', isDraft: true, reviewDecision: 'REVIEW_REQUIRED', isCiRed: true },
+    { number: 8, state: 'MERGED', headRefName: 'b', isDraft: false, reviewDecision: null, isCiRed: false },
+  ])
+  expect(ghPrs('not json')).toBe(null)
+  expect(ghPrs('{}')).toBe(null)
+})
+
+test('a session is running, aborted, failed, in work or resting; a newer answer clears an abort', async () => {
+  const at = (grund: Grund) => ({ grund, um: NOW - HOUR })
+  const sign = (s: ReturnType<typeof session>, stand?: { grund: Grund; um: number }) => {
+    const status = statusOf(s, stand, [], NOW)
+
+    return `${status.mark} ${status.label}`
+  }
+  expect(sign(session({ isRunning: true }), at('aborted'))).toBe('▶ läuft')
+  expect(sign(session(), at('aborted'))).toBe('⚠ abgebrochen')
+  expect(sign(session(), at('error'))).toBe('⚠ Fehler')
+  expect(sign(session(), at('refusal'))).toBe('⚠ Fehler (Modell lehnte ab)')
+  // Only the last turn is kept: an answer after the abort is all that is left.
+  expect(sign(session(), at('answer'))).toBe('✎ in Arbeit, kein PR')
+  // A session from before this version has no stand: no abort info, still a status.
+  expect(sign(session())).toBe('✎ in Arbeit, kein PR')
+  expect(sign(session({ lastActivityAt: new Date(NOW - 5 * DAY).toISOString() }))).toBe('💤 ruht seit 5 Tagen, kein PR')
+  // Exactly three days is not yet resting; the last turn counts as activity too.
+  expect(sign(session({ lastActivityAt: new Date(NOW - 3 * DAY).toISOString() }))).toBe('✎ in Arbeit, kein PR')
+  expect(sign(session({ lastActivityAt: new Date(NOW - 9 * DAY).toISOString() }), { grund: 'answer', um: NOW - DAY })).toBe(
+    '✎ in Arbeit, kein PR',
+  )
+  const ranks = [
+    statusOf(session(), at('aborted'), [], NOW),
+    statusOf(session(), undefined, [pr({ isCiRed: true })], NOW),
+    statusOf(session(), undefined, [pr()], NOW),
+    statusOf(session(), undefined, [], NOW),
+    statusOf(session({ isRunning: true }), undefined, [], NOW),
+    statusOf(session(), undefined, [pr({ state: 'MERGED' })], NOW),
+    statusOf(session({ lastActivityAt: new Date(NOW - 5 * DAY).toISOString() }), undefined, [], NOW),
+  ].map(status => status.rang)
+  expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
+})
+
+test("a session's pull request is the newest on its branch, with what it is waiting for", async () => {
+  const label = (prs: GhPr[] | null, fields: Record<string, unknown> = {}) => {
+    const status = statusOf(session(fields), undefined, prs, NOW)
+
+    return `${status.mark} ${status.label}`
+  }
+  expect(label([pr()])).toBe('🔀 PR #7 offen')
+  expect(label([pr({ isCiRed: true, reviewDecision: 'REVIEW_REQUIRED' })])).toBe('🔀 PR #7 offen, CI rot, Review wartet')
+  expect(label([pr({ isDraft: true })])).toBe('🔀 PR #7 offen, Entwurf')
+  expect(label([pr({ reviewDecision: 'CHANGES_REQUESTED' })])).toBe('🔀 PR #7 offen, Änderungen gewünscht')
+  expect(label([pr({ state: 'MERGED', isCiRed: true })])).toBe('✓ PR #7 gemerged')
+  expect(label([pr({ state: 'CLOSED' })])).toBe('✖ PR #7 geschlossen')
+  // Several on one branch: the newest counts, an old closed one is history.
+  expect(label([pr({ number: 4, state: 'CLOSED' }), pr({ number: 12 }), pr({ number: 9, state: 'MERGED' })])).toBe(
+    '🔀 PR #12 offen',
+  )
+  // A branch without one, or another session's branch: no pull request.
+  expect(label([pr({ headRefName: 'claude/other' })])).toBe('✎ in Arbeit, kein PR')
+  expect(label([pr()], { branch: null })).toBe('✎ in Arbeit, kein PR')
+  // gh not available: no pull request part, still a status; the app's own link fills in when it has one.
+  expect(label(null)).toBe('✎ in Arbeit, kein PR')
+  expect(label(null, { prNumber: 5, prState: 'MERGED' })).toBe('✓ PR #5 gemerged')
+  expect(label(null, { prNumber: 5, prState: 'OPEN' })).toBe('🔀 PR #5 offen')
+  // Running or aborted: the pull request rides along.
+  expect(label([pr()], { isRunning: true })).toBe('▶ läuft · PR #7 offen')
+  expect(statusOf(session(), { grund: 'aborted', um: NOW }, [pr()], NOW).label).toBe('abgebrochen · PR #7 offen')
+})
+
+test("the app's own pull request comes first; gh only adds what it waits for", async () => {
+  const label = (prs: GhPr[] | null, fields: Record<string, unknown>) => {
+    const status = statusOf(session(fields), undefined, prs, NOW)
+
+    return `${status.mark} ${status.label}`
+  }
+  const app = { prNumber: 3, prState: 'OPEN' }
+  // gh lists a newer one on the branch: the app's number still counts, with gh's details for it.
+  expect(label([pr({ number: 12 }), pr({ number: 3, isCiRed: true, isDraft: true })], app)).toBe(
+    '🔀 PR #3 offen, CI rot, Entwurf',
+  )
+  // gh does not know the app's number (or is not there): the app's PR without details.
+  expect(label([pr({ number: 12 })], app)).toBe('🔀 PR #3 offen')
+  // The app's state wins over gh's; a closed or merged one gets no details.
+  expect(label([pr({ number: 3, state: 'OPEN', isCiRed: true })], { prNumber: 3, prState: 'MERGED' })).toBe(
+    '✓ PR #3 gemerged',
+  )
+  // gh's details for the app's PR count for the order too.
+  expect(statusOf(session(app), undefined, [pr({ number: 3, isCiRed: true })], NOW).rang).toBe(1)
+  // Without a number from the app, gh by branch is the fallback.
+  expect(label([pr({ number: 12 })], {})).toBe('🔀 PR #12 offen')
+})
+
+test('how long ago reads in short German', async () => {
+  expect([0, 59_000, 5 * 60_000, 2 * HOUR + 59 * 60_000, DAY, 3 * DAY].map(alterText)).toEqual([
+    'gerade eben',
+    'gerade eben',
+    'vor 5 Min',
+    'vor 2 Std',
+    'vor 1 Tag',
+    'vor 3 Tagen',
+  ])
+})
+
+test('the overview groups by project, the most urgent first, and prints a line per session', async () => {
+  const sessions = [
+    session({ sessionId: 'a1', title: '🟦 Ruhig', branch: 'x', lastActivityAt: new Date(NOW - 6 * DAY).toISOString() }),
+    session({ sessionId: 'a2', title: '🟦 Neu', branch: 'y', cwd: ALPHA, lastActivityAt: new Date(NOW - 10 * 60_000).toISOString() }),
+    session({ sessionId: 'b1', title: '🟩 PR rot', cwd: `${BETA}\\.claude\\worktrees\\q`, branch: 'claude/beta' }),
+    session({ sessionId: 'b2', title: 'Archiviert', cwd: BETA, isArchived: true }),
+    session({ sessionId: 'c1', title: 'Notiz', cwd: 'C:\\x\\scratch-workspaces\\y', isRunning: true }),
+  ]
+  const overview = buildUebersicht({
+    sessions,
+    selfId: 'a2',
+    stand: { a2: { grund: 'aborted', um: NOW - 10 * 60_000 } },
+    prs: new Map([
+      ['c:/users/me/repos/alpha', []],
+      ['c:/users/me/repos/beta', [pr({ number: 3, headRefName: 'claude/beta', isCiRed: true })]],
+    ]),
+    markOf: project => (project === 'Alpha' ? '🟦' : '🟩'),
+    now: NOW,
+    hinweise: ['PR-Stand für Gamma nicht verfügbar: gh meldet: no'],
+  })
+  expect(overview.gruppen.map(g => [g.project, g.zeilen.map(z => z.sessionId)])).toEqual([
+    ['Alpha', ['a2', 'a1']],
+    ['Beta', ['b1']],
+    [null, ['c1']],
+  ])
+  expect(uebersichtText(overview)).toBe(
+    [
+      '4 offene Session(s), was Aufmerksamkeit braucht zuerst:',
+      '',
+      '🟦 Alpha',
+      '  ⚠ Neu (diese) — abgebrochen · vor 10 Min',
+      '  💤 Ruhig — ruht seit 6 Tagen, kein PR · vor 6 Tagen',
+      '',
+      '🟩 Beta',
+      '  🔀 PR rot — PR #3 offen, CI rot · vor 2 Std',
+      '',
+      'Ohne Projekt',
+      '  ▶ Notiz — läuft · vor 2 Std',
+      '',
+      'PR-Stand für Gamma nicht verfügbar: gh meldet: no',
+    ].join('\n'),
+  )
+  expect(uebersichtText({ gruppen: [], hinweise: [] })).toBe('Keine offenen Sessions gefunden.')
+})
+
+test("each own turn stores why it ended and when; a subagent's does not", async ($, on) => {
+  const self = { sessionId: 'local_self', title: '🟦 Arbeit', cwd: ALPHA }
+  const clock = mock.clock(on)
+  const kept = sharedStore(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(kept.get('stand')).toBe(undefined)
+
+  await $.turn.complete({ ...TURN, reason: 'aborted', isAborted: true })
+  await clock.settle()
+  const first = clock.now()
+  expect(kept.get('stand')).toEqual({ local_self: { grund: 'aborted', um: first } })
+
+  await clock.advance(60_000)
+  await $.turn.complete({ ...TURN, agentId: 'a1', reason: 'error' })
+  await clock.settle()
+  expect(kept.get('stand')).toEqual({ local_self: { grund: 'aborted', um: first } })
+
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(kept.get('stand')).toEqual({ local_self: { grund: 'answer', um: first + 60_000 } })
+})
+
+test('/projektfarbe status asks gh once per repository, in a folder of it, and still answers without gh', async ($, on) => {
+  const clock = mock.clock(on)
+  await clock.set(NOW)
+  const self = listed({ sessionId: 'local_self', title: '🟦 Status bauen', cwd: `${ALPHA}\\.claude\\worktrees\\a`, branch: 'claude/status', isRunning: true })
+  const others = [
+    listed({ sessionId: 'local_a', title: '🟦 Login', cwd: `${ALPHA}\\.claude\\worktrees\\b`, branch: 'claude/login' }),
+    listed({ sessionId: 'local_b', title: '🟩 Doku', cwd: `${BETA}\\.claude\\worktrees\\c`, branch: 'claude/doku', lastActivityAt: new Date(NOW - 4 * DAY).toISOString() }),
+    listed({ sessionId: 'local_c', title: '🟩 Alt', cwd: BETA, branch: 'main', prNumber: 2, prState: 'OPEN' }),
+  ]
+  const asked: { argv: string[]; cwd: string | undefined }[] = []
+  mock.store(on, { stand: { local_a: { grund: 'aborted', um: NOW - 3 * HOUR } }, farben: { alpha: '🟦', beta: '🟩' } })
+  on('mcp.call', fakeDesktop(self as Row, others as Row[]).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('process.run', (_, e) => {
+    asked.push({ argv: [...e.argv], cwd: e.init?.cwd })
+    if (e.argv.includes('--state') && e.argv.includes('all')) {
+      if (e.init?.cwd?.includes('Beta') === true) {
+        return ghFails('could not resolve to a Repository')
+      }
+
+      return {
+        value: {
+          exitCode: 0,
+          stdout: JSON.stringify([
+            { number: 11, state: 'OPEN', headRefName: 'claude/login', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', statusCheckRollup: [] },
+            { number: 10, state: 'CLOSED', headRefName: 'claude/login', isDraft: false, reviewDecision: null, statusCheckRollup: [] },
+          ]),
+          stderr: '',
+          isStdoutTruncated: false,
+          isStderrTruncated: false,
+        },
+      }
+    }
+
+    return ghList([])
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  asked.length = 0
+  const text = (await $.command.run({ ...RUN, args: 'status' })).text
+
+  expect(asked).toHaveLength(2)
+  expect(asked[0]?.argv).toEqual([
+    'gh', 'pr', 'list', '--state', 'all', '--limit', '200',
+    '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
+  ])
+  expect(asked.map(one => one.cwd)).toEqual([self.cwd, others[1]!.cwd])
+  expect(text).toBe(
+    [
+      '4 offene Session(s), was Aufmerksamkeit braucht zuerst:',
+      '',
+      '🟦 Alpha',
+      '  ⚠ Login — abgebrochen · PR #11 offen, Review wartet · vor 2 Std',
+      '  ▶ Status bauen (diese) — läuft · vor 2 Std',
+      '',
+      '🟩 Beta',
+      '  🔀 Alt — PR #2 offen · vor 2 Std',
+      '  💤 Doku — ruht seit 4 Tagen, kein PR · vor 4 Tagen',
+      '',
+      'PR-Stand für Beta nicht verfügbar: gh meldet: could not resolve to a Repository',
+    ].join('\n'),
+  )
+})
+
+test('/projektfarbe status says so when the app cannot be asked', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', () => ({ value: { content: [{ type: 'text', text: 'no such server' }], isError: true } }))
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: ALPHA }))
+
+  await $.session.start({ cwd: ALPHA, surface: 'terminal', isInteractive: true })
+  await clock.settle()
+  const text = (await $.command.run({ ...RUN, args: 'status' })).text
+  expect(text).toContain('Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App)')
 })
