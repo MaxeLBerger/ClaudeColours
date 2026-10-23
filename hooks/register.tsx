@@ -928,7 +928,7 @@ export const register: Register = on => {
       percent: showsGauge ? String(percent).length : null,
     }
     const { bodyColumns: columns } = e.props
-    const stufe = bandStufe(columns, inhalt)
+    const stufe = bandStufe(columns, inhalt, lastBand?.stufe ?? null)
     lastBand = { columns, stufe, name: inhalt.name }
     const isWritten = stufe === 'voll'
     const name = (
@@ -1047,9 +1047,11 @@ export const register: Register = on => {
     }
 
     // One flat row, as before: the root Box's gaps are the narrow ones the widths in `bandBreite` are
-    // measured on, a Box around its parts would draw them about a third wider.
+    // measured on, a Box around its parts would draw them about a third wider. It never wraps: after a
+    // resize the surface draws the old tree in the new width until the hook answers, and a wrap then
+    // made the band jump to two rows and back; what does not fit is cut off at the right for that moment.
     return (
-      <Box columnGap={2} flexWrap="wrap">
+      <Box columnGap={2} flexWrap="nowrap" overflow="hidden">
         {project}
         {prs}
         {issues}

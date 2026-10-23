@@ -200,6 +200,23 @@ test('the layouts switch where the desktop screenshots of the band switched', as
   ])
 })
 
+test('the band stays in its layout until the room for a roomier one is clear', async () => {
+  const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
+  // At 53 cells the compact row fits ...
+  expect(bandStufe(53, claude)).toBe('kompakt')
+  // ... but a band that was in two rows stays there until it has three cells to spare, and so on up.
+  expect(bandStufe(53, claude, 'zwei')).toBe('zwei')
+  expect(bandStufe(55, claude, 'zwei')).toBe('zwei')
+  expect(bandStufe(56, claude, 'zwei')).toBe('kompakt')
+  expect(bandStufe(64, claude, 'kompakt')).toBe('kompakt')
+  expect(bandStufe(67, claude, 'kompakt')).toBe('icons')
+  expect(bandStufe(88, claude, 'icons')).toBe('icons')
+  expect(bandStufe(90, claude, 'icons')).toBe('voll')
+  // Getting less room is never held back: the old layout would not fit.
+  expect(bandStufe(53, claude, 'voll')).toBe('kompakt')
+  expect(bandStufe(30, claude, 'icons')).toBe('zwei')
+})
+
 test('a name too long for the first row of the two-row band is cut with an ellipsis', async () => {
   expect(shortName('LightWeightBrowser', 18)).toBe('LightWeightBrowser')
   expect(shortName('LightWeightBrowser', 10)).toBe('LightWeig…')
@@ -1319,6 +1336,28 @@ test('the band lays itself out by its cells: written out, icons, a short bar, th
   )
 })
 
+test('the one-row layouts never wrap, so a stale tree in a narrower window does not jump to two rows', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  for (const bodyColumns of [120, 70, 50]) {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+    const root = await ui.find({ type: 'Box' })
+    await ui.unmount()
+    expect(root?.props).toMatchObject({ flexWrap: 'nowrap', overflow: 'hidden' })
+  }
+})
+
+test('the band keeps its layout over a narrow stretch while the window is dragged wider', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  // Beta's compact row needs about 45 cells: fits at 46, but the band came from two rows.
+  expect((await drawBand($, 30)).isStacked).toBe(true)
+  expect((await drawBand($, 46)).isStacked).toBe(true)
+  expect((await drawBand($, 50)).isStacked).toBe(false)
+  // Narrowing again is not held back.
+  expect((await drawBand($, 30)).isStacked).toBe(true)
+})
+
 test('/projektfarbe breite says so when the band is hidden, and when it was not drawn yet', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
@@ -1335,7 +1374,7 @@ test('/projektfarbe breite says so when the band is hidden, and when it was not 
 })
 
 test('the two-row band centers its icons where there is no gauge, and keeps them right of it otherwise', async ($, on) => {
-  await startBand($, on, `${BETA}\.claude\worktrees\a`)
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   const rowOf = async (view: { agentId?: string }) => {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 30, view }, surface: 'desktop' })

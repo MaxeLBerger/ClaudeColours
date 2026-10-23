@@ -438,11 +438,25 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
   )
 }
 
-/** The roomiest layout that fits `columns` cells in one row; `zwei` when none does. */
-export function bandStufe(columns: number, inhalt: BandInhalt): BandStufe {
+// Going back to a roomier layout than the one drawn last takes this many cells more than fitting does,
+// so a window dragged along a threshold does not flip the band back and forth.
+const HYSTERESIS_CELLS = 3
+
+const STUFEN = ['voll', 'icons', 'kompakt', 'zwei'] as const
+
+/**
+ * The roomiest layout that fits `columns` cells in one row; `zwei` when none does. `previous`, the
+ * layout drawn last, holds the band in it until the room for a roomier one is clear.
+ */
+export function bandStufe(columns: number, inhalt: BandInhalt, previous: BandStufe | null = null): BandStufe {
+  const last = previous === null ? -1 : STUFEN.indexOf(previous)
+
   return (
-    (['voll', 'icons', 'kompakt'] as const).find(stufe => bandBreite(stufe, inhalt) <= columns + SLACK_CELLS) ??
-    'zwei'
+    STUFEN.slice(0, -1).find((stufe, rank) => {
+      const bias = last > rank ? HYSTERESIS_CELLS : 0
+
+      return bandBreite(stufe, inhalt) <= columns + SLACK_CELLS - bias
+    }) ?? 'zwei'
   )
 }
 
