@@ -1023,37 +1023,38 @@ export const register: Register = on => {
         <Text dimColor>{isWritten ? 'ausblenden' : '✕'}</Text>
       </Button>,
     ]
-    const kern = (
-      <Box columnGap={2}>
-        {state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>}
-        {count('pr', 'PRs:', openPrs, state.newPrs)}
-        {count('issue', 'Issues:', openIssues, state.newIssues)}
-      </Box>
-    )
+    const project = state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>
+    const prs = count('pr', 'PRs:', openPrs, state.newPrs)
+    const issues = count('issue', 'Issues:', openIssues, state.newIssues)
 
-    // Too narrow for one row: the first row stays, the gauge and the icons go under the name.
+    // Too narrow for one row: the first row stays, the gauge and the icons go under the name. The
+    // desktop draws the gap of a nested Box wider than a root Box's, hence the smaller one here.
     if (stufe === 'zwei') {
       return (
         <Box flexDirection="column">
-          {kern}
-          <Box paddingLeft={2} columnGap={2} justifyContent={showsGauge ? 'space-between' : 'flex-start'}>
+          <Box columnGap={1}>
+            {project}
+            {prs}
+            {issues}
+          </Box>
+          <Box paddingLeft={2} columnGap={1} justifyContent={showsGauge ? 'space-between' : 'flex-start'}>
             {!showsGauge ? null : gauge(CONTEXT_CELLS, true)}
-            <Box columnGap={2}>{actions}</Box>
+            <Box columnGap={1}>{actions}</Box>
           </Box>
         </Box>
       )
     }
 
-    // The rows' two parts wrap as a whole, never in the middle of one.
+    // One flat row, as before: the root Box's gaps are the narrow ones the widths in `bandBreite` are
+    // measured on, a Box around its parts would draw them about a third wider.
     return (
       <Box columnGap={2} flexWrap="wrap">
-        {kern}
-        <Box columnGap={2}>
-          {!showsGauge ? null : (
-            <Box marginLeft={1}>{stufe === 'kompakt' ? gauge(COMPACT_CELLS, false) : gauge(CONTEXT_CELLS, true)}</Box>
-          )}
-          {actions}
-        </Box>
+        {project}
+        {prs}
+        {issues}
+        {!showsGauge ? null : <Text>{NBSP.repeat(4)}</Text>}
+        {!showsGauge ? null : stufe === 'kompakt' ? gauge(COMPACT_CELLS, false) : gauge(CONTEXT_CELLS, true)}
+        {actions}
       </Box>
     )
   })

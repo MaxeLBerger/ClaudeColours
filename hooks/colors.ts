@@ -384,17 +384,23 @@ export type BandInhalt = {
   percent: number | null
 }
 
-// Measured on the desktop, where the text is set in a proportional font: a character takes less than a
-// cell (the bold name a little more), a native button adds padding and the gap is under two cells. The
-// gauge's bar runs of blanks on a background are exact cells.
-const TEXT_CELL = 0.85
-const NAME_CELL = 0.93
+// Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
+// font, so a character takes less than a cell, the bold name a little more; the gap between the items is
+// under two cells, a native button adds some padding to its first gap and its gaps. The gauge's bar is
+// a run of blanks on a background: exact cells.
+const TEXT_CELL = 0.83
+const NAME_CELL = 0.89
+const BUTTON_TEXT_CELL = 0.82
 const GAP_CELLS = 1.8
-const BUTTON_PAD = 0.6
+const BUTTON_LEAD_CELLS = 2.7
+const BUTTON_GAP_CELLS = 2.6
 const BLOCK_CELLS = 2
-const SPACER_CELLS = 1.5
-const ICON_CELLS = 1
+const SPACER_CELLS = 1.55
+const ICON_CELLS = 1.3
 const ACTION_CHARS = [11, 12, 10] as const
+// How far the room a row really has reaches past `bodyColumns`, measured: the band's padding is less
+// than the engine's marks at its right end.
+const SLACK_CELLS = 0.5
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
@@ -417,21 +423,27 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
   ]
   if (inhalt.percent !== null) {
     const percent = (inhalt.percent + 3) * TEXT_CELL
-    const bar = stufe === 'kompakt' ? COMPACT_CELLS : 8 * TEXT_CELL + 8
+    const bar = stufe === 'kompakt' ? COMPACT_CELLS : 8 * TEXT_CELL + CONTEXT_CELLS
     items.push(SPACER_CELLS + bar + percent)
   }
-  if (stufe === 'voll') {
-    items.push(...ACTION_CHARS.map(chars => chars * TEXT_CELL + BUTTON_PAD))
-  } else {
-    items.push(...ACTION_CHARS.map(() => ICON_CELLS + BUTTON_PAD))
-  }
+  const actions =
+    stufe === 'voll' ? ACTION_CHARS.map(chars => chars * BUTTON_TEXT_CELL) : ACTION_CHARS.map(() => ICON_CELLS)
 
-  return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * GAP_CELLS
+  return (
+    items.reduce((sum, cells) => sum + cells, 0) +
+    (items.length - 1) * GAP_CELLS +
+    BUTTON_LEAD_CELLS +
+    actions.reduce((sum, cells) => sum + cells, 0) +
+    (actions.length - 1) * BUTTON_GAP_CELLS
+  )
 }
 
 /** The roomiest layout that fits `columns` cells in one row; `zwei` when none does. */
 export function bandStufe(columns: number, inhalt: BandInhalt): BandStufe {
-  return (['voll', 'icons', 'kompakt'] as const).find(stufe => bandBreite(stufe, inhalt) <= columns) ?? 'zwei'
+  return (
+    (['voll', 'icons', 'kompakt'] as const).find(stufe => bandBreite(stufe, inhalt) <= columns + SLACK_CELLS) ??
+    'zwei'
+  )
 }
 
 /** How many characters of the name fit the first row of `zwei` beside the block and the counts. */

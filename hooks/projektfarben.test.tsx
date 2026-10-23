@@ -185,6 +185,21 @@ test('the band picks the roomiest layout that fits its cells, and none is roomie
   expect(bandBreite('zwei', ZIEL)).toBe(Number.POSITIVE_INFINITY)
 })
 
+test('the layouts switch where the desktop screenshots of the band switched', async () => {
+  // The target picture's window (a 729 px band, about 91 cells) still shows the written-out actions.
+  expect(bandStufe(91, ZIEL)).toBe('voll')
+  // ClaudeColours (13 characters, counts 0) in bands of 720, 687, 533, 518, 475 and 428 px.
+  const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
+  expect([90, 85, 66, 64, 58, 52].map(columns => bandStufe(columns, claude))).toEqual([
+    'voll',
+    'icons',
+    'icons',
+    'icons',
+    'kompakt',
+    'zwei',
+  ])
+})
+
 test('a name too long for the first row of the two-row band is cut with an ellipsis', async () => {
   expect(shortName('LightWeightBrowser', 18)).toBe('LightWeightBrowser')
   expect(shortName('LightWeightBrowser', 10)).toBe('LightWeig…')
