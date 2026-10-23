@@ -926,15 +926,15 @@ export const register: Register = on => {
     }
     // Two lines per session: the sign, the title (and project), then what it waits for and how long ago.
     const zeileBox = (zeile: BereichZeile, withProject: boolean) => (
-      <Box key={`zeile-${zeile.sessionId}`} flexDirection="column" marginBottom="sm">
+      <Box key={`zeile-${zeile.sessionId}`} flexDirection="column" marginBottom="sm" paddingLeft={3}>
         <Box columnGap={1}>
           <Text>{zeile.status.mark}</Text>
           {withProject ? block(zeile.project) : null}
           <Text bold>{zeile.isSelf ? `${zeile.title} (diese)` : zeile.title}</Text>
           {withProject && zeile.project !== null ? <Text dimColor>{zeile.project}</Text> : null}
         </Box>
-        <Box columnGap={2} flexWrap="wrap">
-          <Text dimColor>{`${NBSP.repeat(4)}${zeile.status.label}${zeile.alter === '' ? '' : ` · ${zeile.alter}`}`}</Text>
+        <Box columnGap={2} flexWrap="wrap" paddingLeft={withProject ? 5 : 2}>
+          <Text dimColor>{`${zeile.status.label}${zeile.alter === '' ? '' : ` · ${zeile.alter}`}`}</Text>
           {archiveReason(zeile) === null ? null : (
             <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
               <Text color="suggestion">archivieren</Text>
