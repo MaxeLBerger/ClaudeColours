@@ -12,16 +12,20 @@ import {
   FARBEN,
   findFarbe,
   findSatz,
+  ghNumbers,
   learnPicks,
   markOf,
+  markSeen,
   modusLabel,
-  prCount,
+  newCount,
   prLabel,
   projectOf,
   readPicks,
   SAETZE,
+  readSeen,
   satzOf,
   stripMark,
+  superscript,
 } from './colors'
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
@@ -138,11 +142,11 @@ test('the context fill is read from the usage figures; the gauge warns from 70 %
 })
 
 test('the open pull requests are the length of the list gh prints; 100 shows as 100+', async () => {
-  expect(prCount('[{"number":4},{"number":9}]')).toBe(2)
-  expect(prCount('[]')).toBe(0)
-  expect(prCount('')).toBe(null)
-  expect(prCount('{"number":4}')).toBe(null)
-  expect(prCount('gh: not logged in')).toBe(null)
+  expect(ghNumbers('[{"number":4},{"number":9}]')?.length).toBe(2)
+  expect(ghNumbers('[]')).toEqual([])
+  expect(ghNumbers('')).toBe(null)
+  expect(ghNumbers('{"number":4}')).toBe(null)
+  expect(ghNumbers('gh: not logged in')).toBe(null)
   // gh is asked for 101: exactly 100 shows as it is, one more as 100+.
   expect([0, 7, 99, 100, 101].map(prLabel)).toEqual(['0', '7', '99', '100', '100+'])
 })
@@ -485,18 +489,22 @@ test('the band counts the open pull requests with gh, at most every five minutes
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   expect(await shown()).toBe('PRs: 2')
-  expect(asked).toEqual([['gh', 'pr', 'list', '--state', 'open', '--limit', '101', '--json', 'number']])
+  // Pull requests, then issues.
+  expect(asked).toEqual([
+    ['gh', 'pr', 'list', '--state', 'open', '--limit', '101', '--json', 'number'],
+    ['gh', 'issue', 'list', '--state', 'open', '--limit', '101', '--json', 'number'],
+  ])
 
   // A turn within five minutes does not ask again; one after them does.
   open = [1, 2, 3]
   await $.turn.complete(TURN)
   await clock.settle()
-  expect(asked).toHaveLength(1)
+  expect(asked).toHaveLength(2)
   expect(await shown()).toBe('PRs: 2')
   await clock.advance(5 * 60_000)
   await $.turn.complete(TURN)
   await clock.settle()
-  expect(asked).toHaveLength(2)
+  expect(asked).toHaveLength(4)
   expect(await shown()).toBe('PRs: 3')
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain('Offene PRs: 3')
 })
@@ -917,4 +925,228 @@ test("the gauge shows the main conversation's window, not an agent's view", asyn
 
   expect(await hasGauge({})).toBe(true)
   expect(await hasGauge({ agentId: 'a1' })).toBe(false)
+})
+
+/** A store the test holds itself, so it can read what the mod wrote and write as another session. */
+function sharedStore(on: Parameters<typeof mock.store>[0], entries: Record<string, unknown> = {}) {
+  const kept = new Map<string, unknown>(Object.entries(entries))
+  on('store.get', (_, e) => ({ value: kept.get(e.key) }))
+  on('store.set', (_, e) => {
+    kept.set(e.key, e.value)
+
+    return { value: undefined }
+  })
+
+  return kept
+}
+
+test('new entries show as raised digits; the first reading is the baseline, and the highest seen never drops', async () => {
+  expect([0, 1, 2, 10, 123].map(superscript)).toEqual(['', '⁺¹', '⁺²', '⁺¹⁰', '⁺¹²³'])
+  expect(ghNumbers('[{"number":4},{"number":9}]')).toEqual([4, 9])
+  expect(ghNumbers('[{"title":"x"},{"number":2}]')).toEqual([2])
+  expect(ghNumbers('gh: not logged in')).toBe(null)
+
+  // Nothing seen yet: nothing is new.
+  expect(newCount([3, 7, 9], undefined)).toBe(0)
+  expect(newCount([3, 7, 9], 7)).toBe(1)
+  expect(newCount([], 7)).toBe(0)
+
+  // The first reading sets the baseline once; a later first-only reading leaves it.
+  const first = markSeen({}, 'Beta', 'issue', [4, 9], true)
+  expect(first).toEqual({ beta: { issue: 9 } })
+  expect(markSeen(first, 'beta', 'issue', [4, 9, 12], true)).toBe(first)
+  // An empty repository is seen at 0, so its first issue counts as new.
+  expect(markSeen({}, 'beta', 'pr', [], true)).toEqual({ beta: { pr: 0 } })
+  // Seeing all raises the baseline, never lowers it; the other kind stays.
+  const both = markSeen(first, 'beta', 'pr', [5], false)
+  expect(both).toEqual({ beta: { issue: 9, pr: 5 } })
+  expect(markSeen(both, 'beta', 'issue', [2], false)).toBe(both)
+
+  expect(readSeen({ Beta: { pr: 3, issue: 'x' }, broken: 5 })).toEqual({ beta: { pr: 3 } })
+  expect(readSeen(null)).toEqual({})
+})
+
+const ghFails = (stderr: string) => ({
+  value: { exitCode: 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false },
+})
+
+/** What `$.process.run` answers for `gh pr list` and `gh issue list`, and the argv it was asked. */
+function fakeGh(lists: { pr: number[]; issue: number[] | 'disabled' }) {
+  const asked: string[][] = []
+
+  return {
+    asked,
+    lists,
+    hook: (_: unknown, e: { argv: readonly string[] }) => {
+      asked.push([...e.argv])
+      if (e.argv.includes('--web')) {
+        return ghList([])
+      }
+      const numbers = lists[e.argv[1] === 'issue' ? 'issue' : 'pr']
+
+      return numbers === 'disabled' ? ghFails('the repository has disabled issues') : ghList(numbers)
+    },
+  }
+}
+
+type Tested = Parameters<Parameters<typeof test>[1]>[0]
+
+/** The PR and issue counts as the band shows them, with the color of each raised "+x". */
+async function counts($: Tested) {
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const texts = await ui.findAll({ type: 'Text' })
+  await ui.unmount()
+  const label = (prefix: string) => texts.find(text => text.text.startsWith(prefix))?.text
+
+  return {
+    prs: label('PRs: '),
+    issues: label('Issues: '),
+    raised: texts.filter(text => text.text.startsWith('⁺')).map(text => text.props.color),
+  }
+}
+
+test('the band counts the open issues next to the pull requests and raises the new ones', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const gh = fakeGh({ pr: [3, 2], issue: [5, 4, 1] })
+  const clock = mock.clock(on)
+  const kept = sharedStore(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', gh.hook)
+
+  // The first reading is the baseline: nothing is new yet.
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await counts($)).toEqual({ prs: 'PRs: 2', issues: 'Issues: 3', raised: [] })
+  expect(kept.get('gesehen')).toEqual({ beta: { pr: 3, issue: 5 } })
+
+  // Five minutes later: one new pull request, two new issues (one old one closed meanwhile).
+  gh.lists.pr = [6, 3, 2]
+  gh.lists.issue = [8, 7, 5, 4]
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(await counts($)).toEqual({
+    prs: 'PRs: 3⁺¹',
+    issues: 'Issues: 4⁺²',
+    raised: ['suggestion', 'suggestion'],
+  })
+  const text = (await $.command.run({ ...RUN, args: '' })).text
+  expect(text).toContain('Offene PRs: 3 (1 neu)')
+  expect(text).toContain('Offene Issues: 4 (2 neu)')
+
+  // Opening the issue list in the browser reads the issues again and marks all open now as seen,
+  // also #9, which came after the last count; the pull requests stay new.
+  gh.lists.issue = [9, 8, 7, 5, 4]
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'issues' })
+  await ui.unmount()
+  expect(gh.asked).toContainEqual(['gh', 'issue', 'list', '--web'])
+  expect(await counts($)).toEqual({ prs: 'PRs: 3⁺¹', issues: 'Issues: 5', raised: ['suggestion'] })
+  expect(kept.get('gesehen')).toEqual({ beta: { pr: 3, issue: 9 } })
+
+  const again = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await again.press({ key: 'prs' })
+  await again.unmount()
+  expect(gh.asked).toContainEqual(['gh', 'pr', 'list', '--web'])
+  expect(await counts($)).toEqual({ prs: 'PRs: 3', issues: 'Issues: 5', raised: [] })
+})
+
+test('what another session has seen counts here too', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const gh = fakeGh({ pr: [12, 11, 10], issue: [4] })
+  const clock = mock.clock(on)
+  const kept = sharedStore(on, { gesehen: { beta: { pr: 10, issue: 4 } } })
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', gh.hook)
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await counts($)).toEqual({ prs: 'PRs: 3⁺²', issues: 'Issues: 1', raised: ['suggestion'] })
+
+  // Another session opened the list meanwhile: the next turn here drops the "+x", without asking gh.
+  kept.set('gesehen', { beta: { pr: 12, issue: 4 } })
+  const before = gh.asked.length
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(gh.asked).toHaveLength(before)
+  expect(await counts($)).toEqual({ prs: 'PRs: 3', issues: 'Issues: 1', raised: [] })
+})
+
+test('a repository without issues still shows its pull requests; /projektfarbe says why', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const gh = fakeGh({ pr: [1], issue: 'disabled' })
+  const clock = mock.clock(on)
+  const kept = sharedStore(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('process.run', gh.hook)
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  expect(await counts($)).toEqual({ prs: 'PRs: 1', issues: undefined, raised: [] })
+  expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
+    'Issue-Zahl nicht verfügbar: gh meldet: the repository has disabled issues',
+  )
+  // Only the pull requests got a baseline.
+  expect(kept.get('gesehen')).toEqual({ beta: { pr: 1 } })
+})
+
+test('a list that cannot be opened says why and keeps the "+x"', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const toasts: string[] = []
+  const clock = mock.clock(on)
+  mock.store(on, { gesehen: { beta: { pr: 1, issue: 0 } } })
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  on('process.run', (_, e) =>
+    e.argv.includes('--web') ? ghFails('no default remote repository') : ghList([2, 1]),
+  )
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'prs' })
+  await ui.unmount()
+  expect(toasts).toEqual(['PR-Liste lässt sich nicht öffnen: no default remote repository'])
+  expect((await counts($)).prs).toBe('PRs: 2⁺¹')
+})
+
+test('the band puts the counts and the repo button before the context gauge', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.usage', () => ({
+    value: { startedAt: 0, context: { window: 200_000, percent: 40 }, rateLimits: [] },
+  }))
+  on('process.run', fakeGh({ pr: [2, 1], issue: [3] }).hook)
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+  await ui.unmount()
+  const at = (pattern: RegExp) => texts.findIndex(text => pattern.test(text))
+
+  expect(at(/^PRs: /)).toBeGreaterThan(-1)
+  expect(at(/^PRs: /)).toBeLessThan(at(/^Issues: /))
+  expect(at(/^Issues: /)).toBeLessThan(at(/^Repo/))
+  expect(at(/^Repo/)).toBeLessThan(at(/^Kontext/))
 })
