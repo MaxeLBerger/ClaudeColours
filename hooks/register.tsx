@@ -20,6 +20,8 @@ import {
   findSatz,
   ghNumbers,
   ghPrs,
+  ICON_BOX,
+  ICON_GAP,
   learnPicks,
   markSeen,
   mergePrs,
@@ -973,7 +975,7 @@ export const register: Register = on => {
 
       return (
         <Text>
-          {hasLabel ? <Text dimColor>Kontext </Text> : null}
+          {hasLabel ? <Text dimColor>{`Kontext${NBSP}`}</Text> : null}
           {filled === 0 ? null : (
             <Text mono backgroundColor={CONTEXT_FILL[level]}>
               {NBSP.repeat(filled)}
@@ -984,45 +986,59 @@ export const register: Register = on => {
               {NBSP.repeat(cells - filled)}
             </Text>
           )}
-          <Text {...tone}>{` ${percent} %`}</Text>
+          {/* The percent sign never breaks away from its number, however tight the row gets. */}
+          <Text {...tone}>{` ${percent}${NBSP}%`}</Text>
         </Text>
       )
     }
-    // Written out while there is room, else the icon alone (☰ overview, ◐ color, ✕ hide).
-    const actions = [
-      <Button
-        key="uebersicht"
-        plain
-        onPress={async () => {
+    // Written out while there is room, else the icon alone (☰ overview, ◐ color, ✕ hide), each in a
+    // field of one width so the three are evenly spaced.
+    const defs = [
+      {
+        key: 'uebersicht',
+        label: 'Übersicht ☰',
+        icon: '☰',
+        press: async () => {
           if (!(await openPanel($))) {
             $.ui.toast('Hier ist kein Platz für das Panel; /projektfarbe status zeigt den Stand als Text.')
           }
-        }}
-      >
-        <Text dimColor>{isWritten ? 'Übersicht ☰' : '☰'}</Text>
-      </Button>,
-      <Button
-        key="farbe"
-        plain
-        onPress={async () => {
+        },
+      },
+      {
+        key: 'farbe',
+        label: 'Farbe ändern',
+        icon: '◐',
+        press: async () => {
           // The picker offers the colors of the set in the store, not of the last turn's reading.
           const current = await satzNow($)
           await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
-        }}
-      >
-        <Text dimColor>{isWritten ? 'Farbe ändern' : '◐'}</Text>
-      </Button>,
-      <Button
-        key="ausblenden"
-        plain
-        onPress={async () => {
+        },
+      },
+      {
+        key: 'ausblenden',
+        label: 'ausblenden',
+        icon: '✕',
+        press: async () => {
           await $.store.set('bandAus', true)
           await update($, view, v => ({ ...v, isHidden: true }))
-        }}
-      >
-        <Text dimColor>{isWritten ? 'ausblenden' : '✕'}</Text>
-      </Button>,
+        },
+      },
     ]
+    const actions = defs.map(def => {
+      const button = (
+        <Button key={def.key} plain onPress={def.press}>
+          <Text dimColor>{isWritten ? def.label : def.icon}</Text>
+        </Button>
+      )
+
+      return isWritten ? (
+        button
+      ) : (
+        <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center">
+          {button}
+        </Box>
+      )
+    })
     const project = state.repoUrl === null ? name : <Link href={state.repoUrl}>{name}</Link>
     const prs = count('pr', 'PRs:', openPrs, state.newPrs)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
@@ -1040,24 +1056,26 @@ export const register: Register = on => {
           {/* With the gauge: it stands under the name, the icons at the right. Without it the icons alone are centered. */}
           <Box paddingLeft={showsGauge ? 2 : 0} columnGap={1} justifyContent={showsGauge ? 'space-between' : 'center'}>
             {!showsGauge ? null : gauge(CONTEXT_CELLS, true)}
-            <Box columnGap={showsGauge ? 1 : 2}>{actions}</Box>
+            <Box columnGap={ICON_GAP}>{actions}</Box>
           </Box>
         </Box>
       )
     }
 
-    // One flat row, as before: the root Box's gaps are the narrow ones the widths in `bandBreite` are
-    // measured on, a Box around its parts would draw them about a third wider. It never wraps: after a
-    // resize the surface draws the old tree in the new width until the hook answers, and a wrap then
-    // made the band jump to two rows and back; what does not fit is cut off at the right for that moment.
+    // One row of two parts spread to its ends: the project, counts and gauge at the left, the actions
+    // flush right. It never wraps: after a resize the surface draws the old tree in the new width until
+    // the hook answers, and a wrap then made the band jump to two rows and back; what does not fit is
+    // cut off at the right for that moment.
     return (
-      <Box columnGap={2} flexWrap="nowrap" overflow="hidden">
-        {project}
-        {prs}
-        {issues}
-        {!showsGauge ? null : <Text>{NBSP.repeat(4)}</Text>}
-        {!showsGauge ? null : stufe === 'kompakt' ? gauge(COMPACT_CELLS, false) : gauge(CONTEXT_CELLS, true)}
-        {actions}
+      <Box columnGap={2} flexWrap="nowrap" overflow="hidden" justifyContent="space-between">
+        <Box columnGap={2}>
+          {project}
+          {prs}
+          {issues}
+          {!showsGauge ? null : <Text>{NBSP.repeat(4)}</Text>}
+          {!showsGauge ? null : stufe === 'kompakt' ? gauge(COMPACT_CELLS, false) : gauge(CONTEXT_CELLS, true)}
+        </Box>
+        <Box columnGap={isWritten ? 2 : ICON_GAP}>{actions}</Box>
       </Box>
     )
   })

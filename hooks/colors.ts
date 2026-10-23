@@ -385,18 +385,20 @@ export type BandInhalt = {
 }
 
 // Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
-// font, so a character takes less than a cell, the bold name a little more; the gap between the items is
-// under two cells, a native button adds some padding to its first gap and its gaps. The gauge's bar is
-// a run of blanks on a background: exact cells.
+// font, so a character takes less than a cell, the bold name a little more; the gap between the items
+// is about 22 px, a native button adds some to its own gaps. The gauge's bar is a run of blanks on a
+// background: exact cells. The icons stand in fields of a fixed width, so they are evenly spaced.
 const TEXT_CELL = 0.83
 const NAME_CELL = 0.89
 const BUTTON_TEXT_CELL = 0.82
-const GAP_CELLS = 1.8
-const BUTTON_LEAD_CELLS = 2.7
-const BUTTON_GAP_CELLS = 2.6
+const GAP_CELLS = 2.85
+const BUTTON_GAP_CELLS = 3.55
 const BLOCK_CELLS = 2
-const SPACER_CELLS = 1.55
-const ICON_CELLS = 1.3
+// An icon's field and the gap between two: three icons take as many cells as `ICON_BOX` and `ICON_GAP` say.
+export const ICON_BOX = 3
+export const ICON_GAP = 1
+// What the gap between two icon fields measured, with the fields' own edges.
+const ICON_GAP_CELLS = 1.5
 const ACTION_CHARS = [11, 12, 10] as const
 // How far the room a row really has reaches past `bodyColumns`, measured: the band's padding is less
 // than the engine's marks at its right end.
@@ -411,7 +413,11 @@ function kernRest(inhalt: BandInhalt): number {
   return BLOCK_CELLS + NAME_CELL + 2 * GAP_CELLS + countCells(4, inhalt.prs) + countCells(7, inhalt.issues)
 }
 
-/** The cells a layout takes in one row; `zwei` has no one-row width and answers Infinity. */
+/**
+ * The cells a layout takes in one row; `zwei` has no one-row width and answers Infinity. The row has two
+ * parts, spread to its two ends: the project with the counts and the gauge at the left, the actions at
+ * the right; the gap between them is the least it keeps.
+ */
 export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
   if (stufe === 'zwei') {
     return Number.POSITIVE_INFINITY
@@ -422,20 +428,16 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
     countCells(7, inhalt.issues),
   ]
   if (inhalt.percent !== null) {
-    const percent = (inhalt.percent + 3) * TEXT_CELL
     const bar = stufe === 'kompakt' ? COMPACT_CELLS : 8 * TEXT_CELL + CONTEXT_CELLS
-    items.push(SPACER_CELLS + bar + percent)
+    // The blank spacer before the gauge is a node of its own, with a gap on each side.
+    items.push(0, bar + (inhalt.percent + 3) * TEXT_CELL)
   }
   const actions =
-    stufe === 'voll' ? ACTION_CHARS.map(chars => chars * BUTTON_TEXT_CELL) : ACTION_CHARS.map(() => ICON_CELLS)
+    stufe === 'voll'
+      ? ACTION_CHARS.reduce((sum, chars) => sum + chars * BUTTON_TEXT_CELL, 0) + 2 * BUTTON_GAP_CELLS
+      : 3 * ICON_BOX + 2 * ICON_GAP_CELLS
 
-  return (
-    items.reduce((sum, cells) => sum + cells, 0) +
-    (items.length - 1) * GAP_CELLS +
-    BUTTON_LEAD_CELLS +
-    actions.reduce((sum, cells) => sum + cells, 0) +
-    (actions.length - 1) * BUTTON_GAP_CELLS
-  )
+  return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * GAP_CELLS + GAP_CELLS + actions
 }
 
 // Going back to a roomier layout than the one drawn last takes this many cells more than fitting does,
