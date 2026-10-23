@@ -21,6 +21,7 @@ import {
   learnPicks,
   markOf,
   markSeen,
+  mergePrs,
   modusLabel,
   newCount,
   prLabel,
@@ -31,11 +32,12 @@ import {
   readStand,
   rememberStand,
   satzOf,
+  seenFor,
   statusOf,
   stripMark,
   superscript,
   toListed,
-  uebersichtSummary,
+  uebersichtZaehler,
   uebersichtText,
   type GhPr,
   type Grund,
@@ -43,6 +45,8 @@ import {
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
 const BETA = 'C:\\Users\\me\\Repos\\Beta'
+// The key of Beta's entry in `gesehen`: its repository folder (`repoKeyOf`).
+const BETA_KEY = 'c:/users/me/repos/beta'
 
 const BAND = {
   plugin: 'projektfarben',
@@ -344,8 +348,8 @@ test('the band shows the project in its color and hides on request', async ($, o
     expect(texts.find(text => text.props.backgroundColor === '#3b82f6')?.children).toEqual([NBSP.repeat(2)])
     // No usage figure yet, so no gauge.
     expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
-    // No gh in this test: the counts show 0 rather than leave a gap.
-    expect(await countOf(ui, 'prs')).toBe('PRs: 0')
+    // No gh in this test: the counts show a dimmed ? (unknown) rather than leave a gap.
+    expect(await countOf(ui, 'prs')).toBe('PRs: ?')
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
@@ -594,7 +598,7 @@ test('without an address the name stays plain text, and the next count asks agai
   expect(await band()).toEqual({ links: ['https://github.com/me/beta'], colored: true })
 })
 
-test('without a working gh the band shows 0, and /projektfarbe says why', async ($, on) => {
+test('without a working gh the band shows ? for the counts, and /projektfarbe says why', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   let fails: 'start' | 'exit' = 'start'
   const clock = mock.clock(on)
@@ -622,8 +626,8 @@ test('without a working gh the band shows 0, and /projektfarbe says why', async 
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  // The band keeps its shape: 0 for what could not be read; /projektfarbe says why.
-  expect(await counts($)).toEqual({ prs: 'PRs: 0', issues: 'Issues: 0', raised: [] })
+  // The band keeps its shape: a dimmed ? for what could not be read; /projektfarbe says why.
+  expect(await counts($)).toEqual({ prs: 'PRs: ?', issues: 'Issues: ?', raised: [] })
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
     'PR-Zahl nicht verfügbar: gh lässt sich hier nicht starten',
   )
@@ -631,7 +635,7 @@ test('without a working gh the band shows 0, and /projektfarbe says why', async 
   fails = 'exit'
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await counts($)).toEqual({ prs: 'PRs: 0', issues: 'Issues: 0', raised: [] })
+  expect(await counts($)).toEqual({ prs: 'PRs: ?', issues: 'Issues: ?', raised: [] })
   const text = (await $.command.run({ ...RUN, args: '' })).text
   expect(text).toContain('PR-Zahl nicht verfügbar: gh meldet: no git remotes found')
   expect(text).not.toContain('second line')
@@ -911,7 +915,7 @@ test('a count that cannot be read again is kept for the same folder and dropped 
   cwd = `${ALPHA}\\.claude\\worktrees\\a`
   await $.turn.complete(TURN)
   await clock.settle()
-  expect((await counts($)).prs).toBe('PRs: 0')
+  expect((await counts($)).prs).toBe('PRs: ?')
 })
 
 test("the gauge shows the main conversation's window, not an agent's view", async ($, on) => {
@@ -978,6 +982,23 @@ test('new entries show as raised digits; the first reading is the baseline, and 
   expect(readSeen(null)).toEqual({})
 })
 
+test('what was seen is kept per repository folder; an entry under the project name still counts', async () => {
+  const work = 'c:/work/api'
+  const home = 'c:/home/api'
+  // Before this version the entry was keyed by the project name: it is the baseline until the
+  // repository has its own, so updating shows no "+x" twice.
+  const legacy = { api: { pr: 10, issue: 4 } }
+  expect(seenFor(legacy, work, 'api')).toEqual({ pr: 10, issue: 4 })
+  expect(markSeen(legacy, work, 'pr', [12], true, 'api')).toBe(legacy)
+  const seen = markSeen(legacy, work, 'pr', [12, 11], false, 'api')
+  expect(seen).toEqual({ api: { pr: 10, issue: 4 }, [work]: { pr: 12, issue: 4 } })
+  expect(seenFor(seen, work, 'api')).toEqual({ pr: 12, issue: 4 })
+  // Two repositories with the same folder name no longer share what was seen.
+  const other = markSeen(seen, home, 'pr', [3], false)
+  expect(seenFor(other, home)).toEqual({ pr: 3 })
+  expect(seenFor(other, work, 'api')).toEqual({ pr: 12, issue: 4 })
+})
+
 const ghFails = (stderr: string) => ({
   value: { exitCode: 1, stdout: '', stderr, isStdoutTruncated: false, isStderrTruncated: false },
 })
@@ -1041,7 +1062,7 @@ test('the band counts the open issues next to the pull requests and raises the n
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   expect(await counts($)).toEqual({ prs: 'PRs: 2', issues: 'Issues: 3', raised: [] })
-  expect(kept.get('gesehen')).toEqual({ beta: { pr: 3, issue: 5 } })
+  expect(kept.get('gesehen')).toEqual({ [BETA_KEY]: { pr: 3, issue: 5 } })
 
   // Five minutes later: one new pull request, two new issues (one old one closed meanwhile).
   gh.lists.pr = [6, 3, 2]
@@ -1066,7 +1087,7 @@ test('the band counts the open issues next to the pull requests and raises the n
   await ui.unmount()
   expect(gh.asked).toContainEqual(['gh', 'issue', 'list', '--web'])
   expect(await counts($)).toEqual({ prs: 'PRs: 3⁺¹', issues: 'Issues: 5', raised: ['suggestion'] })
-  expect(kept.get('gesehen')).toEqual({ beta: { pr: 3, issue: 9 } })
+  expect(kept.get('gesehen')).toEqual({ [BETA_KEY]: { pr: 3, issue: 9 } })
 
   const again = await $.ui.mount({ ...BAND, surface: 'desktop' })
   await again.press({ key: 'prs' })
@@ -1112,12 +1133,12 @@ test('a repository without issues still shows its pull requests; /projektfarbe s
 
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
-  expect(await counts($)).toEqual({ prs: 'PRs: 1', issues: 'Issues: 0', raised: [] })
+  expect(await counts($)).toEqual({ prs: 'PRs: 1', issues: 'Issues: ?', raised: [] })
   expect((await $.command.run({ ...RUN, args: '' })).text).toContain(
     'Issue-Zahl nicht verfügbar: gh meldet: the repository has disabled issues',
   )
   // Only the pull requests got a baseline.
-  expect(kept.get('gesehen')).toEqual({ beta: { pr: 1 } })
+  expect(kept.get('gesehen')).toEqual({ [BETA_KEY]: { pr: 1 } })
 })
 
 test('a list that cannot be opened says why and keeps the "+x"', async ($, on) => {
@@ -1283,6 +1304,53 @@ test('a session is running, aborted, failed, in work or resting; a newer answer 
   expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
 })
 
+test('an abort or failure left alone for days rests, and a merged or closed pull request beats it', async () => {
+  const old = new Date(NOW - 5 * DAY).toISOString()
+  const status = (fields: Record<string, unknown>, grund: Grund, prs: GhPr[] = []) =>
+    statusOf(session(fields), { grund, um: NOW - 5 * DAY }, prs, NOW)
+
+  const aborted = status({ lastActivityAt: old }, 'aborted')
+  expect(`${aborted.mark} ${aborted.label}`).toBe('💤 ruht seit 5 Tagen, kein PR, zuletzt abgebrochen')
+  expect(aborted).toMatchObject({ art: 'ruht', tage: 5 })
+  expect(status({ lastActivityAt: old }, 'error').label).toBe('ruht seit 5 Tagen, kein PR, zuletzt Fehler')
+  // So the panel can offer to archive it.
+  const zeile = { sessionId: 'x', title: 'Alt', status: aborted, alter: '', lastActive: null, isSelf: false, link: null }
+  expect(archiveReason(zeile)).toBe('ruht seit 5 Tagen')
+  // An old abort with an open pull request: the pull request is what is left to do.
+  expect(status({ lastActivityAt: old }, 'aborted', [pr()]).art).toBe('pr-offen')
+
+  // A recent abort whose pull request merged or closed meanwhile: the work is done.
+  const recent = { grund: 'aborted' as const, um: NOW - HOUR }
+  expect(statusOf(session(), recent, [pr({ state: 'MERGED' })], NOW).art).toBe('pr-gemerged')
+  expect(statusOf(session({ prNumber: 7, prState: 'CLOSED' }), recent, null, NOW).art).toBe('pr-geschlossen')
+  // Only resting statuses carry days.
+  expect(statusOf(session(), recent, [], NOW).tage).toBe(null)
+})
+
+test('a cancelled check is not a red CI; the open pull requests with checks win over the plain list', async () => {
+  const rollup = (conclusion: string) =>
+    ghPrs(
+      JSON.stringify([
+        { number: 1, state: 'OPEN', headRefName: 'a', statusCheckRollup: [{ status: 'COMPLETED', conclusion }] },
+      ]),
+    )?.[0]?.isCiRed
+  expect(rollup('CANCELLED')).toBe(false)
+  expect(rollup('SKIPPED')).toBe(false)
+  expect(rollup('FAILURE')).toBe(true)
+  expect(rollup('TIMED_OUT')).toBe(true)
+
+  const open = [pr({ number: 9, isCiRed: true, reviewDecision: 'REVIEW_REQUIRED' })]
+  const all = [pr({ number: 9 }), pr({ number: 8, state: 'MERGED' }), pr({ number: 10, state: 'CLOSED' })]
+  expect(mergePrs(open, all)?.map(one => [one.number, one.state, one.isCiRed])).toEqual([
+    [10, 'CLOSED', false],
+    [9, 'OPEN', true],
+    [8, 'MERGED', false],
+  ])
+  expect(mergePrs(null, all)).toHaveLength(3)
+  expect(mergePrs(open, null)).toEqual(open)
+  expect(mergePrs(null, null)).toBe(null)
+})
+
 test("a session's pull request is the newest on its branch, with what it is waiting for", async () => {
   const label = (prs: GhPr[] | null, fields: Record<string, unknown> = {}) => {
     const status = statusOf(session(fields), undefined, prs, NOW)
@@ -1436,22 +1504,21 @@ test('/projektfarbe status asks gh once per repository, in a folder of it, and s
   on('session.cwd', () => ({ value: self.cwd }))
   on('process.run', (_, e) => {
     asked.push({ argv: [...e.argv], cwd: e.init?.cwd })
-    if (e.argv.includes('--state') && e.argv.includes('all')) {
+    // The overview's two readings name the branch; the band's counts do not.
+    if (e.argv.some(arg => arg.includes('headRefName'))) {
       if (e.init?.cwd?.includes('Beta') === true) {
         return ghFails('could not resolve to a Repository')
       }
+      // The open ones with their review; all of them with number, state and branch only.
+      const prs = e.argv.includes('open')
+        ? [{ number: 11, state: 'OPEN', headRefName: 'claude/login', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', statusCheckRollup: [] }]
+        : [
+            { number: 11, state: 'OPEN', headRefName: 'claude/login' },
+            { number: 10, state: 'CLOSED', headRefName: 'claude/login' },
+          ]
 
       return {
-        value: {
-          exitCode: 0,
-          stdout: JSON.stringify([
-            { number: 11, state: 'OPEN', headRefName: 'claude/login', isDraft: false, reviewDecision: 'REVIEW_REQUIRED', statusCheckRollup: [] },
-            { number: 10, state: 'CLOSED', headRefName: 'claude/login', isDraft: false, reviewDecision: null, statusCheckRollup: [] },
-          ]),
-          stderr: '',
-          isStdoutTruncated: false,
-          isStderrTruncated: false,
-        },
+        value: { exitCode: 0, stdout: JSON.stringify(prs), stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
       }
     }
 
@@ -1463,12 +1530,16 @@ test('/projektfarbe status asks gh once per repository, in a folder of it, and s
   asked.length = 0
   const text = (await $.command.run({ ...RUN, args: 'status' })).text
 
-  expect(asked).toHaveLength(2)
-  expect(asked[0]?.argv).toEqual([
-    'gh', 'pr', 'list', '--state', 'all', '--limit', '200',
-    '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
+  // Two readings per repository: the checks only for the open pull requests.
+  expect(asked).toHaveLength(4)
+  expect(asked.filter(one => one.cwd === self.cwd).map(one => one.argv)).toEqual([
+    [
+      'gh', 'pr', 'list', '--state', 'open', '--limit', '100',
+      '--json', 'number,state,headRefName,isDraft,reviewDecision,statusCheckRollup',
+    ],
+    ['gh', 'pr', 'list', '--state', 'all', '--limit', '200', '--json', 'number,state,headRefName'],
   ])
-  expect(asked.map(one => one.cwd)).toEqual([self.cwd, others[1]!.cwd])
+  expect(asked.filter(one => one.cwd === others[1]!.cwd)).toHaveLength(2)
   expect(text).toBe(
     [
       '4 offene Session(s), was Aufmerksamkeit braucht zuerst:',
@@ -1535,8 +1606,8 @@ test('the footer counts what needs the person; only resting sessions and closed 
     markOf: () => '🟦',
     now: NOW,
   })
-  expect(uebersichtSummary(overview)).toBe('7 Sessions · 1 dringend · 1 mit offenem PR · 2 ruhen')
-  expect(uebersichtSummary({ gruppen: [], hinweise: [] })).toBe('0 Sessions')
+  expect(uebersichtZaehler(overview)).toEqual({ sessions: 7, dringend: 1, dudran: 0, pr: 1, ruht: 2 })
+  expect(uebersichtZaehler({ gruppen: [], hinweise: [] })).toEqual({ sessions: 0, dringend: 0, dudran: 0, pr: 0, ruht: 0 })
   const zeilen = overview.gruppen.flatMap(group => group.zeilen)
   const reasons = Object.fromEntries(zeilen.map(zeile => [zeile.sessionId, archiveReason(zeile)]))
   expect(reasons).toEqual({
@@ -1620,6 +1691,8 @@ async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?:
   // What is asked of the system to open a session; `works.on = false` has every opener fail.
   const opened: string[][] = []
   const works = { on: true }
+  // How often the overview asked gh for a repository's pull requests (the band's counts aside).
+  let ghAsks = 0
   mock.store(on, { stand: { local_ab: { grund: 'aborted', um: NOW - 3 * HOUR } }, farben: { alpha: '🟦', beta: '🟩' } })
   on('mcp.call', desktop.hook)
   on('command.register', () => ({ value: { command: 'projektfarbe' } }))
@@ -1639,6 +1712,10 @@ async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?:
   })
   on('process.run', (_, e) => {
     if (e.argv[0] === 'gh') {
+      if (e.argv.some(arg => arg.includes('headRefName'))) {
+        ghAsks += 1
+      }
+
       return ghList([])
     }
     opened.push([...e.argv])
@@ -1654,7 +1731,7 @@ async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?:
   const text = (await $.command.run({ ...RUN, args: 'übersicht' })).text
   await clock.settle()
 
-  return { clock, desktop, toasts, closed, text, opened, works }
+  return { clock, desktop, toasts, closed, text, opened, works, ghAsks: () => ghAsks }
 }
 
 const panelText = async ($: TestEngine) => {
@@ -1732,6 +1809,42 @@ test('an open panel is read again after a turn, at most once a minute', async ($
   await $.turn.complete(TURN)
   await clock.settle()
   expect(desktop.lists()).toBe(base + 1)
+})
+
+test('the panel reads the sessions every minute but asks gh at most every five, unless aktualisieren is pressed', async ($, on) => {
+  const { clock, desktop, ghAsks } = await openedPanel($, on)
+  // Opening read two repositories, two gh readings each.
+  const base = ghAsks()
+  expect(base).toBe(4)
+
+  await clock.advance(61_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  const lists = desktop.lists()
+  expect(ghAsks()).toBe(base)
+
+  await clock.advance(5 * 60_000)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(desktop.lists()).toBe(lists + 1)
+  expect(ghAsks()).toBe(base + 4)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'aktualisieren' })
+  await ui.unmount()
+  expect(ghAsks()).toBe(base + 8)
+})
+
+test('in sleep mode a project heading shows its mark once', async ($, on) => {
+  const { clock } = await openedPanel($, on)
+  await $.command.run({ ...RUN, args: 'schlaf' })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'ansicht' })
+  const whole = (await ui.find({ type: 'Box' }))?.text ?? ''
+  await ui.unmount()
+  expect(whole).toMatch(/\SAlpha/u)
+  expect(whole).not.toMatch(/(\S)\s?\1\s?Alpha/u)
 })
 
 test('where no surface places the panel, /projektfarbe übersicht prints the status text', async ($, on) => {
