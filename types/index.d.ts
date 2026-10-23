@@ -71,6 +71,8 @@ export type ProjektfarbenPanel = {
   um: number | null
   /** True while the panel is open: only then a finished turn refreshes it. */
   isOpen: boolean
+  /** `status`: sections by what to do (default); `projekt`: grouped by project. */
+  ansicht: 'status' | 'projekt'
 }
 
 declare module 'claude-code' {

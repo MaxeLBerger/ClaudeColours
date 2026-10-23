@@ -5,6 +5,7 @@ import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
   archiveReason,
   assignFarben,
+  buildBereiche,
   buildUebersicht,
   BUNT,
   CONTEXT_CELLS,
@@ -40,6 +41,7 @@ import {
   uebersichtSummary,
   uebersichtText,
   type Art,
+  type BereichZeile,
   type Farbe,
   type GhPr,
   type Grund,
@@ -81,7 +83,7 @@ const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 // The side panel with the overview of all sessions; its data is the one `/projektfarbe status` prints.
 const PANEL = 'uebersicht'
 const PANEL_EVERY_MS = 60_000
-const EMPTY_PANEL: ProjektfarbenPanel = { daten: null, isLoading: false, fehler: null, um: null, isOpen: false }
+const EMPTY_PANEL: ProjektfarbenPanel = { daten: null, isLoading: false, fehler: null, um: null, isOpen: false, ansicht: 'status' }
 const panel = atom({ plugin: 'projektfarben', key: 'uebersicht' } as const, EMPTY_PANEL)
 
 // Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
@@ -905,50 +907,63 @@ export const register: Register = on => {
     const picks = await picksOf($, satz)
     const isCalm = satz !== BUNT
     const gruppen = state.daten?.gruppen ?? []
+    const isStatus = state.ansicht === 'status'
+
+    // The project's color, as in the band: a block on the desktop, a colored shape in sleep mode.
+    const block = (project: string | null) => {
+      const farbe = project === null ? null : farbeFor(project, picks, satz)
+      if (farbe === null) {
+        return null
+      }
+
+      return isCalm ? (
+        <Text color={farbe.hex}>{farbe.mark}</Text>
+      ) : (
+        <Text mono backgroundColor={farbe.hex}>
+          {NBSP.repeat(2)}
+        </Text>
+      )
+    }
+    // Two lines per session: the sign, the title (and project), then what it waits for and how long ago.
+    const zeileBox = (zeile: BereichZeile, withProject: boolean) => (
+      <Box key={`zeile-${zeile.sessionId}`} flexDirection="column" marginBottom="sm">
+        <Box columnGap={1}>
+          <Text>{zeile.status.mark}</Text>
+          {withProject ? block(zeile.project) : null}
+          <Text bold>{zeile.isSelf ? `${zeile.title} (diese)` : zeile.title}</Text>
+          {withProject && zeile.project !== null ? <Text dimColor>{zeile.project}</Text> : null}
+        </Box>
+        <Box columnGap={2} flexWrap="wrap">
+          <Text dimColor>{`${NBSP.repeat(4)}${zeile.status.label}${zeile.alter === '' ? '' : ` · ${zeile.alter}`}`}</Text>
+          {archiveReason(zeile) === null ? null : (
+            <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
+              <Text color="suggestion">archivieren</Text>
+            </Button>
+          )}
+        </Box>
+      </Box>
+    )
+    const title = (text: string, count: number, color?: 'error') => (
+      <Box columnGap={1} marginTop="md" marginBottom="sm">
+        <Text bold color={color}>
+          {text}
+        </Text>
+        <Text dimColor>{`${count}`}</Text>
+      </Box>
+    )
 
     return (
       <Box flexDirection="column">
-        {state.fehler === null ? null : <Text color="error">{state.fehler}</Text>}
-        {state.daten === null && state.fehler === null ? <Text dimColor>Lädt …</Text> : null}
-        {state.daten !== null && gruppen.length === 0 ? <Text dimColor>Keine offenen Sessions gefunden.</Text> : null}
-        {gruppen.map(gruppe => {
-          const farbe = gruppe.project === null ? null : farbeFor(gruppe.project, picks, satz)
-
-          return (
-            <Box key={`gruppe-${gruppe.project ?? ''}`} flexDirection="column" marginBottom="md">
-              <Box columnGap={1}>
-                {farbe === null ? null : isCalm ? (
-                  <Text color={farbe.hex}>{farbe.mark}</Text>
-                ) : (
-                  <Text mono backgroundColor={farbe.hex}>
-                    {NBSP.repeat(2)}
-                  </Text>
-                )}
-                <Text bold>{`${gruppe.mark ?? ''} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
-                <Text dimColor>{`${gruppe.zeilen.length}`}</Text>
-              </Box>
-              {gruppe.zeilen.map(zeile => (
-                <Box key={`zeile-${zeile.sessionId}`} columnGap={1} flexWrap="wrap">
-                  <Text>{zeile.status.mark}</Text>
-                  <Text bold={zeile.isSelf}>{zeile.isSelf ? `${zeile.title} (diese)` : zeile.title}</Text>
-                  <Text dimColor>{`· ${zeile.status.label}${zeile.alter === '' ? '' : ` · ${zeile.alter}`}`}</Text>
-                  {archiveReason(zeile) === null ? null : (
-                    <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
-                      <Text dimColor>archivieren</Text>
-                    </Button>
-                  )}
-                </Box>
-              ))}
-            </Box>
-          )
-        })}
-        {state.daten === null ? null : <Text bold>{uebersichtSummary(state.daten)}</Text>}
-        {state.daten === null || state.daten.hinweise.length === 0 ? null : (
-          <Text dimColor>{state.daten.hinweise.join('\n')}</Text>
-        )}
-        <Box columnGap={2} marginTop="md">
+        <Box columnGap={2} flexWrap="wrap">
           <Button key="aktualisieren" plain onPress={() => loadPanel($)}>
             <Text>{state.isLoading ? 'lädt …' : 'aktualisieren'}</Text>
+          </Button>
+          <Button
+            key="ansicht"
+            plain
+            onPress={() => update($, panel, p => ({ ...p, ansicht: p.ansicht === 'status' ? 'projekt' : 'status' }))}
+          >
+            <Text>{isStatus ? 'nach Projekt' : 'nach Status'}</Text>
           </Button>
           <Button
             key="schliessen"
@@ -958,9 +973,36 @@ export const register: Register = on => {
               await $.ui.close({ id: PANEL })
             }}
           >
-            <Text>schließen</Text>
+            <Text dimColor>schließen</Text>
           </Button>
         </Box>
+        {state.daten === null ? null : <Text bold>{uebersichtSummary(state.daten)}</Text>}
+        {state.fehler === null ? null : <Text color="error">{state.fehler}</Text>}
+        {state.daten === null && state.fehler === null ? <Text dimColor>Lädt …</Text> : null}
+        {state.daten !== null && gruppen.length === 0 ? <Text dimColor>Keine offenen Sessions gefunden.</Text> : null}
+        {state.daten !== null && isStatus
+          ? buildBereiche(state.daten).map(bereich => (
+              <Box key={`bereich-${bereich.id}`} flexDirection="column">
+                {title(`${bereich.zeichen} ${bereich.titel}`, bereich.zeilen.length, bereich.id === 'dringend' ? 'error' : undefined)}
+                {bereich.zeilen.map(zeile => zeileBox(zeile, true))}
+              </Box>
+            ))
+          : null}
+        {state.daten !== null && !isStatus
+          ? gruppen.map(gruppe => (
+              <Box key={`gruppe-${gruppe.project ?? ''}`} flexDirection="column">
+                <Box columnGap={1} marginTop="md" marginBottom="sm">
+                  {block(gruppe.project)}
+                  <Text bold>{`${gruppe.mark ?? ''} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
+                  <Text dimColor>{`${gruppe.zeilen.length}`}</Text>
+                </Box>
+                {gruppe.zeilen.map(zeile => zeileBox({ ...zeile, project: gruppe.project, mark: gruppe.mark }, false))}
+              </Box>
+            ))
+          : null}
+        {state.daten === null || state.daten.hinweise.length === 0 ? null : (
+          <Text dimColor>{state.daten.hinweise.join('\n')}</Text>
+        )}
       </Box>
     )
   })

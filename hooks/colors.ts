@@ -923,3 +923,40 @@ export function archiveReason(zeile: UebersichtZeile): string | null {
 
   return null
 }
+
+export type BereichId = 'dringend' | 'review' | 'arbeit' | 'aufraeumen'
+
+/** One session of a section, with the project it belongs to. */
+export type BereichZeile = UebersichtZeile & { project: string | null; mark: string | null }
+
+/** The overview cut by what the person should do about it, not by project. */
+export type Bereich = { id: BereichId; titel: string; zeichen: string; zeilen: BereichZeile[] }
+
+const BEREICHE: readonly { id: BereichId; titel: string; zeichen: string; arten: readonly StatusArt[] }[] = [
+  { id: 'dringend', titel: 'Braucht dich', zeichen: '⚠', arten: ['abgebrochen', 'fehler'] },
+  { id: 'review', titel: 'PR wartet', zeichen: '🔀', arten: ['pr-offen'] },
+  { id: 'arbeit', titel: 'Läuft und in Arbeit', zeichen: '✎', arten: ['laeuft', 'in-arbeit'] },
+  { id: 'aufraeumen', titel: 'Aufräumen', zeichen: '🧹', arten: ['pr-gemerged', 'pr-geschlossen', 'ruht'] },
+]
+
+/**
+ * The overview by status: what needs the person first (aborted, failed, or a pull request with a red
+ * CI or changes wanted), then pull requests waiting, then what runs or is in work, then what can be
+ * archived. Empty sections are left out; inside one, the most urgent and then the most recent first.
+ */
+export function buildBereiche(uebersicht: Uebersicht): Bereich[] {
+  const alle: BereichZeile[] = uebersicht.gruppen.flatMap(group =>
+    group.zeilen.map(zeile => ({ ...zeile, project: group.project, mark: group.mark })),
+  )
+  const urgent = (zeile: BereichZeile): boolean => zeile.status.art === 'pr-offen' && zeile.status.rang <= 1
+  const bereiche = BEREICHE.map(bereich => ({
+    id: bereich.id,
+    titel: bereich.titel,
+    zeichen: bereich.zeichen,
+    zeilen: alle
+      .filter(zeile => (bereich.id === 'dringend' ? urgent(zeile) : false) || (!urgent(zeile) && bereich.arten.includes(zeile.status.art)))
+      .sort((a, b) => a.status.rang - b.status.rang || (b.lastActive ?? 0) - (a.lastActive ?? 0)),
+  }))
+
+  return bereiche.filter(bereich => bereich.zeilen.length > 0)
+}

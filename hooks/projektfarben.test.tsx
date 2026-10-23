@@ -4,6 +4,7 @@ import {
   alterText,
   archiveReason,
   assignFarben,
+  buildBereiche,
   buildUebersicht,
   BUNT,
   contextFill,
@@ -1733,4 +1734,51 @@ test('where no surface places the panel, /projektfarbe übersicht prints the sta
   const viaStatus = (await $.command.run({ ...RUN, args: 'status' })).text
   expect(viaPanel).toBe(viaStatus)
   expect(viaPanel).toContain('4 offene Session(s)')
+})
+
+test('the sections put what needs the person first and what can be archived last', async () => {
+  const sessions = [
+    session({ sessionId: 'a', branch: 'a', lastActivityAt: new Date(NOW - 5 * DAY).toISOString() }),
+    session({ sessionId: 'b', branch: 'b', prNumber: 4, prState: 'MERGED' }),
+    session({ sessionId: 'c', branch: 'c', prNumber: 6, prState: 'OPEN' }),
+    session({ sessionId: 'd', branch: 'd', isRunning: true }),
+    session({ sessionId: 'e', branch: 'e' }),
+    session({ sessionId: 'f', branch: 'f', cwd: BETA }),
+  ]
+  const overview = buildUebersicht({
+    sessions,
+    selfId: 'd',
+    stand: { e: { grund: 'aborted', um: NOW } },
+    // A red CI on the pull request of c makes it urgent, so it moves up with the aborted one.
+    prs: new Map([['c:/users/me/repos/alpha', [pr({ number: 6, headRefName: 'c', isCiRed: true })]]]),
+    markOf: () => '🟦',
+    now: NOW,
+  })
+  const bereiche = buildBereiche(overview)
+  expect(bereiche.map(b => [b.id, b.zeilen.map(z => z.sessionId)])).toEqual([
+    ['dringend', ['e', 'c']],
+    ['arbeit', ['f', 'd']],
+    ['aufraeumen', ['b', 'a']],
+  ])
+  expect(bereiche[0]!.zeilen[0]!.project).toBe('Alpha')
+  expect(buildBereiche({ gruppen: [], hinweise: [] })).toEqual([])
+})
+
+test('the panel shows sections by status by default and groups by project on request', async ($, on) => {
+  await openedPanel($, on)
+  const byStatus = await panelText($)
+  const at = (part: string) => byStatus.whole.indexOf(part)
+  expect(at('Braucht dich')).toBeGreaterThan(-1)
+  expect(at('Braucht dich')).toBeLessThan(at('PR wartet'))
+  expect(at('PR wartet')).toBeLessThan(at('Läuft und in Arbeit'))
+  expect(at('Läuft und in Arbeit')).toBeLessThan(at('Aufräumen'))
+  expect(byStatus.keys).toContain('ansicht')
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'ansicht' })
+  await ui.unmount()
+  const byProject = await panelText($)
+  expect(byProject.whole).not.toContain('Braucht dich')
+  expect(byProject.whole.indexOf('Beta')).toBeLessThan(byProject.whole.indexOf('Alpha'))
+  expect(byProject.keys).toContain('archivieren-local_alt')
 })
