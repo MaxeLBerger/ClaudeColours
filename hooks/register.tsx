@@ -816,6 +816,11 @@ export const register: Register = on => {
       }
     }
     if (arg === 'breite') {
+      // A hidden band is not drawn at all, in every session: say so rather than "not drawn yet".
+      if (state.isHidden) {
+        return { text: 'Das Band ist ausgeblendet; /projektfarbe band blendet es wieder ein.' }
+      }
+
       return {
         text:
           lastBand === null

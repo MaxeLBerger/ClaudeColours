@@ -79,7 +79,7 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 | `/projektfarbe status` | zeigt den Stand aller offenen Sessions nach Projekt: läuft, abgebrochen, PR offen, in Arbeit, ruht … |
 | `/projektfarbe übersicht` | öffnet die Übersicht aller Sessions als Seitenpanel (ohne Platz dafür: dieselbe Auskunft als Text) |
 | `/projektfarbe band` | blendet Band, Kontext-Anzeige, PR- und Issue-Zahl und den Farbpunkt am Spinner ein oder aus |
-| `/projektfarbe breite` | zeigt, wie viele Zellen das Band hat und in welchem Layout es gezeichnet wird (`voll`, `icons`, `kompakt`, `zwei`) |
+| `/projektfarbe breite` | zeigt, wie viele Zellen das Band hat und in welchem Layout es gezeichnet wird (`voll`, `icons`, `kompakt`, `zwei`); ist das Band ausgeblendet, sagt der Befehl das und nennt `/projektfarbe band` zum Einblenden |
 | `/projektfarbe schlaf` | schaltet den Schlafmodus ein und benennt alle offenen Sessions um |
 | `/projektfarbe bunt` | schaltet zurück zu den bunten Farben und benennt alle offenen Sessions um |
 

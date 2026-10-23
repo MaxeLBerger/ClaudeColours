@@ -1304,6 +1304,21 @@ test('the band lays itself out by its cells: written out, icons, a short bar, th
   )
 })
 
+test('/projektfarbe breite says so when the band is hidden, and when it was not drawn yet', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe('Das Band wurde in dieser Session noch nicht gezeichnet.')
+
+  await $.command.run({ ...RUN, args: 'band' })
+  expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
+    'Das Band ist ausgeblendet; /projektfarbe band blendet es wieder ein.',
+  )
+
+  await $.command.run({ ...RUN, args: 'band' })
+  await drawBand($, 120)
+  expect((await $.command.run({ ...RUN, args: 'breite' })).text).toMatch(/^Das Band hat 120 Zellen und ist im Layout „voll“/)
+})
+
 test('the icons press what the written actions do, in every layout', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
