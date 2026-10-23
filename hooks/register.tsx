@@ -5,6 +5,7 @@ import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
   archiveReason,
   assignFarben,
+  BAND_FORMEN,
   bandBreite,
   bandStufe,
   bereichOf,
@@ -12,7 +13,6 @@ import {
   buildUebersicht,
   BUNT,
   COMPACT_CELLS,
-  CONTEXT_CELLS,
   contextFill,
   contextLevel,
   contextPercent,
@@ -50,7 +50,6 @@ import {
   toRow,
   uebersichtZaehler,
   uebersichtText,
-  zweiGauge,
   type Art,
   type BandInhalt,
   type BandStufe,
@@ -829,7 +828,7 @@ export const register: Register = on => {
         text:
           lastBand === null
             ? 'Das Band wurde in dieser Session noch nicht gezeichnet.'
-            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${(['voll', 'icons', 'kompakt'] as const).map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt))}`).join(', ')} Zellen.`,
+            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${(['voll', 'icons', 'kompakt', 'dicht', 'minimal'] as const).map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt))}`).join(', ')} Zellen.`,
       }
     }
     if (arg === 'bunt') {
@@ -934,7 +933,8 @@ export const register: Register = on => {
     const { bodyColumns: columns } = e.props
     const stufe = bandStufe(columns, inhalt, lastBand?.stufe ?? null)
     lastBand = { columns, stufe, inhalt }
-    const isWritten = stufe === 'voll'
+    const form = stufe === 'zwei' ? null : BAND_FORMEN[stufe]
+    const isWritten = form?.isWritten ?? false
     const name = (
       <Text>
         {isCalm ? (
@@ -971,25 +971,25 @@ export const register: Register = on => {
         </Box>
       )
     }
-    // The bar of `kompakt` is shorter and has no word before it.
-    const gauge = (cells: number, hasLabel: boolean) => {
-      const filled = percent === null ? 0 : contextFill(percent, cells)
+    // The gauge: the word, a bar of `bar` cells (none: the percentage alone) and the percentage.
+    const gauge = (bar: number | null, hasLabel: boolean) => {
+      const filled = percent === null || bar === null ? 0 : contextFill(percent, bar)
 
       return (
         <Text>
           {hasLabel ? <Text dimColor>{`Kontext${NBSP}`}</Text> : null}
-          {filled === 0 ? null : (
+          {bar === null || filled === 0 ? null : (
             <Text mono backgroundColor={CONTEXT_FILL[level]}>
               {NBSP.repeat(filled)}
             </Text>
           )}
-          {filled === cells ? null : (
+          {bar === null || filled === bar ? null : (
             <Text mono backgroundColor={CONTEXT_TRACK}>
-              {NBSP.repeat(cells - filled)}
+              {NBSP.repeat(bar - filled)}
             </Text>
           )}
           {/* The percent sign never breaks away from its number, however tight the row gets. */}
-          <Text {...tone}>{` ${percent}${NBSP}%`}</Text>
+          <Text {...tone}>{`${bar === null ? '' : ' '}${percent}${NBSP}%`}</Text>
         </Text>
       )
     }
@@ -1045,19 +1045,20 @@ export const register: Register = on => {
     const prs = count('pr', 'PRs:', openPrs, state.newPrs)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
 
-    // Too narrow for one row: the first row stays, the gauge and the icons go under the name. Under
-    // about 36 cells the gauge there drops its word and shortens its bar, as in `kompakt`.
-    if (stufe === 'zwei') {
+    // Too narrow for one row: two rows, name and gauge above, counts and icons below. The gauge stays in
+    // the first row; the second is indented to stand under the name.
+    if (form === null) {
       return (
         <Box flexDirection="column">
-          <Box columnGap={2}>
+          <Box columnGap={1} justifyContent="space-between">
             {project}
-            {prs}
-            {issues}
+            {!showsGauge ? null : gauge(COMPACT_CELLS, false)}
           </Box>
-          {/* With the gauge: it stands under the name, the icons at the right. Without it the icons alone are centered. */}
-          <Box paddingLeft={showsGauge ? 2 : 0} columnGap={1} justifyContent={showsGauge ? 'space-between' : 'center'}>
-            {!showsGauge ? null : zweiGauge(columns) === 'voll' ? gauge(CONTEXT_CELLS, true) : gauge(COMPACT_CELLS, false)}
+          <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
+            <Box columnGap={2}>
+              {prs}
+              {issues}
+            </Box>
             <Box columnGap={ICON_GAP}>{actions}</Box>
           </Box>
         </Box>
@@ -1067,15 +1068,15 @@ export const register: Register = on => {
     // One row of two parts spread to its ends: the project, counts and gauge at the left, the actions
     // flush right. It never wraps: after a resize the surface draws the old tree in the new width until
     // the hook answers, and a wrap then made the band jump to two rows and back; what does not fit is
-    // cut off at the right for that moment.
+    // cut off at the right for that moment. The narrower layouts move the items closer together.
     return (
-      <Box columnGap={2} flexWrap="nowrap" overflow="hidden" justifyContent="space-between">
-        <Box columnGap={2}>
+      <Box columnGap={form.gap} flexWrap="nowrap" overflow="hidden" justifyContent="space-between">
+        <Box columnGap={form.gap}>
           {project}
           {prs}
           {issues}
-          {!showsGauge ? null : <Text>{NBSP.repeat(4)}</Text>}
-          {!showsGauge ? null : stufe === 'kompakt' ? gauge(COMPACT_CELLS, false) : gauge(CONTEXT_CELLS, true)}
+          {!showsGauge || !form.hasSpacer ? null : <Text>{NBSP.repeat(4)}</Text>}
+          {!showsGauge ? null : gauge(form.bar, form.hasWord)}
         </Box>
         <Box columnGap={isWritten ? 2 : ICON_GAP}>{actions}</Box>
       </Box>

@@ -43,7 +43,6 @@ import {
   toListed,
   uebersichtZaehler,
   uebersichtText,
-  zweiGauge,
   type GhPr,
   type Grund,
 } from './colors'
@@ -173,9 +172,11 @@ test('the band picks the roomiest layout that fits its cells, and none is roomie
   expect(bandStufe(100, ZIEL)).toBe('voll')
   expect(bandStufe(80, ZIEL)).toBe('icons')
   expect(bandStufe(66, ZIEL)).toBe('kompakt')
+  expect(bandStufe(60, ZIEL)).toBe('dicht')
+  expect(bandStufe(55, ZIEL)).toBe('minimal')
   expect(bandStufe(40, ZIEL)).toBe('zwei')
 
-  const order = ['zwei', 'kompakt', 'icons', 'voll']
+  const order = ['zwei', 'minimal', 'dicht', 'kompakt', 'icons', 'voll']
   const steps = Array.from({ length: 140 }, (_, i) => order.indexOf(bandStufe(i + 1, ZIEL)))
   expect(steps).toEqual([...steps].sort((a, b) => a - b))
 
@@ -184,19 +185,23 @@ test('the band picks the roomiest layout that fits its cells, and none is roomie
   expect(bandStufe(100, { ...ZIEL, prs: 6, issues: 6 })).not.toBe('voll')
   expect(bandBreite('voll', { ...ZIEL, percent: null })).toBeLessThan(bandBreite('voll', ZIEL))
   expect(bandBreite('zwei', ZIEL)).toBe(Number.POSITIVE_INFINITY)
+  // Each layout takes less room than the one before it.
+  const widths = (['voll', 'icons', 'kompakt', 'dicht', 'minimal'] as const).map(stufe => bandBreite(stufe, ZIEL))
+  expect(widths).toEqual([...widths].sort((a, b) => b - a))
 })
 
 test('the layouts switch where the desktop screenshots of the band switched', async () => {
-  // ClaudeColours (13 characters, counts 0) in bands of 744, 731, 720, 687, 533, 518, 475 and 428 px: at
-  // 731 px the written-out row was a little too tight and its gauge broke in two.
+  // ClaudeColours (13 characters, counts 0): written-out actions from about 744 px, the icons from about
+  // 560 px, the short bar from about 500 px. At 731 px the written-out row was a little too tight and its
+  // gauge broke in two.
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
-  expect([96, 91, 90, 85, 66, 64, 58, 52].map(columns => bandStufe(columns, claude))).toEqual([
+  expect([96, 91, 82, 61, 57, 50, 45, 34].map(columns => bandStufe(columns, claude))).toEqual([
     'voll',
     'icons',
     'icons',
-    'icons',
     'kompakt',
-    'kompakt',
+    'dicht',
+    'minimal',
     'zwei',
     'zwei',
   ])
@@ -206,9 +211,12 @@ test('the band stays in its layout until the room for a roomier one is clear', a
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
   // At 60 cells the compact row fits ...
   expect(bandStufe(60, claude)).toBe('kompakt')
-  // ... but a band that was in two rows stays there until it has a cell to spare, and so on up.
-  expect(bandStufe(60, claude, 'zwei')).toBe('zwei')
-  expect(bandStufe(61, claude, 'zwei')).toBe('kompakt')
+  // ... but a band that was in a tighter layout stays there until it has a cell to spare, and so on up.
+  expect(bandStufe(60, claude, 'dicht')).toBe('dicht')
+  expect(bandStufe(61, claude, 'dicht')).toBe('kompakt')
+  expect(bandStufe(49, claude)).toBe('minimal')
+  expect(bandStufe(49, claude, 'zwei')).toBe('zwei')
+  expect(bandStufe(50, claude, 'zwei')).toBe('minimal')
   expect(bandStufe(71, claude)).toBe('icons')
   expect(bandStufe(71, claude, 'kompakt')).toBe('kompakt')
   expect(bandStufe(72, claude, 'kompakt')).toBe('icons')
@@ -220,19 +228,18 @@ test('the band stays in its layout until the room for a roomier one is clear', a
   expect(bandStufe(30, claude, 'icons')).toBe('zwei')
 })
 
-test('the second row of the two-row band drops the gauge word where it would not fit', async () => {
-  expect([60, 40, 36, 35, 30].map(zweiGauge)).toEqual(['voll', 'voll', 'voll', 'kompakt', 'kompakt'])
-})
-
 test('a name too long for the first row of the two-row band is cut with an ellipsis', async () => {
   expect(shortName('LightWeightBrowser', 18)).toBe('LightWeightBrowser')
   expect(shortName('LightWeightBrowser', 10)).toBe('LightWeig…')
   expect(shortName('Beta', 4)).toBe('Beta')
   expect(shortName('Beta', 1)).toBe('B…')
-  // At 40 cells the whole name still fits; at 30 it has to give way, but never below eight characters.
+  // The first row holds the block, the name and the short gauge: at 40 cells the whole name still fits;
+  // at 24 it has to give way, but never below eight characters.
   expect(nameBudget(40, ZIEL)).toBeGreaterThanOrEqual(18)
-  expect(nameBudget(30, ZIEL)).toBeLessThan(18)
+  expect(nameBudget(24, ZIEL)).toBeLessThan(18)
   expect(nameBudget(10, ZIEL)).toBe(8)
+  // Without a gauge the name has the whole row.
+  expect(nameBudget(24, { ...ZIEL, percent: null })).toBeGreaterThan(nameBudget(24, ZIEL))
 })
 
 test('the open pull requests are the length of the list gh prints; 100 shows as 100+', async () => {
@@ -1321,7 +1328,7 @@ async function drawBand($: Tested, bodyColumns: number) {
   return shown
 }
 
-test('the band lays itself out by its cells: written out, icons, a short bar, then two rows', async ($, on) => {
+test('the band lays itself out by its cells: written out, icons, a short bar, closer together, then two rows', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   const wide = await drawBand($, 120)
@@ -1334,16 +1341,20 @@ test('the band lays itself out by its cells: written out, icons, a short bar, th
   const compact = await drawBand($, 56)
   expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4 })
 
-  // The first row stays; the gauge and the icons stand in a second one.
-  const narrow = await drawBand($, 44)
-  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✕'], hasWord: true, barCells: 8, name: ' Beta' })
+  // The items closer together, the same bar.
+  const dense = await drawBand($, 48)
+  expect(dense).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4 })
 
-  // Narrower still, the second row's gauge drops its word and shortens its bar.
-  const tiny = await drawBand($, 30)
-  expect(tiny).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4, name: ' Beta' })
+  // Only the percentage of the gauge is left, in the same row.
+  const minimal = await drawBand($, 42)
+  expect(minimal).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 0 })
+
+  // Two rows: the gauge stays above, with the name.
+  const narrow = await drawBand($, 30)
+  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4, name: ' Beta' })
 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
-    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 85, icons 63, kompakt 52 Zellen.',
+    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 85, icons 63, kompakt 52, dicht 46, minimal 41 Zellen.',
   )
 })
 
@@ -1377,10 +1388,10 @@ test('the one-row band spreads to its ends: the actions flush right, and the per
 test('the band keeps its layout over a narrow stretch while the window is dragged wider', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  // Beta's compact row needs about 52 cells: it fits at 52, but the band came from two rows.
+  // Beta's smallest one-row layout needs about 41 cells: it fits at 41, but the band came from two rows.
   expect((await drawBand($, 30)).isStacked).toBe(true)
-  expect((await drawBand($, 52)).isStacked).toBe(true)
-  expect((await drawBand($, 56)).isStacked).toBe(false)
+  expect((await drawBand($, 41)).isStacked).toBe(true)
+  expect((await drawBand($, 43)).isStacked).toBe(false)
   // Narrowing again is not held back.
   expect((await drawBand($, 30)).isStacked).toBe(true)
 })
@@ -1400,20 +1411,28 @@ test('/projektfarbe breite says so when the band is hidden, and when it was not 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toMatch(/^Das Band hat 120 Zellen und ist im Layout „voll“/)
 })
 
-test('the two-row band centers its icons where there is no gauge, and keeps them right of it otherwise', async ($, on) => {
+test('the two-row band keeps the gauge in its first row, and counts and icons in the second', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  const rowOf = async (view: { agentId?: string }) => {
+  const rowsOf = async (view: { agentId?: string }) => {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 30, view }, surface: 'desktop' })
     const boxes = await ui.findAll({ type: 'Box' })
     await ui.unmount()
 
-    return boxes.find(box => box.props.justifyContent === 'center' || box.props.justifyContent === 'space-between')
+    return boxes.filter(box => box.props.justifyContent === 'space-between').map(box => box.text)
   }
 
+  const [first, second] = await rowsOf({})
+  expect(first).toContain('Beta')
+  expect(first).toMatch(/8\s%/)
+  expect(second).toContain('PRs:')
+  expect(second).toContain('Issues:')
+  expect(second).not.toMatch(/%/)
+
   // A subagent's view has no gauge: the number is the main session's.
-  expect((await rowOf({ agentId: 'a1' }))?.props.justifyContent).toBe('center')
-  expect((await rowOf({}))?.props.justifyContent).toBe('space-between')
+  const [alone] = await rowsOf({ agentId: 'a1' })
+  expect(alone).toContain('Beta')
+  expect(alone).not.toMatch(/%/)
 })
 
 test('the icons press what the written actions do, in every layout', async ($, on) => {

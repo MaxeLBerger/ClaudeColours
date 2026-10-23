@@ -363,14 +363,37 @@ export function contextFill(percent: number, width: number = CONTEXT_CELLS): num
 }
 
 /**
- * The band's layouts, from the roomiest down: `voll` writes the three actions out, `icons` turns them
- * into icons, `kompakt` also drops the gauge's word and shortens its bar, `zwei` moves the gauge and
- * the icons into a second row.
+ * The band's layouts, from the roomiest down. The one-row layouts: `voll` writes the three actions out,
+ * `icons` turns them into icons, `kompakt` also drops the gauge's word and shortens its bar, `dicht`
+ * moves the items closer together, `minimal` keeps only the percentage of the gauge. `zwei` is the
+ * last resort: two rows, name and gauge above, counts and icons below.
  */
-export type BandStufe = 'voll' | 'icons' | 'kompakt' | 'zwei'
+export type BandStufe = 'voll' | 'icons' | 'kompakt' | 'dicht' | 'minimal' | 'zwei'
 
-/** The gauge's bar in `kompakt`; the other layouts keep the full `CONTEXT_CELLS`. */
+/** The gauge's bar in the compact layouts; the roomier ones keep the full `CONTEXT_CELLS`. */
 export const COMPACT_CELLS = 4
+
+/** What a one-row layout draws. */
+export type BandForm = {
+  /** The `columnGap` of its rows, in cells. */
+  gap: number
+  /** The actions are written out; else they are icons. */
+  isWritten: boolean
+  /** The gauge's bar in cells; null: the percentage alone. */
+  bar: number | null
+  /** The word "Kontext" before the bar. */
+  hasWord: boolean
+  /** A blank node before the gauge, which sets the gauge apart by a wider gap. */
+  hasSpacer: boolean
+}
+
+export const BAND_FORMEN: Record<Exclude<BandStufe, 'zwei'>, BandForm> = {
+  voll: { gap: 2, isWritten: true, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
+  icons: { gap: 2, isWritten: false, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
+  kompakt: { gap: 2, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: true },
+  dicht: { gap: 1, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: false },
+  minimal: { gap: 1, isWritten: false, bar: null, hasWord: false, hasSpacer: false },
+}
 
 /** What the band's width depends on, in characters. */
 export type BandInhalt = {
@@ -386,12 +409,14 @@ export type BandInhalt = {
 
 // Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
 // font, so a character takes less than a cell, the bold name a little more; the gap between the items
-// is about 22 px, a native button adds some to its own gaps. The gauge's bar is a run of blanks on a
-// background: exact cells. The icons stand in fields of a fixed width, so they are evenly spaced.
+// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), a native button adds some to its own gaps. The gauge's
+// bar is a run of blanks on a background: exact cells. The icons stand in fields of a fixed width, so
+// they are evenly spaced.
 const TEXT_CELL = 0.83
 const NAME_CELL = 0.89
 const BUTTON_TEXT_CELL = 0.82
 const GAP_CELLS = 2.85
+const GAP_TIGHT_CELLS = 1.85
 const BUTTON_GAP_CELLS = 3.55
 const BLOCK_CELLS = 2
 // An icon's field and the gap between two: three icons take as many cells as `ICON_BOX` and `ICON_GAP` say.
@@ -408,11 +433,6 @@ const NAME_MIN = 8
 
 const countCells = (label: number, rest: number): number => (label + rest) * TEXT_CELL
 
-/** The cells the band's first row (block, name, both counts) takes, less the name itself. */
-function kernRest(inhalt: BandInhalt): number {
-  return BLOCK_CELLS + NAME_CELL + 2 * GAP_CELLS + countCells(4, inhalt.prs) + countCells(7, inhalt.issues)
-}
-
 /**
  * The cells a layout takes in one row; `zwei` has no one-row width and answers Infinity. The row has two
  * parts, spread to its two ends: the project with the counts and the gauge at the left, the actions at
@@ -422,22 +442,27 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
   if (stufe === 'zwei') {
     return Number.POSITIVE_INFINITY
   }
+  const form = BAND_FORMEN[stufe]
+  const gapCells = form.gap === 1 ? GAP_TIGHT_CELLS : GAP_CELLS
   const items = [
     BLOCK_CELLS + (1 + inhalt.name) * NAME_CELL,
     countCells(4, inhalt.prs),
     countCells(7, inhalt.issues),
   ]
   if (inhalt.percent !== null) {
-    const bar = stufe === 'kompakt' ? COMPACT_CELLS : 8 * TEXT_CELL + CONTEXT_CELLS
     // The blank spacer before the gauge is a node of its own, with a gap on each side.
-    items.push(0, bar + (inhalt.percent + 3) * TEXT_CELL)
+    if (form.hasSpacer) {
+      items.push(0)
+    }
+    // " 8 %" after a bar, "8 %" alone.
+    const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * TEXT_CELL
+    items.push((form.hasWord ? 8 * TEXT_CELL : 0) + (form.bar ?? 0) + percent)
   }
-  const actions =
-    stufe === 'voll'
-      ? ACTION_CHARS.reduce((sum, chars) => sum + chars * BUTTON_TEXT_CELL, 0) + 2 * BUTTON_GAP_CELLS
-      : 3 * ICON_BOX + 2 * ICON_GAP_CELLS
+  const actions = form.isWritten
+    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * BUTTON_TEXT_CELL, 0) + 2 * BUTTON_GAP_CELLS
+    : 3 * ICON_BOX + 2 * ICON_GAP_CELLS
 
-  return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * GAP_CELLS + GAP_CELLS + actions
+  return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
 }
 
 // Going back to a roomier layout than the one drawn last takes this many cells more than fitting does,
@@ -445,7 +470,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
 // window at rest must show the roomiest layout that fits.
 const HYSTERESIS_CELLS = 1
 
-const STUFEN = ['voll', 'icons', 'kompakt', 'zwei'] as const
+const STUFEN = ['voll', 'icons', 'kompakt', 'dicht', 'minimal', 'zwei'] as const
 
 /**
  * The roomiest layout that fits `columns` cells in one row; `zwei` when none does. `previous`, the
@@ -463,18 +488,11 @@ export function bandStufe(columns: number, inhalt: BandInhalt, previous: BandStu
   )
 }
 
-// The second row of `zwei` (the gauge with its word and full bar, then the icons) takes about this many
-// cells; narrower than that the gauge drops its word and shortens its bar, as in `kompakt`.
-const ZWEI_FULL_CELLS = 36
-
-/** Whether the second row of `zwei` has room for the gauge's word and full bar. */
-export function zweiGauge(columns: number): 'voll' | 'kompakt' {
-  return columns + SLACK_CELLS >= ZWEI_FULL_CELLS ? 'voll' : 'kompakt'
-}
-
-/** How many characters of the name fit the first row of `zwei` beside the block and the counts. */
+/** How many characters of the name fit the first row of `zwei`, beside the block and the gauge. */
 export function nameBudget(columns: number, inhalt: BandInhalt): number {
-  return Math.max(NAME_MIN, Math.floor((columns - kernRest(inhalt)) / NAME_CELL))
+  const gauge = inhalt.percent === null ? 0 : GAP_TIGHT_CELLS + COMPACT_CELLS + (inhalt.percent + 3) * TEXT_CELL
+
+  return Math.max(NAME_MIN, Math.floor((columns - BLOCK_CELLS - NAME_CELL - gauge) / NAME_CELL))
 }
 
 /** The name cut to `max` characters with an ellipsis; as it is when it fits. */
