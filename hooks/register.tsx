@@ -8,6 +8,7 @@ import {
   BAND_FORMEN,
   bandBreite,
   bandStufe,
+  EINZEILER,
   bereichOf,
   buildBereiche,
   buildUebersicht,
@@ -728,7 +729,7 @@ const hilfe = (satz: Satz): string =>
 
 export const register: Register = on => {
   // What the band was last drawn in, for `/projektfarbe breite`; a plain variable, as drawing must not write state.
-  let lastBand: { columns: number; stufe: BandStufe; inhalt: BandInhalt } | null = null
+  let lastBand: { columns: number; stufe: BandStufe; inhalt: BandInhalt; isMono: boolean } | null = null
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -828,7 +829,7 @@ export const register: Register = on => {
         text:
           lastBand === null
             ? 'Das Band wurde in dieser Session noch nicht gezeichnet.'
-            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${(['voll', 'icons', 'kompakt', 'dicht', 'minimal'] as const).map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt))}`).join(', ')} Zellen.`,
+            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${EINZEILER.map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt, lastBand!.isMono))}`).join(', ')} Zellen.`,
       }
     }
     if (arg === 'bunt') {
@@ -930,9 +931,16 @@ export const register: Register = on => {
       issues: countRest(openIssues, state.newIssues).length,
       percent: showsGauge ? String(percent).length : null,
     }
-    const { bodyColumns: columns } = e.props
-    const stufe = bandStufe(columns, inhalt, lastBand?.stufe ?? null)
-    lastBand = { columns, stufe, inhalt }
+    // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
+    const columns = Number.isFinite(e.props.bodyColumns) ? e.props.bodyColumns : 120
+    // On the terminal a character is one cell, on the desktop it is less: the widths differ.
+    const isMono = e.surface === 'terminal'
+    // Only the session's own view is remembered and held in its layout: a subagent's has other content.
+    const isMain = e.props.view.agentId === undefined
+    const stufe = bandStufe(columns, inhalt, isMain ? (lastBand?.stufe ?? null) : null, isMono)
+    if (isMain) {
+      lastBand = { columns, stufe, inhalt, isMono }
+    }
     const form = stufe === 'zwei' ? null : BAND_FORMEN[stufe]
     const isWritten = form?.isWritten ?? false
     const name = (
@@ -945,8 +953,9 @@ export const register: Register = on => {
           </Text>
         )}
         {/* The theme's text color, so the link around it does not paint the name in its own. */}
+        {/* No break inside the name: a row squeezed by a resize would split "My Project" in two lines. */}
         <Text color="text" bold={!isCalm}>
-          {` ${stufe === 'zwei' ? shortName(state.project, nameBudget(columns, inhalt)) : state.project}`}
+          {` ${(stufe === 'zwei' ? shortName(state.project, nameBudget(columns, inhalt, isMono)) : state.project).split(' ').join(NBSP)}`}
         </Text>
       </Text>
     )

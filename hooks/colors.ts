@@ -407,60 +407,91 @@ export type BandInhalt = {
   percent: number | null
 }
 
-// Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
-// font, so a character takes less than a cell, the bold name a little more; the gap between the items
-// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), a native button adds some to its own gaps. The gauge's
-// bar is a run of blanks on a background: exact cells. The icons stand in fields of a fixed width, so
-// they are evenly spaced.
-const TEXT_CELL = 0.83
-const NAME_CELL = 0.89
-const BUTTON_TEXT_CELL = 0.82
-const GAP_CELLS = 2.85
-const GAP_TIGHT_CELLS = 1.85
-const BUTTON_GAP_CELLS = 3.55
-const BLOCK_CELLS = 2
 // An icon's field and the gap between two: three icons take as many cells as `ICON_BOX` and `ICON_GAP` say.
 export const ICON_BOX = 3
 export const ICON_GAP = 1
-// What the gap between two icon fields measured, with the fields' own edges.
-const ICON_GAP_CELLS = 1.5
+const BLOCK_CELLS = 2
 const ACTION_CHARS = [11, 12, 10] as const
-// How far the room a row really has reaches past `bodyColumns`, measured: the band's padding is less
-// than the engine's marks at its right end.
-const SLACK_CELLS = 0.5
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
-const countCells = (label: number, rest: number): number => (label + rest) * TEXT_CELL
+/** What the band's widths are measured in: the cells a character, a gap and a node take on a surface. */
+type Metrics = {
+  /** Cells per character of plain text, of the bold name and of a button's label. */
+  text: number
+  name: number
+  button: number
+  /** Cells of the gap `columnGap: 2` and `columnGap: 1` draw, of the gap between two written-out buttons and between two icon fields. */
+  gap: number
+  gapTight: number
+  buttonGap: number
+  iconGap: number
+  /** The blank node before the gauge. */
+  spacer: number
+  /** How far the room a row really has reaches past `bodyColumns`. */
+  slack: number
+}
+
+// Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
+// font, so a character takes less than a cell, the bold name a little more; the gap between the items
+// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), a native button adds some to its own gaps, and the blank
+// spacer before the gauge takes no room of its own. The gauge's bar is a run of blanks on a background:
+// exact cells. The band's padding is less than the engine's marks at its right end, hence the slack.
+const DESKTOP: Metrics = {
+  text: 0.83,
+  name: 0.89,
+  button: 0.82,
+  gap: 2.85,
+  gapTight: 1.85,
+  buttonGap: 3.55,
+  iconGap: 1.5,
+  spacer: 0,
+  slack: 0.5,
+}
+
+// On the terminal a character is one cell and a gap is what `columnGap` says; the spacer is its four blanks.
+const TERMINAL: Metrics = {
+  text: 1,
+  name: 1,
+  button: 1,
+  gap: 2,
+  gapTight: 1,
+  buttonGap: 2,
+  iconGap: ICON_GAP,
+  spacer: 4,
+  slack: 0,
+}
 
 /**
- * The cells a layout takes in one row; `zwei` has no one-row width and answers Infinity. The row has two
- * parts, spread to its two ends: the project with the counts and the gauge at the left, the actions at
- * the right; the gap between them is the least it keeps.
+ * The cells a layout takes in one row (`isMono`: on the terminal, not the desktop); `zwei` has no
+ * one-row width and answers Infinity. The row has two parts, spread to its two ends: the project with
+ * the counts and the gauge at the left, the actions at the right; the gap between them is the least it
+ * keeps.
  */
-export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
+export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false): number {
   if (stufe === 'zwei') {
     return Number.POSITIVE_INFINITY
   }
+  const m = isMono ? TERMINAL : DESKTOP
   const form = BAND_FORMEN[stufe]
-  const gapCells = form.gap === 1 ? GAP_TIGHT_CELLS : GAP_CELLS
+  const gapCells = form.gap === 1 ? m.gapTight : m.gap
   const items = [
-    BLOCK_CELLS + (1 + inhalt.name) * NAME_CELL,
-    countCells(4, inhalt.prs),
-    countCells(7, inhalt.issues),
+    BLOCK_CELLS + (1 + inhalt.name) * m.name,
+    (4 + inhalt.prs) * m.text,
+    (7 + inhalt.issues) * m.text,
   ]
   if (inhalt.percent !== null) {
     // The blank spacer before the gauge is a node of its own, with a gap on each side.
     if (form.hasSpacer) {
-      items.push(0)
+      items.push(m.spacer)
     }
     // " 8 %" after a bar, "8 %" alone.
-    const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * TEXT_CELL
-    items.push((form.hasWord ? 8 * TEXT_CELL : 0) + (form.bar ?? 0) + percent)
+    const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * m.text
+    items.push((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
   }
   const actions = form.isWritten
-    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * BUTTON_TEXT_CELL, 0) + 2 * BUTTON_GAP_CELLS
-    : 3 * ICON_BOX + 2 * ICON_GAP_CELLS
+    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * m.button, 0) + 2 * m.buttonGap
+    : 3 * ICON_BOX + 2 * m.iconGap
 
   return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
 }
@@ -470,29 +501,39 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
 // window at rest must show the roomiest layout that fits.
 const HYSTERESIS_CELLS = 1
 
-const STUFEN = ['voll', 'icons', 'kompakt', 'dicht', 'minimal', 'zwei'] as const
+/** The one-row layouts, the roomiest first. */
+export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['voll', 'icons', 'kompakt', 'dicht', 'minimal']
+
+const STUFEN: readonly BandStufe[] = [...EINZEILER, 'zwei']
 
 /**
  * The roomiest layout that fits `columns` cells in one row; `zwei` when none does. `previous`, the
  * layout drawn last, holds the band in it until the room for a roomier one is clear.
  */
-export function bandStufe(columns: number, inhalt: BandInhalt, previous: BandStufe | null = null): BandStufe {
+export function bandStufe(
+  columns: number,
+  inhalt: BandInhalt,
+  previous: BandStufe | null = null,
+  isMono = false,
+): BandStufe {
   const last = previous === null ? -1 : STUFEN.indexOf(previous)
+  const room = columns + (isMono ? TERMINAL : DESKTOP).slack
 
   return (
-    STUFEN.slice(0, -1).find((stufe, rank) => {
+    EINZEILER.find((stufe, rank) => {
       const bias = last > rank ? HYSTERESIS_CELLS : 0
 
-      return bandBreite(stufe, inhalt) <= columns + SLACK_CELLS - bias
+      return bandBreite(stufe, inhalt, isMono) <= room - bias
     }) ?? 'zwei'
   )
 }
 
 /** How many characters of the name fit the first row of `zwei`, beside the block and the gauge. */
-export function nameBudget(columns: number, inhalt: BandInhalt): number {
-  const gauge = inhalt.percent === null ? 0 : GAP_TIGHT_CELLS + COMPACT_CELLS + (inhalt.percent + 3) * TEXT_CELL
+export function nameBudget(columns: number, inhalt: BandInhalt, isMono = false): number {
+  const m = isMono ? TERMINAL : DESKTOP
+  const gauge = inhalt.percent === null ? 0 : m.gapTight + COMPACT_CELLS + (inhalt.percent + 3) * m.text
 
-  return Math.max(NAME_MIN, Math.floor((columns - BLOCK_CELLS - NAME_CELL - gauge) / NAME_CELL))
+  return Math.max(NAME_MIN, Math.floor((columns - BLOCK_CELLS - m.name - gauge) / m.name))
 }
 
 /** The name cut to `max` characters with an ellipsis; as it is when it fits. */

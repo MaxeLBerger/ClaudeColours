@@ -1307,8 +1307,8 @@ async function startBand($: Tested, on: Parameters<typeof mock.store>[0], cwd: s
 }
 
 /** What the band shows at `bodyColumns` cells: its rows' layout, the action labels and the gauge. */
-async function drawBand($: Tested, bodyColumns: number) {
-  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'terminal' = 'desktop') {
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface })
   const texts = await ui.findAll({ type: 'Text' })
   const shown = {
     isStacked: (await ui.find({ type: 'Box' }))?.props.flexDirection === 'column',
@@ -1473,6 +1473,66 @@ test('each icon has a hover card saying what it does; the written-out actions ne
       expect(card.props).toMatchObject({ display: 'none', position: 'absolute', top: 0, right: 3 })
     }
   }
+})
+
+test('on the terminal a character is a whole cell: the roomy layouts need more columns than on the desktop', async () => {
+  const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
+  expect(bandBreite('voll', claude, true)).toBeGreaterThan(bandBreite('voll', claude))
+  expect([105, 101, 76, 75, 64, 63, 54, 53, 49, 48].map(columns => bandStufe(columns, claude, null, true))).toEqual([
+    'voll',
+    'icons',
+    'icons',
+    'kompakt',
+    'kompakt',
+    'dicht',
+    'dicht',
+    'minimal',
+    'minimal',
+    'zwei',
+  ])
+  // The same 98 columns fit the written-out actions on the desktop but not on the terminal.
+  expect(bandStufe(98, claude)).toBe('voll')
+  expect(bandStufe(98, claude, null, true)).toBe('icons')
+  expect(nameBudget(40, claude, true)).toBeGreaterThan(0)
+})
+
+test('the band on the terminal switches layouts by whole cells', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  expect((await drawBand($, 105, 'terminal')).actions).toEqual(['Übersicht ☰', 'Farbe ändern', 'ausblenden'])
+  // Beta needs 93 columns written out on the terminal; at 90 it shows the icons.
+  expect((await drawBand($, 90, 'terminal')).actions).toEqual(['☰', '◐', '✕'])
+})
+
+test('a project name with blanks never breaks inside the band', async ($, on) => {
+  await startBand($, on, 'C:\\Users\\me\\Repos\\My Project')
+
+  expect((await drawBand($, 200)).name).toBe(` My${NBSP}Project`)
+})
+
+test('a surface that does not say how wide the band is gets the roomy one-row band', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  const ui = await $.ui.mount({
+    ...BAND,
+    props: { ...BAND.props, bodyColumns: undefined as unknown as number },
+    surface: 'desktop',
+  })
+  const root = await ui.find({ type: 'Box' })
+  await ui.unmount()
+  expect(root?.props.flexDirection).toBeUndefined()
+})
+
+test('a subagent view neither sets nor reads the layout the band was drawn in last', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  const ui = await $.ui.mount({
+    ...BAND,
+    props: { ...BAND.props, bodyColumns: 120, view: { agentId: 'a1' } },
+    surface: 'desktop',
+  })
+  await ui.unmount()
+  expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe('Das Band wurde in dieser Session noch nicht gezeichnet.')
 })
 
 test('a project name too long for the two-row band is cut; the other layouts keep it whole', async ($, on) => {
