@@ -1334,6 +1334,22 @@ test('/projektfarbe breite says so when the band is hidden, and when it was not 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toMatch(/^Das Band hat 120 Zellen und ist im Layout „voll“/)
 })
 
+test('the two-row band centers its icons where there is no gauge, and keeps them right of it otherwise', async ($, on) => {
+  await startBand($, on, `${BETA}\.claude\worktrees\a`)
+
+  const rowOf = async (view: { agentId?: string }) => {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 30, view }, surface: 'desktop' })
+    const boxes = await ui.findAll({ type: 'Box' })
+    await ui.unmount()
+
+    return boxes.find(box => box.props.justifyContent === 'center' || box.props.justifyContent === 'space-between')
+  }
+
+  // A subagent's view has no gauge: the number is the main session's.
+  expect((await rowOf({ agentId: 'a1' }))?.props.justifyContent).toBe('center')
+  expect((await rowOf({}))?.props.justifyContent).toBe('space-between')
+})
+
 test('the icons press what the written actions do, in every layout', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 

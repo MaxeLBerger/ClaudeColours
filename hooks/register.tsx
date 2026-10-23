@@ -1037,9 +1037,10 @@ export const register: Register = on => {
             {prs}
             {issues}
           </Box>
-          <Box paddingLeft={2} columnGap={1} justifyContent={showsGauge ? 'space-between' : 'flex-start'}>
+          {/* With the gauge: it stands under the name, the icons at the right. Without it the icons alone are centered. */}
+          <Box paddingLeft={showsGauge ? 2 : 0} columnGap={1} justifyContent={showsGauge ? 'space-between' : 'center'}>
             {!showsGauge ? null : gauge(CONTEXT_CELLS, true)}
-            <Box columnGap={1}>{actions}</Box>
+            <Box columnGap={showsGauge ? 1 : 2}>{actions}</Box>
           </Box>
         </Box>
       )
