@@ -1535,7 +1535,7 @@ test('the footer counts what needs the person; only resting sessions and closed 
     markOf: () => '🟦',
     now: NOW,
   })
-  expect(uebersichtSummary(overview)).toBe('7 Sessions · 1 abgebrochen · 1 mit offenem PR · 2 ruhen')
+  expect(uebersichtSummary(overview)).toBe('7 Sessions · 1 dringend · 1 mit offenem PR · 2 ruhen')
   expect(uebersichtSummary({ gruppen: [], hinweise: [] })).toBe('0 Sessions')
   const zeilen = overview.gruppen.flatMap(group => group.zeilen)
   const reasons = Object.fromEntries(zeilen.map(zeile => [zeile.sessionId, archiveReason(zeile)]))
@@ -1579,7 +1579,8 @@ function panelDesktop(options: { refuseArchive?: boolean } = {}) {
     }),
     listed({ sessionId: 'local_ab', title: '🟩 Abgebrochen', cwd: `${BETA}\\.claude\\worktrees\\c`, branch: 'claude/ab' }),
     listed({ sessionId: 'local_pr', title: '🟩 Mit PR', cwd: BETA, branch: 'main', prNumber: 2, prState: 'OPEN' }),
-  ]
+    listed({ sessionId: 'local_wartet', title: '🟦 Frage offen', cwd: `${ALPHA}\\.claude\\worktrees\\d`, branch: 'claude/wartet' }),
+  ].map(row => ({ ...row, link: `claude://claude.ai/epitaxy/${row.sessionId}` }))
   const archived: { session_id: unknown; reason: unknown }[] = []
   let lists = 0
   const reply = (value: unknown, isError = false) => ({
@@ -1616,6 +1617,9 @@ async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?:
   const desktop = panelDesktop(options)
   const toasts: string[] = []
   const closed: unknown[] = []
+  // What is asked of the system to open a session; `works.on = false` has every opener fail.
+  const opened: string[][] = []
+  const works = { on: true }
   mock.store(on, { stand: { local_ab: { grund: 'aborted', um: NOW - 3 * HOUR } }, farben: { alpha: '🟦', beta: '🟩' } })
   on('mcp.call', desktop.hook)
   on('command.register', () => ({ value: { command: 'projektfarbe' } }))
@@ -1633,14 +1637,24 @@ async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?:
 
     return { value: undefined }
   })
-  on('process.run', () => ghList([]))
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'gh') {
+      return ghList([])
+    }
+    opened.push([...e.argv])
+    if (!works.on) {
+      throw new Error('spawn ENOENT')
+    }
+
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
 
   await $.session.start({ cwd: desktop.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
   const text = (await $.command.run({ ...RUN, args: 'übersicht' })).text
   await clock.settle()
 
-  return { clock, desktop, toasts, closed, text }
+  return { clock, desktop, toasts, closed, text, opened, works }
 }
 
 const panelText = async ($: TestEngine) => {
@@ -1665,12 +1679,14 @@ test('/projektfarbe übersicht opens the panel: groups with the urgent project f
   expect(whole).toContain('abgebrochen · vor 2 Std')
   expect(whole).toContain('PR #2 offen')
   expect(whole).toContain('Panel bauen (diese)')
-  expect(whole).toContain('4 Sessions · 1 abgebrochen · 1 mit offenem PR · 1 ruht')
+  expect(whole).toContain('5 Sessions · 1 dringend · 1 wartet auf dich · 1 mit offenem PR · 1 ruht')
   // Only the resting session can be archived, never the running one that shows the panel.
   expect(keys.filter(key => key.startsWith('archivieren-'))).toEqual(['archivieren-local_alt'])
   expect(keys).toContain('aktualisieren')
   expect(keys).toContain('schliessen')
-  expect(keys.some(key => key.startsWith('oeffnen-'))).toBe(false)
+  // Every session but the one the panel runs in can be opened.
+  expect(keys.filter(key => key.startsWith('oeffnen-'))).toHaveLength(4)
+  expect(keys).not.toContain('oeffnen-local_self')
 })
 
 test('aktualisieren reads the sessions again; schliessen closes the panel', async ($, on) => {
@@ -1733,7 +1749,7 @@ test('where no surface places the panel, /projektfarbe übersicht prints the sta
   const viaPanel = (await $.command.run({ ...RUN, args: 'uebersicht' })).text
   const viaStatus = (await $.command.run({ ...RUN, args: 'status' })).text
   expect(viaPanel).toBe(viaStatus)
-  expect(viaPanel).toContain('4 offene Session(s)')
+  expect(viaPanel).toContain('5 offene Session(s)')
 })
 
 test('the sections put what needs the person first and what can be archived last', async () => {
@@ -1757,7 +1773,10 @@ test('the sections put what needs the person first and what can be archived last
   const bereiche = buildBereiche(overview)
   expect(bereiche.map(b => [b.id, b.zeilen.map(z => z.sessionId)])).toEqual([
     ['dringend', ['e', 'c']],
-    ['arbeit', ['f', 'd']],
+    // A stopped session in work has finished its turn: the next move is the person's.
+    ['dudran', ['f']],
+    // This very session counts as running, whichever way its row says.
+    ['laeuft', ['d']],
     ['aufraeumen', ['b', 'a']],
   ])
   expect(bereiche[0]!.zeilen[0]!.project).toBe('Alpha')
@@ -1769,9 +1788,10 @@ test('the panel shows sections by status by default and groups by project on req
   const byStatus = await panelText($)
   const at = (part: string) => byStatus.whole.indexOf(part)
   expect(at('Braucht dich')).toBeGreaterThan(-1)
-  expect(at('Braucht dich')).toBeLessThan(at('PR wartet'))
-  expect(at('PR wartet')).toBeLessThan(at('Läuft und in Arbeit'))
-  expect(at('Läuft und in Arbeit')).toBeLessThan(at('Aufräumen'))
+  expect(at('Braucht dich')).toBeLessThan(at('Du bist dran'))
+  expect(at('Du bist dran')).toBeLessThan(at('PR wartet'))
+  expect(at('PR wartet')).toBeLessThan(at('Läuft, nichts zu tun'))
+  expect(at('Läuft, nichts zu tun')).toBeLessThan(at('Aufräumen'))
   expect(byStatus.keys).toContain('ansicht')
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
@@ -1781,4 +1801,27 @@ test('the panel shows sections by status by default and groups by project on req
   expect(byProject.whole).not.toContain('Braucht dich')
   expect(byProject.whole.indexOf('Beta')).toBeLessThan(byProject.whole.indexOf('Alpha'))
   expect(byProject.keys).toContain('archivieren-local_alt')
+})
+
+test('öffnen hands the session\'s claude:// address to the system, and says so when nothing opens it', async ($, on) => {
+  const { toasts, opened, works } = await openedPanel($, on)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+
+  await ui.press({ key: 'oeffnen-local_wartet' })
+  expect(opened).toEqual([['rundll32', 'url.dll,FileProtocolHandler', 'claude://claude.ai/epitaxy/local_wartet']])
+  expect(toasts).toEqual([])
+
+  works.on = false
+  opened.length = 0
+  await ui.press({ key: 'oeffnen-local_wartet' })
+  await ui.unmount()
+  expect(opened.map(argv => argv[0])).toEqual(['rundll32', 'open', 'xdg-open'])
+  expect(toasts).toEqual(['„Frage offen“ lässt sich von hier nicht öffnen: bitte in der Seitenleiste wählen.'])
+})
+
+test('only plain claude:// addresses count as a link to open', async () => {
+  expect(session({ link: 'claude://claude.ai/epitaxy/local_a-1' }).link).toBe('claude://claude.ai/epitaxy/local_a-1')
+  expect(session({ link: 'claude://x/y & calc' }).link).toBe(null)
+  expect(session({ link: 'https://example.com' }).link).toBe(null)
+  expect(session().link).toBe(null)
 })

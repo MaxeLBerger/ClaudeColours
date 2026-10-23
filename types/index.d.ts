@@ -52,6 +52,7 @@ export type PanelZeile = {
   alter: string
   lastActive: number | null
   isSelf: boolean
+  link: string | null
 }
 
 export type PanelUebersicht = {

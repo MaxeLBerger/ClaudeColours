@@ -41,6 +41,7 @@ import {
   uebersichtSummary,
   uebersichtText,
   type Art,
+  type BereichId,
   type BereichZeile,
   type Farbe,
   type GhPr,
@@ -84,6 +85,8 @@ const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 const PANEL = 'uebersicht'
 const PANEL_EVERY_MS = 60_000
 const EMPTY_PANEL: ProjektfarbenPanel = { daten: null, isLoading: false, fehler: null, um: null, isOpen: false, ansicht: 'status' }
+// Only the sections that want the person are colored: a problem in the error color, a waiting session in the warning's.
+const BEREICH_FARBE: Partial<Record<BereichId, 'error' | 'warning'>> = { dringend: 'error', dudran: 'warning' }
 const panel = atom({ plugin: 'projektfarben', key: 'uebersicht' } as const, EMPTY_PANEL)
 
 // Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
@@ -540,6 +543,26 @@ async function openPanel($: Engine): Promise<boolean> {
   return true
 }
 
+// What opens a `claude://` address, tried in turn until one starts: Windows, macOS, Linux.
+const OPENERS: readonly (readonly string[])[] = [['rundll32', 'url.dll,FileProtocolHandler'], ['open'], ['xdg-open']]
+
+/** Opens a session in the app through the system's handler for its `claude://` address. */
+async function openSession($: Engine, zeile: UebersichtZeile): Promise<void> {
+  if (zeile.link !== null) {
+    for (const opener of OPENERS) {
+      try {
+        const { exitCode } = await $.process.run([...opener, zeile.link], { timeoutMs: 10_000 })
+        if (exitCode === 0) {
+          return
+        }
+      } catch {
+        // This system has no such opener: the next one is tried.
+      }
+    }
+  }
+  $.ui.toast(`„${zeile.title}“ lässt sich von hier nicht öffnen: bitte in der Seitenleiste wählen.`)
+}
+
 /** Archives one session on the person's yes in the app; a no or an error is a toast, the row stays. */
 async function archive($: Engine, zeile: UebersichtZeile): Promise<void> {
   const reason = archiveReason(zeile)
@@ -935,6 +958,11 @@ export const register: Register = on => {
         </Box>
         <Box columnGap={2} flexWrap="wrap" paddingLeft={withProject ? 5 : 2}>
           <Text dimColor>{`${zeile.status.label}${zeile.alter === '' ? '' : ` · ${zeile.alter}`}`}</Text>
+          {zeile.link === null ? null : (
+            <Button key={`oeffnen-${zeile.sessionId}`} plain onPress={() => openSession($, zeile)}>
+              <Text color="suggestion">öffnen ↗</Text>
+            </Button>
+          )}
           {archiveReason(zeile) === null ? null : (
             <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
               <Text color="suggestion">archivieren</Text>
@@ -943,7 +971,7 @@ export const register: Register = on => {
         </Box>
       </Box>
     )
-    const title = (text: string, count: number, color?: 'error') => (
+    const title = (text: string, count: number, color?: 'error' | 'warning') => (
       <Box columnGap={1} marginTop="md" marginBottom="sm">
         <Text bold color={color}>
           {text}
@@ -983,7 +1011,7 @@ export const register: Register = on => {
         {state.daten !== null && isStatus
           ? buildBereiche(state.daten).map(bereich => (
               <Box key={`bereich-${bereich.id}`} flexDirection="column">
-                {title(`${bereich.zeichen} ${bereich.titel}`, bereich.zeilen.length, bereich.id === 'dringend' ? 'error' : undefined)}
+                {title(`${bereich.zeichen} ${bereich.titel}`, bereich.zeilen.length, BEREICH_FARBE[bereich.id])}
                 {bereich.zeilen.map(zeile => zeileBox(zeile, true))}
               </Box>
             ))

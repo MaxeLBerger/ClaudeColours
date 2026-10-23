@@ -540,6 +540,8 @@ export type ListedSession = SessionRow & {
   lastActivityAt: number | null
   /** The pull request the app itself links to the session, when it names one (`prNumber`, `prState`). */
   appPr: { number: number; state: PrState } | null
+  /** The app's `claude://` address of the session, which opens it; null when the app gave none. */
+  link: string | null
 }
 
 /** One session from a list_sessions or get_session entry, or null when a needed field is missing. */
@@ -561,6 +563,7 @@ export function toListed(raw: unknown, fallbackId?: string): ListedSession | nul
       typeof entry.prNumber === 'number' && isPrState(entry.prState)
         ? { number: entry.prNumber, state: entry.prState }
         : null,
+    link: typeof entry.link === 'string' && /^claude:\/\/[\w.~\/-]+$/.test(entry.link) ? entry.link : null,
   }
 }
 
@@ -783,6 +786,8 @@ export type UebersichtZeile = {
   /** Milliseconds since the epoch; null when unknown. */
   lastActive: number | null
   isSelf: boolean
+  /** The `claude://` address that opens the session; null for this one and when the app gave none. */
+  link: string | null
 }
 
 /** A project's sessions, most in need of the person first. */
@@ -846,6 +851,7 @@ export function buildUebersicht(daten: UebersichtDaten): Uebersicht {
       alter: last === null ? '' : alterText(daten.now - last),
       lastActive: last,
       isSelf: session.sessionId === daten.selfId,
+      link: session.sessionId === daten.selfId ? null : session.link,
     })
     groups.set(key, group)
   }
@@ -889,15 +895,17 @@ export function uebersichtText(uebersicht: Uebersicht): string {
 
 const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
-/** The panel's footer: "12 Sessions · 3 abgebrochen · 4 mit offenem PR · 2 ruhen"; zero counts are left out. */
+/** The panel's top line: "12 Sessions · 2 dringend · 3 warten auf dich · 4 mit offenem PR · 2 ruhen"; zero counts are left out. */
 export function uebersichtSummary(uebersicht: Uebersicht): string {
   const zeilen = uebersicht.gruppen.flatMap(group => group.zeilen)
-  const count = (...arten: StatusArt[]): number => zeilen.filter(z => arten.includes(z.status.art)).length
+  const bereiche = buildBereiche(uebersicht)
+  const size = (id: BereichId): number => bereiche.find(bereich => bereich.id === id)?.zeilen.length ?? 0
+  const count = (art: StatusArt): number => zeilen.filter(z => z.status.art === art).length
   const ruht = count('ruht')
   const parts = [
     plural(zeilen.length, 'Session', 'Sessions'),
-    count('abgebrochen') === 0 ? null : `${count('abgebrochen')} abgebrochen`,
-    count('fehler') === 0 ? null : `${count('fehler')} mit Fehler`,
+    size('dringend') === 0 ? null : `${size('dringend')} dringend`,
+    size('dudran') === 0 ? null : `${size('dudran')} ${size('dudran') === 1 ? 'wartet' : 'warten'} auf dich`,
     count('pr-offen') === 0 ? null : `${count('pr-offen')} mit offenem PR`,
     ruht === 0 ? null : `${ruht} ${ruht === 1 ? 'ruht' : 'ruhen'}`,
   ]
@@ -924,7 +932,7 @@ export function archiveReason(zeile: UebersichtZeile): string | null {
   return null
 }
 
-export type BereichId = 'dringend' | 'review' | 'arbeit' | 'aufraeumen'
+export type BereichId = 'dringend' | 'dudran' | 'review' | 'laeuft' | 'aufraeumen'
 
 /** One session of a section, with the project it belongs to. */
 export type BereichZeile = UebersichtZeile & { project: string | null; mark: string | null }
@@ -932,30 +940,52 @@ export type BereichZeile = UebersichtZeile & { project: string | null; mark: str
 /** The overview cut by what the person should do about it, not by project. */
 export type Bereich = { id: BereichId; titel: string; zeichen: string; zeilen: BereichZeile[] }
 
-const BEREICHE: readonly { id: BereichId; titel: string; zeichen: string; arten: readonly StatusArt[] }[] = [
-  { id: 'dringend', titel: 'Braucht dich', zeichen: '⚠', arten: ['abgebrochen', 'fehler'] },
-  { id: 'review', titel: 'PR wartet', zeichen: '🔀', arten: ['pr-offen'] },
-  { id: 'arbeit', titel: 'Läuft und in Arbeit', zeichen: '✎', arten: ['laeuft', 'in-arbeit'] },
-  { id: 'aufraeumen', titel: 'Aufräumen', zeichen: '🧹', arten: ['pr-gemerged', 'pr-geschlossen', 'ruht'] },
+const BEREICHE: readonly { id: BereichId; titel: string; zeichen: string }[] = [
+  { id: 'dringend', titel: 'Braucht dich: Problem', zeichen: '⚠' },
+  { id: 'dudran', titel: 'Du bist dran: Claude wartet', zeichen: '💬' },
+  { id: 'review', titel: 'PR wartet auf Review oder Merge', zeichen: '🔀' },
+  { id: 'laeuft', titel: 'Läuft, nichts zu tun', zeichen: '▶' },
+  { id: 'aufraeumen', titel: 'Aufräumen', zeichen: '🧹' },
 ]
 
 /**
- * The overview by status: what needs the person first (aborted, failed, or a pull request with a red
- * CI or changes wanted), then pull requests waiting, then what runs or is in work, then what can be
- * archived. Empty sections are left out; inside one, the most urgent and then the most recent first.
+ * Where a session goes. A problem (aborted, failed, or a pull request with a red CI or changes
+ * wanted) needs the person; a session that is stopped and in work has finished its turn, so the
+ * next move is theirs (the app does not say whether it asked something, only that it stopped);
+ * this very session counts as running. Open pull requests wait on others, running ones need nothing,
+ * merged, closed and resting ones can be archived.
+ */
+function bereichOf(zeile: UebersichtZeile): BereichId {
+  const { art, rang } = zeile.status
+  if (art === 'abgebrochen' || art === 'fehler' || (art === 'pr-offen' && rang <= 1)) {
+    return 'dringend'
+  }
+  if (art === 'in-arbeit' && !zeile.isSelf) {
+    return 'dudran'
+  }
+  if (art === 'pr-offen') {
+    return 'review'
+  }
+  if (art === 'laeuft' || art === 'in-arbeit') {
+    return 'laeuft'
+  }
+
+  return 'aufraeumen'
+}
+
+/**
+ * The overview by status, in the order of what the person should look at first. Empty sections are
+ * left out; inside one, the most urgent and then the most recent first.
  */
 export function buildBereiche(uebersicht: Uebersicht): Bereich[] {
   const alle: BereichZeile[] = uebersicht.gruppen.flatMap(group =>
     group.zeilen.map(zeile => ({ ...zeile, project: group.project, mark: group.mark })),
   )
-  const urgent = (zeile: BereichZeile): boolean => zeile.status.art === 'pr-offen' && zeile.status.rang <= 1
   const bereiche = BEREICHE.map(bereich => ({
-    id: bereich.id,
-    titel: bereich.titel,
-    zeichen: bereich.zeichen,
+    ...bereich,
     zeilen: alle
-      .filter(zeile => (bereich.id === 'dringend' ? urgent(zeile) : false) || (!urgent(zeile) && bereich.arten.includes(zeile.status.art)))
-      .sort((a, b) => a.status.rang - b.status.rang || (b.lastActive ?? 0) - (a.lastActive ?? 0)),
+      .filter(zeile => bereichOf(zeile) === bereich.id)
+      .sort((x, y) => x.status.rang - y.status.rang || (y.lastActive ?? 0) - (x.lastActive ?? 0)),
   }))
 
   return bereiche.filter(bereich => bereich.zeilen.length > 0)
