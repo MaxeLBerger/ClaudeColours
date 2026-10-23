@@ -441,8 +441,9 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt): number {
 }
 
 // Going back to a roomier layout than the one drawn last takes this many cells more than fitting does,
-// so a window dragged along a threshold does not flip the band back and forth.
-const HYSTERESIS_CELLS = 3
+// so a window settled again and again along a threshold does not flip the band back and forth. Small: a
+// window at rest must show the roomiest layout that fits.
+const HYSTERESIS_CELLS = 1
 
 const STUFEN = ['voll', 'icons', 'kompakt', 'zwei'] as const
 
@@ -460,6 +461,15 @@ export function bandStufe(columns: number, inhalt: BandInhalt, previous: BandStu
       return bandBreite(stufe, inhalt) <= columns + SLACK_CELLS - bias
     }) ?? 'zwei'
   )
+}
+
+// The second row of `zwei` (the gauge with its word and full bar, then the icons) takes about this many
+// cells; narrower than that the gauge drops its word and shortens its bar, as in `kompakt`.
+const ZWEI_FULL_CELLS = 36
+
+/** Whether the second row of `zwei` has room for the gauge's word and full bar. */
+export function zweiGauge(columns: number): 'voll' | 'kompakt' {
+  return columns + SLACK_CELLS >= ZWEI_FULL_CELLS ? 'voll' : 'kompakt'
 }
 
 /** How many characters of the name fit the first row of `zwei` beside the block and the counts. */

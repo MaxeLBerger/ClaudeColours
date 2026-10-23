@@ -5,6 +5,7 @@ import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
   archiveReason,
   assignFarben,
+  bandBreite,
   bandStufe,
   bereichOf,
   buildBereiche,
@@ -49,6 +50,7 @@ import {
   toRow,
   uebersichtZaehler,
   uebersichtText,
+  zweiGauge,
   type Art,
   type BandInhalt,
   type BandStufe,
@@ -727,7 +729,7 @@ const hilfe = (satz: Satz): string =>
 
 export const register: Register = on => {
   // What the band was last drawn in, for `/projektfarbe breite`; a plain variable, as drawing must not write state.
-  let lastBand: { columns: number; stufe: BandStufe; name: number } | null = null
+  let lastBand: { columns: number; stufe: BandStufe; inhalt: BandInhalt } | null = null
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -827,7 +829,7 @@ export const register: Register = on => {
         text:
           lastBand === null
             ? 'Das Band wurde in dieser Session noch nicht gezeichnet.'
-            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.name} Zeichen).`,
+            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${(['voll', 'icons', 'kompakt'] as const).map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt))}`).join(', ')} Zellen.`,
       }
     }
     if (arg === 'bunt') {
@@ -931,7 +933,7 @@ export const register: Register = on => {
     }
     const { bodyColumns: columns } = e.props
     const stufe = bandStufe(columns, inhalt, lastBand?.stufe ?? null)
-    lastBand = { columns, stufe, name: inhalt.name }
+    lastBand = { columns, stufe, inhalt }
     const isWritten = stufe === 'voll'
     const name = (
       <Text>
@@ -1043,19 +1045,19 @@ export const register: Register = on => {
     const prs = count('pr', 'PRs:', openPrs, state.newPrs)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
 
-    // Too narrow for one row: the first row stays, the gauge and the icons go under the name. The
-    // desktop draws the gap of a nested Box wider than a root Box's, hence the smaller one here.
+    // Too narrow for one row: the first row stays, the gauge and the icons go under the name. Under
+    // about 36 cells the gauge there drops its word and shortens its bar, as in `kompakt`.
     if (stufe === 'zwei') {
       return (
         <Box flexDirection="column">
-          <Box columnGap={1}>
+          <Box columnGap={2}>
             {project}
             {prs}
             {issues}
           </Box>
           {/* With the gauge: it stands under the name, the icons at the right. Without it the icons alone are centered. */}
           <Box paddingLeft={showsGauge ? 2 : 0} columnGap={1} justifyContent={showsGauge ? 'space-between' : 'center'}>
-            {!showsGauge ? null : gauge(CONTEXT_CELLS, true)}
+            {!showsGauge ? null : zweiGauge(columns) === 'voll' ? gauge(CONTEXT_CELLS, true) : gauge(COMPACT_CELLS, false)}
             <Box columnGap={ICON_GAP}>{actions}</Box>
           </Box>
         </Box>

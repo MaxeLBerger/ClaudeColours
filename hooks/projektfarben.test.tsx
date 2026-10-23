@@ -43,6 +43,7 @@ import {
   toListed,
   uebersichtZaehler,
   uebersichtText,
+  zweiGauge,
   type GhPr,
   type Grund,
 } from './colors'
@@ -205,19 +206,22 @@ test('the band stays in its layout until the room for a roomier one is clear', a
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
   // At 60 cells the compact row fits ...
   expect(bandStufe(60, claude)).toBe('kompakt')
-  // ... but a band that was in two rows stays there until it has three cells to spare, and so on up.
+  // ... but a band that was in two rows stays there until it has a cell to spare, and so on up.
   expect(bandStufe(60, claude, 'zwei')).toBe('zwei')
-  expect(bandStufe(61, claude, 'zwei')).toBe('zwei')
-  expect(bandStufe(63, claude, 'zwei')).toBe('kompakt')
-  expect(bandStufe(72, claude)).toBe('icons')
-  expect(bandStufe(72, claude, 'kompakt')).toBe('kompakt')
-  expect(bandStufe(74, claude, 'kompakt')).toBe('icons')
+  expect(bandStufe(61, claude, 'zwei')).toBe('kompakt')
+  expect(bandStufe(71, claude)).toBe('icons')
+  expect(bandStufe(71, claude, 'kompakt')).toBe('kompakt')
+  expect(bandStufe(72, claude, 'kompakt')).toBe('icons')
   expect(bandStufe(93, claude)).toBe('voll')
   expect(bandStufe(93, claude, 'icons')).toBe('icons')
-  expect(bandStufe(97, claude, 'icons')).toBe('voll')
+  expect(bandStufe(94, claude, 'icons')).toBe('voll')
   // Getting less room is never held back: the old layout would not fit.
   expect(bandStufe(60, claude, 'voll')).toBe('kompakt')
   expect(bandStufe(30, claude, 'icons')).toBe('zwei')
+})
+
+test('the second row of the two-row band drops the gauge word where it would not fit', async () => {
+  expect([60, 40, 36, 35, 30].map(zweiGauge)).toEqual(['voll', 'voll', 'voll', 'kompakt', 'kompakt'])
 })
 
 test('a name too long for the first row of the two-row band is cut with an ellipsis', async () => {
@@ -1331,11 +1335,15 @@ test('the band lays itself out by its cells: written out, icons, a short bar, th
   expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4 })
 
   // The first row stays; the gauge and the icons stand in a second one.
-  const narrow = await drawBand($, 30)
+  const narrow = await drawBand($, 44)
   expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✕'], hasWord: true, barCells: 8, name: ' Beta' })
 
+  // Narrower still, the second row's gauge drops its word and shortens its bar.
+  const tiny = await drawBand($, 30)
+  expect(tiny).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4, name: ' Beta' })
+
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
-    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen).',
+    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 85, icons 63, kompakt 52 Zellen.',
   )
 })
 
