@@ -1220,3 +1220,49 @@ export function buildBereiche(uebersicht: Uebersicht): Bereich[] {
 
   return bereiche.filter(bereich => bereich.zeilen.length > 0)
 }
+
+// ---------------------------------------------------------------- Bramble
+
+/** Where the Bramble repository is when nothing else is named: under the person's own repositories. */
+export const BRAMBLE_HOME = ['Documents', 'Repositories', 'LightWeightBrowser']
+
+/** The Bramble profile links from the band open in: its own, so they never overwrite the person's saved tabs. */
+export const BRAMBLE_PROFILE = 'projektfarben'
+
+const winPath = (...parts: string[]): string => parts.map(p => p.replace(/[\\/]+$/, '').replace(/\//g, '\\')).join('\\')
+
+/** The repository folder: `BRAMBLE_REPO` when set, else `BRAMBLE_HOME` under the home folder; null without either. */
+export function brambleRoot(own: string | undefined, home: string | undefined): string | null {
+  if (own !== undefined && own.trim() !== '') {
+    return winPath(own.trim())
+  }
+
+  return home === undefined || home.trim() === '' ? null : winPath(home.trim(), ...BRAMBLE_HOME)
+}
+
+/** Every place a release build may be: the repository's own and each of its worktrees'. */
+export function brambleKandidaten(root: string, worktrees: readonly string[]): string[] {
+  const exe = ['target', 'release', 'bramble.exe']
+
+  return [winPath(root, ...exe), ...worktrees.map(name => winPath(root, '.claude', 'worktrees', name, ...exe))]
+}
+
+/** The newest of the builds found, by the time it was built; null when there is none. */
+export function neuesterBuild(builds: readonly { path: string; mtimeMs: number }[]): string | null {
+  return builds.reduce<{ path: string; mtimeMs: number } | null>(
+    (best, build) => (best === null || build.mtimeMs > best.mtimeMs ? build : best),
+    null,
+  )?.path ?? null
+}
+
+/**
+ * How to start Bramble on one address and leave it running: `Start-Process` detaches it from the call,
+ * which would otherwise wait for the window to close. The path goes in a variable, not in the command,
+ * so no quoting can break it; Bramble takes its start address from `LWB_URL`.
+ */
+export function brambleStart(exe: string, url: string): { argv: string[]; env: Record<string, string> } {
+  return {
+    argv: ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:BRAMBLE_EXE'],
+    env: { BRAMBLE_EXE: exe, LWB_URL: url, LWB_PROFILE: BRAMBLE_PROFILE, LWB_NO_PINS: '1' },
+  }
+}

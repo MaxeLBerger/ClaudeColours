@@ -28,6 +28,11 @@ export type ProjektfarbenView = {
    * name link to it. A Link, not a Button: the desktop draws a Button natively, without the colors.
    */
   repoUrl: string | null
+  /**
+   * The newest release build of Bramble (`bramble.exe`), the person's own browser, found with the
+   * counts; null without one. With it the name, `PRs:` and `Issues:` open their pages there.
+   */
+  bramble: string | null
   /** Id of the color set in use: `bunt`, or a calm sleep set such as `daemmerung`. */
   satz: string
   /** True while the band shows the color buttons. */

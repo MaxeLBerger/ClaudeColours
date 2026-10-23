@@ -6,6 +6,9 @@ import {
   assignFarben,
   bandBreite,
   bandStufe,
+  brambleKandidaten,
+  brambleRoot,
+  brambleStart,
   buildBereiche,
   buildUebersicht,
   BUNT,
@@ -26,6 +29,7 @@ import {
   mergePrs,
   modusLabel,
   nameBudget,
+  neuesterBuild,
   newCount,
   prLabel,
   projectOf,
@@ -2295,4 +2299,83 @@ test('a heading folds its section, and the running ones are folded at first', as
   expect(whole).toContain('Panel bauen')
   expect(whole).toContain('diese Session')
   expect(whole).not.toContain('Alte Idee')
+})
+
+test('Bramble is looked for in its repository and every worktree; the newest build wins', () => {
+  expect(brambleRoot(undefined, 'C:\\Users\\me')).toBe('C:\\Users\\me\\Documents\\Repositories\\LightWeightBrowser')
+  expect(brambleRoot(' D:/src/Bramble/ ', 'C:\\Users\\me')).toBe('D:\\src\\Bramble')
+  expect(brambleRoot(undefined, undefined)).toBe(null)
+  expect(brambleKandidaten('D:\\Bramble', ['a'])).toEqual([
+    'D:\\Bramble\\target\\release\\bramble.exe',
+    'D:\\Bramble\\.claude\\worktrees\\a\\target\\release\\bramble.exe',
+  ])
+  expect(neuesterBuild([])).toBe(null)
+  expect(neuesterBuild([{ path: 'alt', mtimeMs: 1 }, { path: 'neu', mtimeMs: 3 }, { path: 'mitte', mtimeMs: 2 }])).toBe('neu')
+  // Its own profile, so a link never overwrites the tabs the person saved in Bramble.
+  expect(brambleStart('D:\\b.exe', 'https://github.com/me/beta').env).toEqual({
+    BRAMBLE_EXE: 'D:\\b.exe',
+    LWB_URL: 'https://github.com/me/beta',
+    LWB_PROFILE: 'projektfarben',
+    LWB_NO_PINS: '1',
+  })
+})
+
+test('with a Bramble build the name, PRs and Issues open their pages in the newest one', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const root = 'C:\\Users\\me\\Documents\\Repositories\\LightWeightBrowser'
+  const builds: Record<string, number> = {
+    [`${root}\\target\\release\\bramble.exe`]: 100,
+    [`${root}\\.claude\\worktrees\\neu\\target\\release\\bramble.exe`]: 200,
+  }
+  const started: { url: string | undefined; exe: string | undefined }[] = []
+  const gh = fakeGh({ pr: [1], issue: [2] })
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('env.get', (_, e) => ({ value: e.name === 'USERPROFILE' ? 'C:\\Users\\me' : undefined }))
+  on('fs.list', () => ({
+    value: ['neu', 'ohne-build'].map(name => ({ name, kind: 'dir', size: 0, mtimeMs: 0, isLink: false })),
+  }))
+  on('fs.stat', (_, e) => {
+    const mtimeMs = builds[e.path]
+    if (mtimeMs === undefined) {
+      throw new Error('ENOENT')
+    }
+
+    return { value: { kind: 'file', size: 1, mtimeMs, isLink: false } }
+  })
+  on('process.run', (_, e) => {
+    if (e.argv[0] === 'powershell') {
+      started.push({ url: e.init?.env?.LWB_URL, exe: e.init?.env?.BRAMBLE_EXE })
+
+      return ghList([])
+    }
+
+    return e.argv[1] === 'repo' ? ghUrl('https://github.com/me/beta') : gh.hook(undefined, e)
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // No Link: the surface would open that in the system's browser.
+  expect(await ui.findAll({ type: 'Link' })).toEqual([])
+  // The color block stays beside the name.
+  expect((await ui.findAll({ type: 'Text' })).some(text => text.props.backgroundColor === '#3b82f6')).toBe(true)
+  await ui.press({ key: 'repo' })
+  await ui.press({ key: 'prs' })
+  await ui.press({ key: 'issues' })
+  await ui.unmount()
+
+  const exe = `${root}\\.claude\\worktrees\\neu\\target\\release\\bramble.exe`
+  expect(started).toEqual([
+    { url: 'https://github.com/me/beta', exe },
+    { url: 'https://github.com/me/beta/pulls', exe },
+    { url: 'https://github.com/me/beta/issues', exe },
+  ])
+  // gh opens no browser of its own.
+  expect(gh.asked.some(argv => argv.includes('--web'))).toBe(false)
 })
