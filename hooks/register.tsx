@@ -1,9 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, McpContentBlock, Register } from 'claude-code'
 
-import type { ProjektfarbenView } from '../types'
+import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
+  archiveReason,
   assignFarben,
+  bereichOf,
+  buildBereiche,
   buildUebersicht,
   BUNT,
   CONTEXT_CELLS,
@@ -36,16 +39,21 @@ import {
   superscript,
   toListed,
   toRow,
+  uebersichtZaehler,
   uebersichtText,
   type Art,
+  type BereichId,
+  type BereichZeile,
   type Farbe,
   type GhPr,
   type Grund,
   type ListedSession,
   type Satz,
+  type Status,
   type SessionRow,
   type TitlePlan,
   type Uebersicht,
+  type UebersichtZeile,
 } from './colors'
 
 type Engine = EngineInterface
@@ -74,6 +82,34 @@ const EMPTY: ProjektfarbenView = {
   isHidden: false,
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
+
+// The side panel with the overview of all sessions; its data is the one `/projektfarbe status` prints.
+const PANEL = 'uebersicht'
+const PANEL_EVERY_MS = 60_000
+const EMPTY_PANEL: ProjektfarbenPanel = { daten: null, isLoading: false, fehler: null, um: null, isOpen: false, ansicht: 'status', zu: ['laeuft'] }
+// Only the sections that want the person are colored: a problem in the error color, a waiting session in the warning's.
+const BEREICH_FARBE: Partial<Record<BereichId, 'error' | 'warning'>> = { dringend: 'error', dudran: 'warning' }
+
+/** The theme color a status label is drawn in; none for what is only history. */
+function statusFarbe(status: Status): 'error' | 'warning' | 'success' | 'suggestion' | 'merged' | undefined {
+  switch (status.art) {
+    case 'abgebrochen':
+    case 'fehler':
+      return 'error'
+    case 'pr-offen':
+      return status.rang <= 1 ? 'error' : 'suggestion'
+    case 'in-arbeit':
+      return 'warning'
+    case 'laeuft':
+      return 'success'
+    case 'pr-gemerged':
+      return 'merged'
+    default:
+      return undefined
+  }
+}
+
+const panel = atom({ plugin: 'projektfarben', key: 'uebersicht' } as const, EMPTY_PANEL)
 
 // Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
 // the warning and error colors from where the window is filling up.
@@ -209,6 +245,7 @@ async function afterTurn($: Engine, grund: Grund): Promise<void> {
   const cwd = await $.session.cwd()
   await refreshView($, cwd)
   void refreshPrs($, cwd, false).catch(() => undefined)
+  void refreshPanel($).catch(() => undefined)
   if ((await recolorSelf($, false, await self)) === 'unnamed') {
     $.clock.after(RETRY_MS, () => {
       void recolorSelf($, false).catch(() => undefined)
@@ -489,6 +526,87 @@ async function readUebersicht($: Engine): Promise<Uebersicht> {
   })
 }
 
+/** Reads the overview into the panel's state; a reading already under way is not started twice. */
+async function loadPanel($: Engine): Promise<void> {
+  if ((await read($, panel)).isLoading) {
+    return
+  }
+  await update($, panel, p => ({ ...p, isLoading: true }))
+  try {
+    const daten = await readUebersicht($)
+    const um = await $.clock.now()
+    await update($, panel, p => ({ ...p, daten, um, fehler: null, isLoading: false }))
+  } catch (error) {
+    await update($, panel, p => ({
+      ...p,
+      isLoading: false,
+      fehler: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
+    }))
+  }
+}
+
+/** After a turn: an open panel is read again, at most once a minute. */
+async function refreshPanel($: Engine): Promise<void> {
+  const { isOpen, um } = await read($, panel)
+  if (isOpen && (um === null || (await $.clock.now()) - um >= PANEL_EVERY_MS)) {
+    await loadPanel($)
+  }
+}
+
+/** Opens the panel and reads the overview; false where no surface places it (the terminal, mostly). */
+async function openPanel($: Engine): Promise<boolean> {
+  const opened = await $.ui.open({ id: PANEL, title: 'Übersicht' })
+  if (!opened.isPlaced) {
+    return false
+  }
+  await update($, panel, p => ({ ...p, isOpen: true }))
+  void loadPanel($).catch(() => undefined)
+
+  return true
+}
+
+// What opens a `claude://` address, tried in turn until one starts: Windows, macOS, Linux.
+const OPENERS: readonly (readonly string[])[] = [['rundll32', 'url.dll,FileProtocolHandler'], ['open'], ['xdg-open']]
+
+/** Opens a session in the app through the system's handler for its `claude://` address. */
+async function openSession($: Engine, zeile: UebersichtZeile): Promise<void> {
+  if (zeile.link !== null) {
+    for (const opener of OPENERS) {
+      try {
+        const { exitCode } = await $.process.run([...opener, zeile.link], { timeoutMs: 10_000 })
+        if (exitCode === 0) {
+          return
+        }
+      } catch {
+        // This system has no such opener: the next one is tried.
+      }
+    }
+  }
+  $.ui.toast(`„${zeile.title}“ lässt sich von hier nicht öffnen: bitte in der Seitenleiste wählen.`)
+}
+
+/** Archives one session on the person's yes in the app; a no or an error is a toast, the row stays. */
+async function archive($: Engine, zeile: UebersichtZeile): Promise<void> {
+  const reason = archiveReason(zeile)
+  if (reason === null) {
+    return
+  }
+  try {
+    const result = await $.mcp.call(SERVER, 'archive_session', { session_id: zeile.sessionId, reason })
+    if (result.isError) {
+      $.ui.toast(`„${zeile.title}“ bleibt: ${firstLine(textOf(result.content)) || 'nicht archiviert'}`)
+
+      return
+    }
+  } catch (error) {
+    $.ui.toast(`„${zeile.title}“ bleibt: ${firstLine(String(error))}`)
+
+    return
+  }
+  $.ui.toast(`„${zeile.title}“ archiviert.`)
+  await loadPanel($)
+}
+
 /** Stores the person's color for this project (null: the next free one) and recolors its sessions. */
 async function choose($: Engine, farbe: Farbe | null): Promise<string> {
   const { project } = await read($, view)
@@ -536,6 +654,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe standard   nächste freie Farbe automatisch',
     '/projektfarbe alle       färbt alle offenen Sessions neu ein',
     '/projektfarbe status     Stand aller offenen Sessions nach Projekt (läuft, abgebrochen, PR, ruht …)',
+    '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
@@ -548,7 +667,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'projektfarbe',
       description: 'Farbe dieses Projekts zeigen oder ändern (Farbpunkt vor den Session-Namen)',
-      argumentHint: '[farbe | standard | alle | status | band | schlaf | bunt]',
+      argumentHint: '[farbe | standard | alle | status | übersicht | band | schlaf | bunt]',
     })
     // In the background, so the session start never waits on the app.
     void startUp($, e.cwd).catch(() => undefined)
@@ -600,6 +719,19 @@ export const register: Register = on => {
       return { text: `${renamed} Session(s) mit ihrer Projektfarbe umbenannt.` }
     }
     if (arg === 'status') {
+      try {
+        return { text: uebersichtText(await readUebersicht($)) }
+      } catch (error) {
+        return {
+          text: `Der Stand der Sessions lässt sich nicht lesen (nur in der Desktop-App): ${firstLine(String(error))}`,
+        }
+      }
+    }
+    if (arg === 'übersicht' || arg === 'uebersicht') {
+      if (await openPanel($)) {
+        return { text: 'Übersicht geöffnet.' }
+      }
+      // No surface places the panel: the same data as text.
       try {
         return { text: uebersichtText(await readUebersicht($)) }
       } catch (error) {
@@ -770,6 +902,17 @@ export const register: Register = on => {
           </Text>
         )}
         <Button
+          key="uebersicht"
+          plain
+          onPress={async () => {
+            if (!(await openPanel($))) {
+              $.ui.toast('Hier ist kein Platz für das Panel; /projektfarbe status zeigt den Stand als Text.')
+            }
+          }}
+        >
+          <Text dimColor>Übersicht ☰</Text>
+        </Button>
+        <Button
           key="farbe"
           plain
           onPress={async () => {
@@ -790,6 +933,171 @@ export const register: Register = on => {
         >
           <Text dimColor>ausblenden</Text>
         </Button>
+      </Box>
+    )
+  })
+
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANEL) {
+      await update($, panel, p => ({ ...p, isOpen: false }))
+    }
+
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PANEL }, async ($, e) => {
+    const { Box, Button, Text } = $.ui.resolve(e)
+    const state = await read($, panel)
+    const satz = await satzNow($)
+    const picks = await picksOf($, satz)
+    const isCalm = satz !== BUNT
+    const gruppen = state.daten?.gruppen ?? []
+    const isStatus = (state.ansicht ?? EMPTY_PANEL.ansicht) === 'status'
+    const zaehler = state.daten === null ? null : uebersichtZaehler(state.daten)
+    // A state kept from before the fold lists existed (a reload keeps the session's state) has no `zu`.
+    const isFolded = (id: string): boolean => (state.zu ?? EMPTY_PANEL.zu).includes(id)
+    const fold = (id: string) =>
+      update($, panel, p => {
+        const zu = p.zu ?? EMPTY_PANEL.zu
+
+        return { ...p, zu: zu.includes(id) ? zu.filter(one => one !== id) : [...zu, id] }
+      })
+
+    // The project's color, as in the band: a block on the desktop, a colored shape in sleep mode.
+    const block = (project: string | null) => {
+      const farbe = project === null ? null : farbeFor(project, picks, satz)
+      if (farbe === null) {
+        return null
+      }
+
+      return isCalm ? (
+        <Text color={farbe.hex}>{farbe.mark}</Text>
+      ) : (
+        <Text mono backgroundColor={farbe.hex}>
+          {NBSP.repeat(2)}
+        </Text>
+      )
+    }
+    // A session: a rail in the section's color along both lines; the sign, color, title and the
+    // actions on the first, what it waits for and how long ago on the second.
+    const zeileBox = (zeile: BereichZeile, withProject: boolean) => (
+      <Box key={`zeile-${zeile.sessionId}`} columnGap={1} marginBottom="sm" paddingLeft={2}>
+        <Box width={1} backgroundColor={BEREICH_FARBE[bereichOf(zeile)]} />
+        <Box flexDirection="column" flexGrow={1}>
+          <Box justifyContent="space-between" columnGap={2} flexWrap="wrap">
+            <Box columnGap={1}>
+              <Text>{zeile.status.mark}</Text>
+              {withProject ? block(zeile.project) : null}
+              <Text bold>{zeile.title}</Text>
+              {zeile.isSelf ? <Text dimColor>diese Session</Text> : null}
+              {withProject && zeile.project !== null ? <Text dimColor>{zeile.project}</Text> : null}
+            </Box>
+            <Box columnGap={2}>
+              {zeile.link === null ? null : (
+                <Button key={`oeffnen-${zeile.sessionId}`} plain onPress={() => openSession($, zeile)}>
+                  <Text color="suggestion">öffnen ↗</Text>
+                </Button>
+              )}
+              {archiveReason(zeile) === null ? null : (
+                <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
+                  <Text dimColor>archivieren</Text>
+                </Button>
+              )}
+            </Box>
+          </Box>
+          <Box columnGap={1} paddingLeft={withProject ? 5 : 2}>
+            <Text color={statusFarbe(zeile.status)} dimColor={statusFarbe(zeile.status) === undefined}>
+              {zeile.status.label}
+            </Text>
+            {zeile.alter === '' ? null : <Text dimColor>{`· ${zeile.alter}`}</Text>}
+          </Box>
+        </Box>
+      </Box>
+    )
+    // A heading: the fold button, the title in its color, the count.
+    const heading = (id: string, titel: unknown, count: number) => (
+      <Box columnGap={1} marginTop="md" marginBottom="sm">
+        <Button key={`falten-${id}`} plain onPress={() => fold(id)}>
+          <Text dimColor>{isFolded(id) ? '▸' : '▾'}</Text>
+        </Button>
+        {titel}
+        <Text dimColor>{`${count}`}</Text>
+      </Box>
+    )
+
+    return (
+      <Box flexDirection="column">
+        <Box columnGap={2} flexWrap="wrap">
+          <Text bold>{isStatus ? 'Nach Status' : 'Nach Projekt'}</Text>
+          <Button key="ansicht" plain onPress={() => update($, panel, p => ({ ...p, ansicht: p.ansicht === 'status' ? 'projekt' : 'status' }))}>
+            <Text color="suggestion">{isStatus ? 'nach Projekt' : 'nach Status'}</Text>
+          </Button>
+          <Button key="aktualisieren" plain onPress={() => loadPanel($)}>
+            <Text color="suggestion">{state.isLoading ? 'lädt …' : '↻ aktualisieren'}</Text>
+          </Button>
+          <Button
+            key="schliessen"
+            plain
+            onPress={async () => {
+              await update($, panel, p => ({ ...p, isOpen: false }))
+              await $.ui.close({ id: PANEL })
+            }}
+          >
+            <Text dimColor>schließen</Text>
+          </Button>
+        </Box>
+        {zaehler === null ? null : (
+          <Box columnGap={2} flexWrap="wrap" marginTop="sm">
+            <Text bold>{`${zaehler.sessions} ${zaehler.sessions === 1 ? 'Session' : 'Sessions'}`}</Text>
+            {zaehler.dringend === 0 ? null : (
+              <Text bold color="error">{`⚠ ${zaehler.dringend} dringend`}</Text>
+            )}
+            {zaehler.dudran === 0 ? null : (
+              <Text bold color="warning">{`💬 ${zaehler.dudran} ${zaehler.dudran === 1 ? 'wartet' : 'warten'} auf dich`}</Text>
+            )}
+            {zaehler.pr === 0 ? null : <Text dimColor>{`${zaehler.pr} mit offenem PR`}</Text>}
+            {zaehler.ruht === 0 ? null : <Text dimColor>{`${zaehler.ruht} ${zaehler.ruht === 1 ? 'ruht' : 'ruhen'}`}</Text>}
+          </Box>
+        )}
+        {state.fehler === null ? null : <Text color="error">{state.fehler}</Text>}
+        {state.daten === null && state.fehler === null ? <Text dimColor>Lädt …</Text> : null}
+        {state.daten !== null && gruppen.length === 0 ? <Text dimColor>Keine offenen Sessions gefunden.</Text> : null}
+        {state.daten !== null && isStatus
+          ? buildBereiche(state.daten).map(bereich => (
+              <Box key={`bereich-${bereich.id}`} flexDirection="column">
+                {heading(
+                  bereich.id,
+                  <Text bold color={BEREICH_FARBE[bereich.id]}>{`${bereich.zeichen} ${bereich.titel}`}</Text>,
+                  bereich.zeilen.length,
+                )}
+                {isFolded(bereich.id) ? null : bereich.zeilen.map(zeile => zeileBox(zeile, true))}
+              </Box>
+            ))
+          : null}
+        {state.daten !== null && !isStatus
+          ? gruppen.map(gruppe => {
+              const id = `projekt-${gruppe.project ?? ''}`
+
+              return (
+                <Box key={`gruppe-${gruppe.project ?? ''}`} flexDirection="column">
+                  {heading(
+                    id,
+                    <Box columnGap={1}>
+                      {block(gruppe.project)}
+                      <Text bold>{`${gruppe.mark ?? ''} ${gruppe.project ?? 'Ohne Projekt'}`.trim()}</Text>
+                    </Box>,
+                    gruppe.zeilen.length,
+                  )}
+                  {isFolded(id)
+                    ? null
+                    : gruppe.zeilen.map(zeile => zeileBox({ ...zeile, project: gruppe.project, mark: gruppe.mark }, false))}
+                </Box>
+              )
+            })
+          : null}
+        {state.daten === null || state.daten.hinweise.length === 0 ? null : (
+          <Text dimColor>{state.daten.hinweise.join('\n')}</Text>
+        )}
       </Box>
     )
   })
