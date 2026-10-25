@@ -446,6 +446,33 @@ export type BandInhalt = {
   percent: number | null
 }
 
+// The two session actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
+// terminal, which keeps the text glyphs). An `Svg` is an image: it does not take the theme's text color,
+// so the stroke is one mid gray that reads on the light and the dark theme alike. Line icons on a 24 grid.
+export const ICON_SVG_COLOR = '#8b919b'
+/** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
+export const ICON_SVG_SIZE = 16
+
+const svgIcon = (inner: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
+
+export const ICON_SVG = {
+  // A doctoral cap with a spark: the independent second opinion.
+  meinung: {
+    alt: 'Opus-Meinung',
+    source: svgIcon(
+      '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>',
+    ),
+  },
+  // A pull request under a magnifying glass: review the work, then open it.
+  review: {
+    alt: 'Review und Pull Request',
+    source: svgIcon(
+      '<circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/>',
+    ),
+  },
+} as const
+
 // An icon's field and the gap between two: three icons take as many cells as `ICON_BOX` and `ICON_GAP` say.
 export const ICON_BOX = 3
 export const ICON_GAP = 1

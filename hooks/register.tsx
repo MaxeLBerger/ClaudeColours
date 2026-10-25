@@ -27,6 +27,8 @@ import {
   ghPrs,
   ICON_BOX,
   ICON_GAP,
+  ICON_SVG,
+  ICON_SVG_SIZE,
   learnPicks,
   markSeen,
   meinungPrompt,
@@ -1103,6 +1105,7 @@ export const register: Register = on => {
         label: 'Opus-Meinung',
         hint: 'Opus-Meinung im Chat anfordern',
         icon: '✦',
+        svg: ICON_SVG.meinung,
         press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
       },
       {
@@ -1110,6 +1113,7 @@ export const register: Register = on => {
         label: 'Review + PR',
         hint: 'Review, Commit und Pull Request anfordern',
         icon: '↑',
+        svg: ICON_SVG.review,
         press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
       },
       {
@@ -1145,10 +1149,16 @@ export const register: Register = on => {
         },
       },
     ]
+    // Where the surface has `Svg` (not the terminal) the two session actions are drawn as vector icons. A
+    // Button takes only text, so the icon stands in the field and a Button of blanks lies over it, in the
+    // same cells; the press lands on the Button.
+    const elements = $.ui.resolve(e)
+    const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : null
     const actions = defs.map(def => {
+      const hasSvg = !isWritten && Svg !== null && def.svg !== undefined
       const button = (
         <Button key={def.key} plain onPress={def.press}>
-          <Text dimColor>{isWritten ? def.label : def.icon}</Text>
+          <Text dimColor>{isWritten ? def.label : hasSvg ? NBSP.repeat(ICON_BOX) : def.icon}</Text>
         </Button>
       )
 
@@ -1156,7 +1166,16 @@ export const register: Register = on => {
         button
       ) : (
         <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center">
-          {button}
+          {hasSvg && Svg !== null && def.svg !== undefined ? (
+            <>
+              <Svg source={def.svg.source} alt={def.svg.alt} width={ICON_SVG_SIZE} height={ICON_SVG_SIZE} />
+              <Box position="absolute" top={0} left={0}>
+                {button}
+              </Box>
+            </>
+          ) : (
+            button
+          )}
           {/* What the icon does, as a card to its left in the band's own row (a card is clipped to the band),
               shown while the pointer is over the field; the surface does it, no hook runs. */}
           <Box position="absolute" top={0} right={ICON_BOX} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>

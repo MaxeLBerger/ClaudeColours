@@ -49,6 +49,9 @@ import {
   uebersichtText,
   type GhPr,
   type Grund,
+  ICON_SVG,
+  ICON_SVG_COLOR,
+  ICON_SVG_SIZE,
   meinungPrompt,
   reviewPrompt,
 } from './colors'
@@ -79,6 +82,8 @@ const RUN = {
 
 // What the band's color block and gauge are drawn with: blanks that keep their width on a colored background.
 const NBSP = String.fromCharCode(0xa0)
+// The Button of blanks over an icon drawn as Svg: one `ICON_BOX` of cells.
+const BLANK = NBSP.repeat(3)
 
 const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
@@ -1361,23 +1366,23 @@ test('the band lays itself out by its cells: written out, icons, a short bar, cl
   expect(wide).toMatchObject({ isStacked: false, actions: ['Übersicht ☰', 'Farbe ändern', 'Opus-Meinung', 'Review + PR', 'ausblenden'], hasWord: true, barCells: 8 })
 
   const medium = await drawBand($, 75)
-  expect(medium).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '↑', '✕'], hasWord: true, barCells: 8 })
+  expect(medium).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: true, barCells: 8 })
 
   // No word and a bar of four cells; still one row.
   const compact = await drawBand($, 64)
-  expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '↑', '✕'], hasWord: false, barCells: 4 })
+  expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 4 })
 
   // The items closer together, the same bar.
   const dense = await drawBand($, 58)
-  expect(dense).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '↑', '✕'], hasWord: false, barCells: 4 })
+  expect(dense).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 4 })
 
   // Only the percentage of the gauge is left, in the same row.
   const minimal = await drawBand($, 52)
-  expect(minimal).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '↑', '✕'], hasWord: false, barCells: 0 })
+  expect(minimal).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 0 })
 
   // Two rows: the gauge stays above, with the name.
   const narrow = await drawBand($, 30)
-  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✦', '↑', '✕'], hasWord: false, barCells: 4, name: ' Beta' })
+  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 4, name: ' Beta' })
 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
     'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 111, icons 72, kompakt 61, dicht 55, minimal 50 Zellen.',
@@ -1497,7 +1502,7 @@ test('each icon has a hover card saying what it does; the written-out actions ne
     const boxes = await ui.findAll({ type: 'Box' })
     await ui.unmount()
 
-    return boxes.filter(box => box.props.position === 'absolute')
+    return boxes.filter(box => box.props.position === 'absolute' && box.props.display === 'none')
   }
 
   expect(await cardsAt(120)).toHaveLength(0)
@@ -1538,6 +1543,7 @@ test('the band on the terminal switches layouts by whole cells', async ($, on) =
 
   expect((await drawBand($, 125, 'terminal')).actions).toEqual(['Übersicht ☰', 'Farbe ändern', 'Opus-Meinung', 'Review + PR', 'ausblenden'])
   // Beta needs 120 columns written out on the terminal; at 119 it shows the icons.
+  // The terminal has no Svg: its icons stay text glyphs.
   expect((await drawBand($, 119, 'terminal')).actions).toEqual(['☰', '◐', '✦', '↑', '✕'])
 })
 
@@ -2531,4 +2537,43 @@ test('a refused review request says so in a toast', async ($, on) => {
 
   await pressReview($)
   expect(toasts).toEqual(['Review und PR wurden nicht gestartet: Stop-Hook'])
+})
+
+test('the two session icons are vector line icons in one gray that reads on both themes', async () => {
+  for (const icon of Object.values(ICON_SVG)) {
+    expect(icon.source.startsWith('<svg ')).toBe(true)
+    expect(icon.source.endsWith('</svg>')).toBe(true)
+    expect(icon.source).toContain('viewBox="0 0 24 24"')
+    expect(icon.source).toContain(`stroke="${ICON_SVG_COLOR}"`)
+    expect(icon.source).not.toMatch(/<script|on\w+=|currentColor/)
+    expect(icon.source.length).toBeLessThan(131072)
+    expect(icon.alt).not.toBe('')
+  }
+  // An image takes no theme color: the one gray has to be mid-tone, neither near white nor near black.
+  const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(ICON_SVG_COLOR.slice(i, i + 2), 16))
+  expect(Math.min(r, g, b)).toBeGreaterThan(90)
+  expect(Math.max(r, g, b)).toBeLessThan(190)
+})
+
+test('on the desktop the icon layouts draw the session actions as Svg with a Button over each; written out and on the terminal there is none', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  const svgsAt = async (bodyColumns: number, surface: 'desktop' | 'terminal') => {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface })
+    const svgs = await ui.findAll({ type: 'Svg' })
+    const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+    await ui.unmount()
+
+    return { svgs, keys }
+  }
+
+  for (const bodyColumns of [75, 64, 30]) {
+    const { svgs, keys } = await svgsAt(bodyColumns, 'desktop')
+    expect(svgs.map(svg => svg.props.alt)).toEqual([ICON_SVG.meinung.alt, ICON_SVG.review.alt])
+    expect(svgs.every(svg => svg.props.width === ICON_SVG_SIZE && svg.props.height === ICON_SVG_SIZE)).toBe(true)
+    // The Buttons that take the press are still there, in the order of the icons.
+    expect(keys.filter(key => ['meinung', 'review'].includes(key))).toEqual(['meinung', 'review'])
+  }
+  expect((await svgsAt(120, 'desktop')).svgs).toEqual([])
+  expect((await svgsAt(75, 'terminal')).svgs).toEqual([])
 })
