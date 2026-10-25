@@ -473,6 +473,21 @@ export const ICON_SVG = {
       '<circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/>',
     ),
   },
+  // Candidates for the handoff, shown in the band to choose from; one of them stays.
+  // A paper plane with a dashed trail.
+  handoffA: {
+    alt: 'Handoff A',
+    source: svgIcon(
+      '<path d="M22 3 9.5 8l4 2 2 4Z"/><path d="m13.5 10 8.5-7"/><path d="M2.5 20c3-.5 6-3 7.5-6" stroke-dasharray="2 3"/>',
+    ),
+  },
+  // A speech bubble with a forward arrow.
+  handoffB: {
+    alt: 'Handoff B',
+    source: svgIcon(
+      '<path d="M4 4h16a1.5 1.5 0 0 1 1.5 1.5v10A1.5 1.5 0 0 1 20 17H10l-4.5 4v-4H4a1.5 1.5 0 0 1-1.5-1.5v-10A1.5 1.5 0 0 1 4 4Z"/><path d="M8 10.5h7M12.5 8l2.5 2.5-2.5 2.5"/>',
+    ),
+  },
   // Three lines: the overview of all sessions.
   uebersicht: {
     alt: 'Übersicht',
@@ -494,8 +509,9 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// Opus-Meinung, Review + PR, Übersicht ☰, Farbe ändern, ausblenden: in the order the band draws them.
-const ACTION_CHARS = [12, 11, 11, 12, 10] as const
+// Opus-Meinung, Review + PR, Handoff A, Handoff B, Übersicht ☰, Farbe ändern, ausblenden: in the order the
+// band draws them. Handoff A and B are two icon candidates in the real band, without a function yet.
+const ACTION_CHARS = [12, 11, 9, 9, 11, 12, 10] as const
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 

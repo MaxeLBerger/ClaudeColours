@@ -1117,6 +1117,22 @@ export const register: Register = on => {
         press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
       },
       {
+        key: 'handoff-a',
+        label: 'Handoff A',
+        hint: 'Handoff A: Vorschau des Icons, noch ohne Funktion',
+        icon: '➤',
+        svg: ICON_SVG.handoffA,
+        press: async () => $.ui.toast('Handoff A zeigt nur das Icon und tut noch nichts.'),
+      },
+      {
+        key: 'handoff-b',
+        label: 'Handoff B',
+        hint: 'Handoff B: Vorschau des Icons, noch ohne Funktion',
+        icon: '↪',
+        svg: ICON_SVG.handoffB,
+        press: async () => $.ui.toast('Handoff B zeigt nur das Icon und tut noch nichts.'),
+      },
+      {
         key: 'uebersicht',
         label: 'Übersicht ☰',
         hint: 'Übersicht',
