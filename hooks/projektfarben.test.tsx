@@ -2447,17 +2447,20 @@ async function pressMeinung($: TestEngine, bodyColumns = 120) {
   await band.unmount()
 }
 
-test('the question sends one Opus subagent to read the repository, with no plan and no conversation', async () => {
+test('the question has the session build the task: the matter itself, no own conclusion, no bloat', async () => {
   const prompt = meinungPrompt('Beta')
   expect(prompt).toContain('„Beta“')
   expect(prompt).toContain('subagent_type general-purpose, model opus')
-  expect(prompt).toContain('keine Zusammenfassung dieses Gesprächs, keine eigene Empfehlung, keinen Plan')
-  expect(prompt).toContain('Ändere nichts')
-  expect(prompt).toContain('git log')
-  expect(prompt).toContain('gh pr list')
-  // Short answers and no extra reading: the best output with no unneeded context.
-  expect(prompt).toContain('Höchstens 25 Zeilen')
-  expect(prompt).toContain('Lies selbst nichts zusätzlich')
+  // The session decides what is meant: the last question, a plan to rework or the state of the project.
+  expect(prompt).toContain('meine letzte Frage, der Plan, den wir haben, oder der Stand von „Beta“')
+  expect(prompt).toContain('Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein')
+  expect(prompt).toContain('nicht deine eigene Schlussfolgerung')
+  expect(prompt).toContain('keinen Gesprächsverlauf')
+  expect(prompt).toContain('Er ändert nichts')
+  expect(prompt).toContain('mit einer Stelle belegen')
+  expect(prompt).toContain('unverändert wieder')
+  // Goals, not a form: no length cap, no fixed headings, no ban on looking things up.
+  expect(prompt).not.toMatch(/Höchstens|\d+ Zeilen|zusätzlich lesen|Nächstes ansteht/)
 })
 
 test('the opinion button submits the question as the person\'s own words, written out and as an icon', async ($, on) => {

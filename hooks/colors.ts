@@ -139,17 +139,23 @@ export function projectOf(cwd: string): string | null {
 }
 
 /**
- * What the opinion button sends the session, as the person's own words (they would type the same): one
- * Opus subagent that reads the repository itself. It names no plan of this session and hands the
- * subagent no conversation, so its view stays independent and carries no unneeded context; the session
- * then relays the answer and adds where it differs.
+ * What the opinion button sends the session, as the person's own words (they would type the same). It
+ * states goals, not a form: the session decides from the conversation what the opinion is about (the last
+ * question, a plan to rework, the state of the project) and builds the subagent's task itself, handing
+ * over the matter and only what it needs, never its own conclusion, so the view stays independent and
+ * the subagent's context small. The subagent reads the rest of the repository itself.
  */
 export function meinungPrompt(projekt: string): string {
   return [
-    `Hol eine unabhängige zweite Meinung von Opus zum Stand von „${projekt}“ ein.`,
-    'Starte dafür mit dem Agent-Tool genau einen Subagenten (subagent_type general-purpose, model opus). Gib ihm nur den Projektnamen und die Aufgabe unten mit: keine Zusammenfassung dieses Gesprächs, keine eigene Empfehlung, keinen Plan. So bleibt seine Meinung unabhängig, und es landet kein unnötiger Kontext bei ihm.',
-    'Aufgabe für den Subagenten: Lies selbst CLAUDE.md und README.md, git status, die letzten Commits (git log) sowie die offenen Pull Requests und Issues (gh pr list, gh issue list). Ändere nichts. Sag dann auf Deutsch: was jetzt als Nächstes ansteht und in welcher Reihenfolge, was du weglassen würdest und welche Risiken du siehst. Belege jede Aussage mit einer Stelle (Datei, Commit oder Nummer). Höchstens 25 Zeilen, ohne Einleitung.',
-    'Gib seine Antwort danach unverändert wieder und setze darunter in höchstens fünf Zeilen, wo du anderer Meinung bist. Lies selbst nichts zusätzlich und wiederhole nichts, was ich schon weiß.',
+    `Hol eine unabhängige zweite Meinung von Opus ein zu dem, worum es in diesem Gespräch gerade geht: meine letzte Frage, der Plan, den wir haben, oder der Stand von „${projekt}“. Du entscheidest, was gemeint ist.`,
+    [
+      'Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model opus) und baue seinen Auftrag selbst zusammen:',
+      '- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.',
+      '- Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.',
+      '- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.',
+      '- Er soll direkt sein, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und sagen, wo er anderer Meinung ist und warum. So lang wie nötig, ohne Füllstoff.',
+    ].join('\n'),
+    'Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.',
   ].join('\n\n')
 }
 
