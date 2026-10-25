@@ -49,6 +49,11 @@ import {
   uebersichtText,
   type GhPr,
   type Grund,
+  MEINUNG_MODELL,
+  MEINUNG_STALE_MS,
+  meinungErgebnis,
+  meinungLaeuft,
+  meinungPrompt,
 } from './colors'
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
@@ -173,11 +178,12 @@ const ZIEL = { name: 18, prs: 2, issues: 2, percent: 1 } as const
 
 test('the band picks the roomiest layout that fits its cells, and none is roomier when there is less room', async () => {
   expect(bandStufe(120, ZIEL)).toBe('voll')
-  expect(bandStufe(100, ZIEL)).toBe('voll')
+  expect(bandStufe(111, ZIEL)).toBe('voll')
+  expect(bandStufe(110, ZIEL)).toBe('icons')
   expect(bandStufe(80, ZIEL)).toBe('icons')
-  expect(bandStufe(66, ZIEL)).toBe('kompakt')
-  expect(bandStufe(60, ZIEL)).toBe('dicht')
-  expect(bandStufe(55, ZIEL)).toBe('minimal')
+  expect(bandStufe(72, ZIEL)).toBe('kompakt')
+  expect(bandStufe(63, ZIEL)).toBe('dicht')
+  expect(bandStufe(58, ZIEL)).toBe('minimal')
   expect(bandStufe(40, ZIEL)).toBe('zwei')
 
   const order = ['zwei', 'minimal', 'dicht', 'kompakt', 'icons', 'voll']
@@ -185,8 +191,9 @@ test('the band picks the roomiest layout that fits its cells, and none is roomie
   expect(steps).toEqual([...steps].sort((a, b) => a - b))
 
   // A longer name or more digits need more room; a missing gauge needs less.
-  expect(bandStufe(100, { ...ZIEL, name: 28 })).not.toBe('voll')
-  expect(bandStufe(100, { ...ZIEL, prs: 6, issues: 6 })).not.toBe('voll')
+  expect(bandStufe(112, ZIEL)).toBe('voll')
+  expect(bandStufe(112, { ...ZIEL, name: 28 })).not.toBe('voll')
+  expect(bandStufe(112, { ...ZIEL, prs: 6, issues: 6 })).not.toBe('voll')
   expect(bandBreite('voll', { ...ZIEL, percent: null })).toBeLessThan(bandBreite('voll', ZIEL))
   expect(bandBreite('zwei', ZIEL)).toBe(Number.POSITIVE_INFINITY)
   // Each layout takes less room than the one before it.
@@ -195,11 +202,13 @@ test('the band picks the roomiest layout that fits its cells, and none is roomie
 })
 
 test('the layouts switch where the desktop screenshots of the band switched', async () => {
-  // ClaudeColours (13 characters, counts 0): written-out actions from about 744 px, the icons from about
-  // 560 px, the short bar from about 500 px. At 731 px the written-out row was a little too tight and its
-  // gauge broke in two.
+  // ClaudeColours (13 characters, counts 0). The screenshots measured the metrics with three actions; the
+  // fourth (Opus-Meinung) adds its label and a gap, so the switch points are those of the same metrics with
+  // four: written out from 107 cells, the icons from 76, the short bar from 65, closer together from 58,
+  // only the percentage from 53. At the old 731 px the written-out row was a little too tight and its
+  // gauge broke in two: the margin stays one cell.
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
-  expect([96, 91, 82, 61, 57, 50, 45, 34].map(columns => bandStufe(columns, claude))).toEqual([
+  expect([110, 100, 90, 70, 62, 55, 50, 34].map(columns => bandStufe(columns, claude))).toEqual([
     'voll',
     'icons',
     'icons',
@@ -209,26 +218,39 @@ test('the layouts switch where the desktop screenshots of the band switched', as
     'zwei',
     'zwei',
   ])
+  // The edges: one cell less and the roomier layout does not fit.
+  expect([107, 106, 76, 75, 65, 64, 58, 57, 53, 52].map(columns => bandStufe(columns, claude))).toEqual([
+    'voll',
+    'icons',
+    'icons',
+    'kompakt',
+    'kompakt',
+    'dicht',
+    'dicht',
+    'minimal',
+    'minimal',
+    'zwei',
+  ])
 })
 
 test('the band stays in its layout until the room for a roomier one is clear', async () => {
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
-  // At 60 cells the compact row fits ...
-  expect(bandStufe(60, claude)).toBe('kompakt')
+  // At 65 cells the compact row fits ...
+  expect(bandStufe(65, claude)).toBe('kompakt')
   // ... but a band that was in a tighter layout stays there until it has a cell to spare, and so on up.
-  expect(bandStufe(60, claude, 'dicht')).toBe('dicht')
-  expect(bandStufe(61, claude, 'dicht')).toBe('kompakt')
-  expect(bandStufe(49, claude)).toBe('minimal')
-  expect(bandStufe(49, claude, 'zwei')).toBe('zwei')
-  expect(bandStufe(50, claude, 'zwei')).toBe('minimal')
-  expect(bandStufe(71, claude)).toBe('icons')
-  expect(bandStufe(71, claude, 'kompakt')).toBe('kompakt')
-  expect(bandStufe(72, claude, 'kompakt')).toBe('icons')
-  expect(bandStufe(93, claude)).toBe('voll')
-  expect(bandStufe(93, claude, 'icons')).toBe('icons')
-  expect(bandStufe(94, claude, 'icons')).toBe('voll')
+  expect(bandStufe(65, claude, 'dicht')).toBe('dicht')
+  expect(bandStufe(66, claude, 'dicht')).toBe('kompakt')
+  expect(bandStufe(53, claude)).toBe('minimal')
+  expect(bandStufe(53, claude, 'zwei')).toBe('zwei')
+  expect(bandStufe(54, claude, 'zwei')).toBe('minimal')
+  expect(bandStufe(76, claude)).toBe('icons')
+  expect(bandStufe(76, claude, 'kompakt')).toBe('kompakt')
+  expect(bandStufe(77, claude, 'kompakt')).toBe('icons')
+  expect(bandStufe(107, claude)).toBe('voll')
+  expect(bandStufe(107, claude, 'icons')).toBe('icons')
+  expect(bandStufe(108, claude, 'icons')).toBe('voll')
   // Getting less room is never held back: the old layout would not fit.
-  expect(bandStufe(60, claude, 'voll')).toBe('kompakt')
+  expect(bandStufe(60, claude, 'voll')).toBe('dicht')
   expect(bandStufe(30, claude, 'icons')).toBe('zwei')
 })
 
@@ -1319,6 +1341,7 @@ async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'te
     actions: [
       (await ui.find({ key: 'uebersicht' }))?.text,
       (await ui.find({ key: 'farbe' }))?.text,
+      (await ui.find({ key: 'meinung' }))?.text,
       (await ui.find({ key: 'ausblenden' }))?.text,
     ],
     hasWord: texts.some(text => /Kontext/.test(text.text)),
@@ -1336,29 +1359,29 @@ test('the band lays itself out by its cells: written out, icons, a short bar, cl
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   const wide = await drawBand($, 120)
-  expect(wide).toMatchObject({ isStacked: false, actions: ['Übersicht ☰', 'Farbe ändern', 'ausblenden'], hasWord: true, barCells: 8 })
+  expect(wide).toMatchObject({ isStacked: false, actions: ['Übersicht ☰', 'Farbe ändern', 'Opus-Meinung', 'ausblenden'], hasWord: true, barCells: 8 })
 
   const medium = await drawBand($, 70)
-  expect(medium).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: true, barCells: 8 })
+  expect(medium).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '✕'], hasWord: true, barCells: 8 })
 
   // No word and a bar of four cells; still one row.
-  const compact = await drawBand($, 56)
-  expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4 })
+  const compact = await drawBand($, 60)
+  expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '✕'], hasWord: false, barCells: 4 })
 
   // The items closer together, the same bar.
-  const dense = await drawBand($, 48)
-  expect(dense).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4 })
+  const dense = await drawBand($, 52)
+  expect(dense).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '✕'], hasWord: false, barCells: 4 })
 
   // Only the percentage of the gauge is left, in the same row.
-  const minimal = await drawBand($, 42)
-  expect(minimal).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 0 })
+  const minimal = await drawBand($, 47)
+  expect(minimal).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✦', '✕'], hasWord: false, barCells: 0 })
 
   // Two rows: the gauge stays above, with the name.
   const narrow = await drawBand($, 30)
-  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4, name: ' Beta' })
+  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✦', '✕'], hasWord: false, barCells: 4, name: ' Beta' })
 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
-    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 85, icons 63, kompakt 52, dicht 46, minimal 41 Zellen.',
+    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 99, icons 68, kompakt 57, dicht 50, minimal 45 Zellen.',
   )
 })
 
@@ -1392,10 +1415,10 @@ test('the one-row band spreads to its ends: the actions flush right, and the per
 test('the band keeps its layout over a narrow stretch while the window is dragged wider', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  // Beta's smallest one-row layout needs about 41 cells: it fits at 41, but the band came from two rows.
+  // Beta's smallest one-row layout needs about 45 cells: it fits at 45, but the band came from two rows.
   expect((await drawBand($, 30)).isStacked).toBe(true)
-  expect((await drawBand($, 41)).isStacked).toBe(true)
-  expect((await drawBand($, 43)).isStacked).toBe(false)
+  expect((await drawBand($, 45)).isStacked).toBe(true)
+  expect((await drawBand($, 47)).isStacked).toBe(false)
   // Narrowing again is not held back.
   expect((await drawBand($, 30)).isStacked).toBe(true)
 })
@@ -1470,7 +1493,7 @@ test('each icon has a hover card saying what it does; the written-out actions ne
   expect(await cardsAt(120)).toHaveLength(0)
   for (const bodyColumns of [70, 56, 48, 42, 30]) {
     const cards = await cardsAt(bodyColumns)
-    expect(cards.map(card => card.text)).toEqual(['Übersicht', 'Farbe ändern', 'Band ausblenden'])
+    expect(cards.map(card => card.text)).toEqual(['Übersicht', 'Farbe ändern', 'Unabhängige Opus-Meinung öffnen', 'Band ausblenden'])
     // Hidden until the pointer is on the icon's field (its `hover` reveals it), and out of the flow, so
     // showing it moves nothing; it stands to the left of the icon's field.
     for (const card of cards) {
@@ -1482,7 +1505,7 @@ test('each icon has a hover card saying what it does; the written-out actions ne
 test('on the terminal a character is a whole cell: the roomy layouts need more columns than on the desktop', async () => {
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
   expect(bandBreite('voll', claude, true)).toBeGreaterThan(bandBreite('voll', claude))
-  expect([105, 101, 76, 75, 64, 63, 54, 53, 49, 48].map(columns => bandStufe(columns, claude, null, true))).toEqual([
+  expect([116, 115, 80, 79, 68, 67, 58, 57, 53, 52].map(columns => bandStufe(columns, claude, null, true))).toEqual([
     'voll',
     'icons',
     'icons',
@@ -1494,18 +1517,18 @@ test('on the terminal a character is a whole cell: the roomy layouts need more c
     'minimal',
     'zwei',
   ])
-  // The same 98 columns fit the written-out actions on the desktop but not on the terminal.
-  expect(bandStufe(98, claude)).toBe('voll')
-  expect(bandStufe(98, claude, null, true)).toBe('icons')
+  // The same 110 columns fit the written-out actions on the desktop but not on the terminal.
+  expect(bandStufe(110, claude)).toBe('voll')
+  expect(bandStufe(110, claude, null, true)).toBe('icons')
   expect(nameBudget(40, claude, true)).toBeGreaterThan(0)
 })
 
 test('the band on the terminal switches layouts by whole cells', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  expect((await drawBand($, 105, 'terminal')).actions).toEqual(['Übersicht ☰', 'Farbe ändern', 'ausblenden'])
-  // Beta needs 93 columns written out on the terminal; at 90 it shows the icons.
-  expect((await drawBand($, 90, 'terminal')).actions).toEqual(['☰', '◐', '✕'])
+  expect((await drawBand($, 110, 'terminal')).actions).toEqual(['Übersicht ☰', 'Farbe ändern', 'Opus-Meinung', 'ausblenden'])
+  // Beta needs 107 columns written out on the terminal; at 106 it shows the icons.
+  expect((await drawBand($, 106, 'terminal')).actions).toEqual(['☰', '◐', '✦', '✕'])
 })
 
 test('a project name with blanks never breaks inside the band', async ($, on) => {
@@ -2378,4 +2401,192 @@ test('with a Bramble build the name, PRs and Issues open their pages in the newe
   ])
   // gh opens no browser of its own.
   expect(gh.asked.some(argv => argv.includes('--web'))).toBe(false)
+})
+
+// The independent Opus opinion: the band's button only opens its pane; the pane's button starts the run.
+
+const MEINUNG = {
+  ...PANE,
+  requestId: 'meinung',
+  props: { ...PANE.props, title: 'Opus-Meinung' },
+} as const
+
+type Spawned = { prompt: string; description: string; model?: string }
+
+/**
+ * A session in Beta whose subagents are answered by `spawn`; what was opened, toasted and spawned is
+ * recorded. The test kit has no core beneath `agent.spawn`, so a plugin's own spawn never gets an
+ * `agentId` back (the engine sets it): the answer of a run is tested through `meinungErgebnis`.
+ */
+async function meinungSession(
+  $: TestEngine,
+  on: TestOn,
+  options: { spawn?: (input: Spawned) => unknown; isPlaced?: boolean } = {},
+) {
+  const clock = mock.clock(on)
+  await clock.set(NOW)
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  const opened: string[] = []
+  const toasts: string[] = []
+  const spawned: Spawned[] = []
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+
+    return { value: options.isPlaced === false ? { isPlaced: false, reason: 'no surface' } : { isPlaced: true } }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  on('agent.spawn', (_, e) => {
+    const input = { prompt: e.prompt, description: e.description, model: e.model }
+    spawned.push(input)
+
+    return (options.spawn ?? (() => ({ model: MEINUNG_MODELL })))(input) as never
+  })
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+
+  return { clock, opened, toasts, spawned }
+}
+
+/** What the pane shows now, and the keys of its buttons. */
+async function meinungPane($: TestEngine) {
+  const ui = await $.ui.mount({ ...MEINUNG, surface: 'desktop' })
+  const text = (await ui.find({ type: 'Box' }))?.text ?? ''
+  const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+  await ui.unmount()
+
+  return { text, keys }
+}
+
+async function pressInPane($: TestEngine, key: string) {
+  const ui = await $.ui.mount({ ...MEINUNG, surface: 'desktop' })
+  await ui.press({ key })
+  await ui.unmount()
+}
+
+test('the question asks for a view of its own, names the project and changes nothing', async () => {
+  const prompt = meinungPrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  expect(prompt).toContain('Ändere nichts')
+  expect(prompt).toContain('git log')
+  expect(prompt).toContain('gh pr list')
+  // It carries no plan of this session: the opinion is meant to be independent.
+  expect(prompt).not.toMatch(/Empfehlung (von|des) (Claude|dir)/)
+})
+
+test('an opinion runs until it is answered, and is taken as lost after half an hour', async () => {
+  const asked = 1_000
+  expect(meinungLaeuft({ isLoading: true, um: asked }, asked + 1)).toBe(true)
+  expect(meinungLaeuft({ isLoading: true, um: asked }, asked + MEINUNG_STALE_MS - 1)).toBe(true)
+  expect(meinungLaeuft({ isLoading: true, um: asked }, asked + MEINUNG_STALE_MS)).toBe(false)
+  expect(meinungLaeuft({ isLoading: false, um: asked }, asked + 1)).toBe(false)
+  expect(meinungLaeuft({ isLoading: true, um: null }, asked)).toBe(false)
+})
+
+test("only the asked subagent's turn is the answer: its text, or why there is none", async () => {
+  const running = { text: null, fehler: null, isLoading: true, agentId: 'ag1' }
+  const turn = { agentId: 'ag1', reason: 'answer', answer: '  Zuerst die Tests.\n\nDann der Rest.  ' }
+
+  expect(meinungErgebnis(running, turn)).toEqual({
+    text: 'Zuerst die Tests.\n\nDann der Rest.',
+    fehler: null,
+    isLoading: false,
+    agentId: null,
+  })
+  // Another subagent's end, or none being asked for, changes nothing.
+  expect(meinungErgebnis(running, { ...turn, agentId: 'other' })).toBe(running)
+  const idle = { ...running, isLoading: false, agentId: null }
+  expect(meinungErgebnis(idle, { ...turn, agentId: undefined })).toBe(idle)
+  expect(meinungErgebnis(idle, turn)).toBe(idle)
+
+  expect(meinungErgebnis(running, { ...turn, reason: 'aborted', answer: '' })).toMatchObject({
+    text: null,
+    fehler: 'Die Opus-Meinung ist nicht fertig geworden (aborted).',
+    isLoading: false,
+    agentId: null,
+  })
+  expect(meinungErgebnis(running, { ...turn, answer: '  ' }).fehler).toBe('Die Opus-Meinung kam leer zurück.')
+  // A later answer replaces an older one only through a new run: the id is cleared once answered.
+  const answered = meinungErgebnis(running, turn)
+  expect(meinungErgebnis(answered, { ...turn, answer: 'Zweite Antwort' })).toBe(answered)
+})
+
+test('the band button only opens the pane: nothing runs, and so nothing is paid for, until its own button', async ($, on) => {
+  const { opened, spawned } = await meinungSession($, on)
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await band.press({ key: 'meinung' })
+  await band.unmount()
+  expect(opened).toEqual(['meinung'])
+  expect(spawned).toEqual([])
+
+  const pane = await meinungPane($)
+  expect(pane.keys).toEqual(['meinung-start'])
+  expect(pane.text).toContain('kostet Modellaufrufe')
+  expect(pane.text).toContain('Opus-Meinung einholen')
+})
+
+test('the pane starts Opus as a subagent on the opinion model, with the question of the project', async ($, on) => {
+  const { spawned } = await meinungSession($, on)
+
+  await pressInPane($, 'meinung-start')
+  expect(spawned).toHaveLength(1)
+  expect(spawned[0]).toMatchObject({ description: 'Opus-Meinung', model: MEINUNG_MODELL })
+  expect(spawned[0].prompt).toBe(meinungPrompt('Beta'))
+})
+
+test('a refused spawn, a spawn without an id and a failing spawn each say so, and can be asked again', async ($, on) => {
+  let mode: 'deny' | 'throw' | 'noid' = 'deny'
+  const { spawned } = await meinungSession($, on, {
+    spawn: () => {
+      if (mode === 'deny') {
+        return { deny: 'Limit erreicht' }
+      }
+      if (mode === 'throw') {
+        throw new Error('boom\nsecond line')
+      }
+
+      return { model: MEINUNG_MODELL }
+    },
+  })
+
+  await pressInPane($, 'meinung-start')
+  let pane = await meinungPane($)
+  expect(pane.text).toContain('Die Opus-Meinung wurde nicht gestartet: Limit erreicht')
+  expect(pane.keys).toEqual(['meinung-start'])
+
+  mode = 'throw'
+  await pressInPane($, 'meinung-start')
+  pane = await meinungPane($)
+  // The error of the engine, its first line.
+  expect(pane.text).toContain('agent.spawn')
+  expect(pane.text).not.toContain('Limit erreicht')
+  expect(pane.keys).toEqual(['meinung-start'])
+
+  mode = 'noid'
+  await pressInPane($, 'meinung-start')
+  pane = await meinungPane($)
+  expect(pane.text).toContain('Die Opus-Meinung wurde nicht gestartet.')
+  expect(pane.text).not.toContain('agent.spawn')
+  expect(pane.keys).toEqual(['meinung-start'])
+  expect(spawned).toHaveLength(3)
+})
+
+test('where no surface places the pane, the band button says so and nothing runs', async ($, on) => {
+  const { toasts, spawned } = await meinungSession($, on, { isPlaced: false })
+
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await band.press({ key: 'meinung' })
+  await band.unmount()
+  expect(toasts).toEqual(['Die Opus-Meinung braucht die Seitenleiste der Desktop-App; hier ist kein Platz dafür.'])
+  expect(spawned).toEqual([])
 })

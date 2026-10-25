@@ -138,6 +138,52 @@ export function projectOf(cwd: string): string | null {
   return name === '' || /^[a-z]:$/i.test(name) ? null : name
 }
 
+// The independent opinion runs on this model as a subagent, which may take minutes.
+export const MEINUNG_MODELL = 'claude-opus-5-5'
+
+// A run older than this is taken as lost (a reload or an app restart drops the subagent), so the button works again.
+export const MEINUNG_STALE_MS = 30 * 60 * 1000
+
+/** Whether an opinion is on its way: asked for, not yet answered, and not so old that it must have been lost. */
+export function meinungLaeuft(state: { isLoading: boolean; um: number | null }, now: number): boolean {
+  return state.isLoading && state.um !== null && now - state.um < MEINUNG_STALE_MS
+}
+
+/**
+ * The state once the subagent `turn.agentId` has ended its turn: its answer, or why there is none. Any
+ * other subagent's turn is not the question's, and leaves the state as it is.
+ */
+export function meinungErgebnis<T extends { text: string | null; fehler: string | null; isLoading: boolean; agentId: string | null }>(
+  state: T,
+  turn: { agentId?: string; reason: string; answer: string },
+): T {
+  if (state.agentId === null || state.agentId !== turn.agentId) {
+    return state
+  }
+  const answer = turn.reason === 'answer' ? turn.answer.trim() : ''
+  const fehler =
+    answer !== ''
+      ? null
+      : turn.reason === 'answer'
+        ? 'Die Opus-Meinung kam leer zurück.'
+        : `Die Opus-Meinung ist nicht fertig geworden (${turn.reason}).`
+
+  return { ...state, agentId: null, isLoading: false, text: answer === '' ? null : answer, fehler }
+}
+
+/**
+ * The question the opinion answers. It names no plan of this session on purpose: the model reads the
+ * repository itself, so its answer does not follow the person's or Claude's own recommendation.
+ */
+export function meinungPrompt(projekt: string): string {
+  return [
+    `Du gibst eine unabhängige zweite Meinung zum Projekt „${projekt}“ in diesem Ordner.`,
+    'Beantworte die Frage selbst aus dem Repository. Du kennst keine Empfehlung von außen. Lies CLAUDE.md und README.md, git status, die letzten Commits (git log) sowie die offenen Pull Requests und Issues (gh pr list, gh issue list).',
+    'Sag dann auf Deutsch und knapp: was jetzt als Nächstes ansteht und in welcher Reihenfolge, was du weglassen würdest und welche Risiken du siehst.',
+    'Stütze jede Aussage auf eine Stelle (Datei, Commit oder Nummer). Ändere nichts.',
+  ].join('\n\n')
+}
+
 /** A color from a project's name, the same every time: used once every color of the set is taken. */
 function hashFarbe(project: string, satz: Satz): Farbe {
   let hash = 0
@@ -411,7 +457,8 @@ export type BandInhalt = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-const ACTION_CHARS = [11, 12, 10] as const
+// Übersicht ☰, Farbe ändern, Opus-Meinung, ausblenden: in the order the band draws them.
+const ACTION_CHARS = [11, 12, 12, 10] as const
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
@@ -490,8 +537,8 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
     items.push((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
   }
   const actions = form.isWritten
-    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * m.button, 0) + 2 * m.buttonGap
-    : 3 * ICON_BOX + 2 * m.iconGap
+    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * m.button, 0) + (ACTION_CHARS.length - 1) * m.buttonGap
+    : ACTION_CHARS.length * ICON_BOX + (ACTION_CHARS.length - 1) * m.iconGap
 
   return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
 }

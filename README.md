@@ -14,7 +14,8 @@ Ein Mod für die Claude-Desktop-App (Code-Tab): Jedes Projekt bekommt eine Farbe
 ## Was der Mod macht
 
 - **Farbpunkt im Session-Namen:** Nach der ersten Antwort einer Session setzt der Mod den Farbpunkt ihres Projekts vor den Namen, den die App vergeben hat.
-- **Band über dem Eingabefeld:** zeigt das Projekt mit einem Farbblock in seiner Farbe und dem Namen in der Schrift deines Themes. Dazu „Farbe ändern“ (Auswahl per Klick) und „ausblenden“.
+- **Band über dem Eingabefeld:** zeigt das Projekt mit einem Farbblock in seiner Farbe und dem Namen in der Schrift deines Themes. Dazu „Farbe ändern“ (Auswahl per Klick), „Opus-Meinung“ und „ausblenden“.
+- **Unabhängige Opus-Meinung:** Der Knopf „Opus-Meinung“ (im Band `✦`) öffnet das Seitenpanel „Opus-Meinung“. Gestartet wird erst dort mit „Opus-Meinung einholen“, weil der Lauf einige Minuten dauert und Modellaufrufe kostet. Dann beurteilt Opus als Subagent den Stand des Projekts selbst aus dem Repository, ohne deine oder Claudes Empfehlung zu kennen: was als Nächstes ansteht, was man weglassen würde, welche Risiken es gibt. Die Antwort steht im Panel und lässt sich mit „neu einholen“ wiederholen.
 - **Das Band passt sich der Breite an:** Wo der Platz reicht, steht alles in einer Zeile: links Name, PRs, Issues und Kontext-Anzeige, ganz rechts die ausgeschriebenen Aktionen „Übersicht ☰“, „Farbe ändern“ und „ausblenden“. Wird es enger, werden daraus erst die Symbole `☰` (Übersicht), `◐` (Farbe ändern) und `✕` (ausblenden), dann fällt das Wort „Kontext“ weg und der Balken wird kürzer, dann rücken die Elemente enger zusammen, und zuletzt bleibt von der Anzeige nur der Prozentwert. Alles bleibt dabei in einer Zeile und die Kontext-Anzeige in der ersten. Reicht auch das nicht, gibt es zwei Zeilen als Raster: oben der Name mit der Kontext-Anzeige rechts, darunter PRs und Issues, ganz rechts die Symbole; ein zu langer Projektname wird dann mit „…“ gekürzt. Das Band hat nie mehr als zwei Zeilen. `/projektfarbe breite` sagt, wie breit das Band gerade ist und in welchem Layout es gezeichnet wird.
 - **Kontext-Anzeige im Band:** ein Balken mit Prozentwert zeigt, wie voll das Kontextfenster nach der letzten Antwort ist: grau unter 70 %, in der Warnfarbe deines Themes ab 70 %, in der Fehlerfarbe und mit fettem Prozentwert ab 85 % (dann ist `/compact` fällig). Der Mod liest dafür nur die Werte, die Claude Code ohnehin hat; es entstehen keine Modellaufrufe und keine Kosten.
 - **Farbpunkt am Spinner:** Während Claude arbeitet, steht der Farbpunkt des Projekts vor der Statuszeile („🟦 Sauteing…“).
@@ -112,6 +113,7 @@ Der Schlafmodus nimmt den Farben die Reizwirkung, ohne die Projekte schwerer unt
 
 ## Grenzen
 
+- Die Opus-Meinung läuft als Subagent der Session mit deren Rechten; der Auftrag sagt, dass er nichts ändern soll, das Werkzeug sperrt es aber nicht. Ein Lauf, der nach einem Neustart oder Neuladen des Mods nie antwortet, gilt nach 30 Minuten als verloren, dann geht „neu einholen“ wieder.
 - Die Seitenleiste selbst färbt kein Mod: Die Projekt-Überschriften bleiben grau, die Farbe steht im Session-Namen.
 - Umbenennen geht nur in der Desktop-App. In einer Terminal-Session zeigen sich nur Band, Kontext-Anzeige und Spinner-Punkt.
 - Die Kontext-Anzeige aktualisiert sich nach jeder Antwort, nach `/compact` also erst mit der nächsten. Vor der ersten Antwort einer Session zeigt sie nichts. In einem Ordner ohne Projekt erscheint das Band und damit die Anzeige nicht.

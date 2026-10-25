@@ -84,8 +84,24 @@ export type ProjektfarbenPanel = {
   zu: string[]
 }
 
+/** The independent Opus opinion the band asks for: its state, shown in a pane of its own. */
+export type ProjektfarbenMeinung = {
+  /** The project the opinion is about; null before the first one. */
+  projekt: string | null
+  /** The answer, as the model wrote it; null while it runs or when it failed. */
+  text: string | null
+  /** Why there is no answer, for the person; null when there is one or none was asked for. */
+  fehler: string | null
+  /** True while the model runs. */
+  isLoading: boolean
+  /** The subagent running the question, matched by its `turn.complete`; null when none runs. */
+  agentId: string | null
+  /** When the question was asked (`$.clock.now()`); null before the first one. */
+  um: number | null
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    projektfarben: { view: ProjektfarbenView; uebersicht: ProjektfarbenPanel }
+    projektfarben: { view: ProjektfarbenView; uebersicht: ProjektfarbenPanel; meinung: ProjektfarbenMeinung }
   }
 }
