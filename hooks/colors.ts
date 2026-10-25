@@ -177,6 +177,20 @@ export function reviewPrompt(projekt: string): string {
   ].join('\n\n')
 }
 
+/**
+ * What the handoff button sends the session, as the person's own words: a message for a fresh session
+ * that carries on where this one stands. It holds what the repository cannot tell, and leaves out what
+ * the new session reads there itself; it is written so it can be pasted as the first message. Nothing is
+ * started or changed: the person decides what to do with the text.
+ */
+export function handoffPrompt(projekt: string): string {
+  return [
+    `Schreib mir eine Übergabe für eine frische Session, die an „${projekt}“ da weitermacht, wo wir gerade stehen.`,
+    'Sie soll enthalten, was die neue Session braucht und nicht aus dem Repository erfährt: das Ziel, was schon erledigt und entschieden ist (mit dem Grund), was offen ist und womit es weitergeht, wo es hakt oder riskant ist, und welche Dateien, Branches oder PRs betroffen sind. Was sie selbst lesen kann (Code, git log, CLAUDE.md), lass weg und nenne nur, wo sie nachsehen soll. Keine Gesprächsgeschichte, keine Füllsätze.',
+    'Schreib sie so, dass ich sie unverändert als erste Nachricht in eine neue Session einfügen kann. Ändere nichts und starte nichts.',
+  ].join('\n\n')
+}
+
 /** A color from a project's name, the same every time: used once every color of the set is taken. */
 function hashFarbe(project: string, satz: Satz): Farbe {
   let hash = 0
@@ -473,19 +487,11 @@ export const ICON_SVG = {
       '<circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/>',
     ),
   },
-  // Candidates for the handoff, shown in the band to choose from; one of them stays.
-  // A paper plane with a dashed trail.
-  handoffA: {
-    alt: 'Handoff A',
+  // A letter in flight, speed lines behind it: the handoff to a fresh session.
+  handoff: {
+    alt: 'Handoff',
     source: svgIcon(
-      '<path d="M22 3 9.5 8l4 2 2 4Z"/><path d="m13.5 10 8.5-7"/><path d="M2.5 20c3-.5 6-3 7.5-6" stroke-dasharray="2 3"/>',
-    ),
-  },
-  // A speech bubble with a forward arrow.
-  handoffB: {
-    alt: 'Handoff B',
-    source: svgIcon(
-      '<path d="M4 4h16a1.5 1.5 0 0 1 1.5 1.5v10A1.5 1.5 0 0 1 20 17H10l-4.5 4v-4H4a1.5 1.5 0 0 1-1.5-1.5v-10A1.5 1.5 0 0 1 4 4Z"/><path d="M8 10.5h7M12.5 8l2.5 2.5-2.5 2.5"/>',
+      '<g transform="rotate(-9 14.5 12)"><rect x="7.5" y="6.5" width="14.5" height="11" rx="2"/><path d="m8 8.5 6.8 5.2L21.5 8.5"/></g><path d="M2 9.5h3M1 12.5h4M2.5 15.5h2.5"/>',
     ),
   },
   // Three lines: the overview of all sessions.
@@ -509,9 +515,8 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// Opus-Meinung, Review + PR, Handoff A, Handoff B, Übersicht ☰, Farbe ändern, ausblenden: in the order the
-// band draws them. Handoff A and B are two icon candidates in the real band, without a function yet.
-const ACTION_CHARS = [12, 11, 9, 9, 11, 12, 10] as const
+// Opus-Meinung, Review + PR, Handoff, Übersicht ☰, Farbe ändern, ausblenden: in the order the band draws them.
+const ACTION_CHARS = [12, 11, 7, 11, 12, 10] as const
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
