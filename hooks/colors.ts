@@ -476,7 +476,7 @@ export const ICON_SVG = {
   // Three lines: the overview of all sessions.
   uebersicht: {
     alt: 'Übersicht',
-    source: svgIcon('<path d="M4 6.5h16M4 12h16M4 17.5h16"/>'),
+    source: svgIcon('<path d="M3 3.5h18M3 12h18M3 20.5h18"/>'),
   },
   // A half-filled disc: the color.
   farbe: {
@@ -486,7 +486,7 @@ export const ICON_SVG = {
   // A cross: hide the band.
   ausblenden: {
     alt: 'Band ausblenden',
-    source: svgIcon('<path d="M6 6l12 12M18 6 6 18"/>'),
+    source: svgIcon('<path d="M3.5 3.5l17 17M20.5 3.5l-17 17"/>'),
   },
 } as const
 
