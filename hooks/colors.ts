@@ -208,6 +208,84 @@ export function mergePrompt(projekt: string): string {
   ].join('\n\n')
 }
 
+/** What each prompt button does and what a review of it checks, for `promptsMarkdown`. */
+export const PROMPT_INFO = [
+  {
+    key: 'meinung',
+    name: 'Opus-Meinung',
+    does: 'Holt eine unabhängige zweite Meinung von Opus ein: zur letzten Frage, zu einem Plan oder zum Stand des Projekts.',
+    checks: [
+      'Der Subagent bekommt die Sache selbst, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.',
+      'Das Modell ist der Alias `opus` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).',
+      'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
+    ],
+    text: meinungPrompt,
+  },
+  {
+    key: 'review',
+    name: 'Review + PR',
+    does: 'Prüft die Änderungen, committet sie und öffnet den Pull Request.',
+    checks: [
+      'Die Reihenfolge ist Review, Commit, PR.',
+      'Kein Merge, kein Push auf den Basis-Branch, nie mit force.',
+      'Geht ein Schritt nicht, hält die Session an und sagt, woran es liegt.',
+    ],
+    text: reviewPrompt,
+  },
+  {
+    key: 'handoff',
+    name: 'Handoff',
+    does: 'Schreibt eine Übergabe für eine frische Session, zum Einfügen als erste Nachricht.',
+    checks: [
+      'Verlangt, was das Repository nicht verrät, und lässt Lesbares (Code, git log, CLAUDE.md) weg.',
+      'Ändert und startet nichts.',
+    ],
+    text: handoffPrompt,
+  },
+  {
+    key: 'merge',
+    name: 'Merge',
+    does: 'Mergt die offenen PRs in sinnvoller Reihenfolge und löst passende Issues mit, auch diese werden gemergt.',
+    checks: [
+      'Gemergt wird nur bei grünen Checks, auch bei den neuen Issue-PRs.',
+      'Kein Force-Push, keine Änderung an der Historie des Hauptzweigs, keine Entwürfe.',
+      'Was rot ist, eine Entscheidung braucht oder unklar bleibt, bleibt liegen und wird mit Grund genannt.',
+    ],
+    text: mergePrompt,
+  },
+] as const
+
+/**
+ * The four prompts as one Markdown document, for a reviewer or an agent to read at a glance: what each
+ * button does, what to check, and the text itself. `/projektfarbe prompts` prints it, and `docs/PROMPTS.md`
+ * is its output, so the code stays the one source.
+ */
+export function promptsMarkdown(projekt = '{Projekt}'): string {
+  const parts = PROMPT_INFO.map(info =>
+    [
+      `## ${info.name} (\`${info.key}\`)`,
+      '',
+      info.does,
+      '',
+      'Prüfen:',
+      ...info.checks.map(check => `- ${check}`),
+      '',
+      '```text',
+      info.text(projekt),
+      '```',
+    ].join('\n'),
+  )
+
+  return [
+    '# Prompts hinter den Band-Knöpfen',
+    '',
+    'Jeder Knopf schickt der Session den Text als eigene Nachricht (`$.prompt.submit` mit `asUser`). `{Projekt}` steht für den Projektnamen. Die Texte stehen in `hooks/colors.ts`; diese Ausgabe kommt von `/projektfarbe prompts`.',
+    '',
+    parts.join('\n\n'),
+    '',
+  ].join('\n')
+}
+
 /** A color from a project's name, the same every time: used once every color of the set is taken. */
 function hashFarbe(project: string, satz: Satz): Farbe {
   let hash = 0

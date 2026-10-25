@@ -55,6 +55,8 @@ import {
   handoffPrompt,
   meinungPrompt,
   mergePrompt,
+  PROMPT_INFO,
+  promptsMarkdown,
   raised,
   reviewPrompt,
 } from './colors'
@@ -2702,4 +2704,27 @@ test('the merge icon carries the number of open pull requests as raised digits, 
   }
   expect(await badges('desktop')).toEqual(['³'])
   expect(await badges('terminal')).toEqual(['³'])
+})
+
+test('the prompts document shows what each button does, what to check, and the text itself', async () => {
+  const doc = promptsMarkdown()
+  expect(doc.startsWith('# Prompts hinter den Band-Knöpfen')).toBe(true)
+  expect(PROMPT_INFO.map(info => info.key)).toEqual(['meinung', 'review', 'handoff', 'merge'])
+  for (const info of PROMPT_INFO) {
+    expect(doc).toContain(`## ${info.name} (\`${info.key}\`)`)
+    expect(doc).toContain(info.does)
+    for (const check of info.checks) {
+      expect(doc).toContain(`- ${check}`)
+    }
+    // The text stands verbatim in a fence, with the project left as a slot.
+    expect(doc).toContain(`\`\`\`text\n${info.text('{Projekt}')}\n\`\`\``)
+  }
+  expect(doc.endsWith('\n')).toBe(true)
+  expect(promptsMarkdown('Beta')).toContain(meinungPrompt('Beta'))
+})
+
+test('/projektfarbe prompts prints that document', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  expect((await $.command.run({ ...RUN, args: 'prompts' })).text).toBe(promptsMarkdown())
 })

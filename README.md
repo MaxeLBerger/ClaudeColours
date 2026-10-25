@@ -85,6 +85,7 @@ Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
 | `/projektfarbe übersicht` | öffnet die Übersicht aller Sessions als Seitenpanel (ohne Platz dafür: dieselbe Auskunft als Text) |
 | `/projektfarbe band` | blendet Band, Kontext-Anzeige, PR- und Issue-Zahl und den Farbpunkt am Spinner ein oder aus |
 | `/projektfarbe breite` | zeigt, wie viele Zellen das Band hat, in welchem Layout es gezeichnet wird (`icons`, `kompakt`, `dicht`, `minimal`, `zwei`) und wie viele Zellen die Layouts in einer Zeile brauchen; ist das Band ausgeblendet, sagt der Befehl das und nennt `/projektfarbe band` zum Einblenden |
+| `/projektfarbe prompts` | gibt die vier Prompts hinter den Band-Knöpfen (Opus-Meinung, Review + PR, Handoff, Merge) als Text aus, mit je einer Zeile, was der Knopf tut, und den Punkten, die ein Review prüft; dieselbe Ausgabe steht in `docs/PROMPTS.md`, eine lesbare Seite dazu in `docs/prompts.html` |
 | `/projektfarbe schlaf` | schaltet den Schlafmodus ein und benennt alle offenen Sessions um |
 | `/projektfarbe bunt` | schaltet zurück zu den bunten Farben und benennt alle offenen Sessions um |
 

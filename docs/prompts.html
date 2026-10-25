@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Band-Prompts</title>
+<style>
+/* Layout: one narrow reading column; each prompt is a card with its icon, a plain-language line, the full text and a copy button. */
+:root {
+  --bg: #f4f5f7;
+  --surface: #ffffff;
+  --fg: #1d2330;
+  --muted: #5d6676;
+  --line: #dde1e8;
+  --accent: #2f5fb3;
+  --slot-bg: #e6edf9;
+  --code-bg: #f7f8fa;
+  --ok: #2ea35e;
+  --font-body: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171d; --surface: #1b1f27; --fg: #e4e8ef; --muted: #98a2b3; --line: #2b313c;
+    --accent: #7ba3ec; --slot-bg: #26324a; --code-bg: #161a21; --ok: #4cc07d; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171d; --surface: #1b1f27; --fg: #e4e8ef; --muted: #98a2b3; --line: #2b313c;
+  --accent: #7ba3ec; --slot-bg: #26324a; --code-bg: #161a21; --ok: #4cc07d; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 15px; line-height: 1.6;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 780px; margin: 0 auto; display: grid; gap: 20px; }
+.intro h1 { font-size: 26px; line-height: 1.2; margin: 0 0 6px; font-weight: 650; text-wrap: balance; }
+.intro p { margin: 0; color: var(--muted); max-width: 62ch; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 12px; min-width: 0; }
+.head { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.icon { color: var(--muted); flex: none; margin-top: 3px; }
+.icon .ok { stroke: var(--ok); stroke-width: 2.25; }
+.titles { flex: 1 1 260px; min-width: 0; }
+.titles h2 { font-size: 18px; margin: 0; font-weight: 650; }
+.does { margin: 2px 0 0; color: var(--muted); }
+.copy {
+  font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--accent); border: 1px solid var(--line);
+}
+.copy:hover { border-color: var(--accent); }
+.copy:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prompt {
+  margin: 0; padding: 14px 16px; background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0;
+}
+.slot { background: var(--slot-bg); color: var(--accent); border-radius: 4px; padding: 0 4px; }
+.note { margin: 0; font-size: 13px; color: var(--muted); max-width: 70ch; }
+.foot { color: var(--muted); font-size: 13px; margin: 0; }
+@media (prefers-reduced-motion: no-preference) { .copy { transition: border-color .15s; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="intro">
+    <h1>Prompts hinter den Band-Knöpfen</h1>
+    <p>Jeder Knopf schickt der Session diesen Text als deine eigene Nachricht. Statt <span class="slot">{Projekt}</span> steht der Name des Projekts. Die Seite ist eine Momentaufnahme; maßgeblich ist <code>/projektfarbe prompts</code>, dessen Ausgabe auch in <code>docs/PROMPTS.md</code> steht.</p>
+  </section>
+  
+<article class="card" id="meinung">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/></svg>
+    <div class="titles">
+      <h2>Opus-Meinung</h2>
+      <p class="does">Holt eine unabhängige zweite Meinung von Opus ein.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-meinung" id="copy-meinung">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-meinung">Hol eine unabhängige zweite Meinung von Opus ein zu dem, worum es in diesem Gespräch gerade geht: meine letzte Frage, der Plan, den wir haben, oder der Stand von „<span class="slot">{Projekt}</span>“. Du entscheidest, was gemeint ist.
+
+Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model opus) und baue seinen Auftrag selbst zusammen:
+- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.
+- Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.
+- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.
+- Er soll direkt sein, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und sagen, wo er anderer Meinung ist und warum. So lang wie nötig, ohne Füllstoff.
+
+Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.</pre>
+  <p class="note">Die Session entscheidet aus dem Gespräch, ob die letzte Frage, ein Plan oder der Stand des Projekts gemeint ist, und gibt dem Subagenten nur die Sache selbst mit.</p>
+</article>
+
+<article class="card" id="review">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/></svg>
+    <div class="titles">
+      <h2>Review + PR</h2>
+      <p class="does">Prüft die Änderungen, committet und öffnet den Pull Request.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-review" id="copy-review">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-review">Bring die Änderungen in „<span class="slot">{Projekt}</span>“ bis zum Pull Request: erst prüfen, dann committen, dann den PR öffnen.
+
+1. Review: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist (git status, git diff, bei Bedarf der code-review-Skill). Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was du gefunden und geändert hast.
+2. Commit: Fasse zusammen, was zusammengehört, mit Nachrichten in der Art der letzten Commits. Nimm nur Dateien dieser Arbeit mit, keine Nebenprodukte und keine Geheimnisse.
+3. PR: Pushe den Branch (nie auf den Basis-Branch, nie mit force) und öffne einen Pull Request dagegen, mit einer Beschreibung, die sagt, was sich ändert, warum und was geprüft ist. Mergen tust du nicht.
+
+Wenn einer der Schritte nicht geht (Tests rot, nichts zu committen, kein Remote, ein Befund, der meine Entscheidung braucht), halte an und sag mir, woran es liegt, statt es zu umgehen. Am Ende nennst du mir den Link zum PR.</pre>
+  <p class="note">Gemergt wird nicht, auf den Basis-Branch wird nicht gepusht, nie mit force. Geht ein Schritt nicht, hält die Session an.</p>
+</article>
+
+<article class="card" id="handoff">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><g transform="rotate(-9 14.5 12)"><rect x="7.5" y="6.5" width="14.5" height="11" rx="2"/><path d="m8 8.5 6.8 5.2L21.5 8.5"/></g><path d="M2 9.5h3M1 12.5h4M2.5 15.5h2.5"/></svg>
+    <div class="titles">
+      <h2>Handoff</h2>
+      <p class="does">Schreibt eine Übergabe für eine frische Session.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-handoff" id="copy-handoff">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-handoff">Schreib mir eine Übergabe für eine frische Session, die an „<span class="slot">{Projekt}</span>“ da weitermacht, wo wir gerade stehen.
+
+Sie soll enthalten, was die neue Session braucht und nicht aus dem Repository erfährt: das Ziel, was schon erledigt und entschieden ist (mit dem Grund), was offen ist und womit es weitergeht, wo es hakt oder riskant ist, und welche Dateien, Branches oder PRs betroffen sind. Was sie selbst lesen kann (Code, git log, CLAUDE.md), lass weg und nenne nur, wo sie nachsehen soll. Keine Gesprächsgeschichte, keine Füllsätze.
+
+Schreib sie so, dass ich sie unverändert als erste Nachricht in eine neue Session einfügen kann. Ändere nichts und starte nichts.</pre>
+  <p class="note">Der Text ist zum Einfügen als erste Nachricht gedacht. Die Session ändert und startet nichts.</p>
+</article>
+
+<article class="card" id="merge">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="4.5" r="2"/><circle cx="5" cy="16.5" r="2"/><circle cx="14" cy="10.5" r="2"/><path d="M5 6.5v8"/><path d="M5 6.5v.5a3.5 3.5 0 0 0 3.5 3.5h3.5"/><path class="ok" d="m12.5 17.5 3.2 3.2 6-6.7"/></svg>
+    <div class="titles">
+      <h2>Merge</h2>
+      <p class="does">Mergt die offenen PRs in sinnvoller Reihenfolge und löst passende Issues mit.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-merge" id="copy-merge">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-merge">Bring die offenen PRs in „<span class="slot">{Projekt}</span>“ sinnvoll in den Hauptzweig und löse passende Issues gleich mit.
+
+1. PRs: Sieh dir alle offenen PRs an (gh pr list) und lege eine sinnvolle Reihenfolge fest: erst die unabhängigen, dann die, die darauf aufbauen oder dieselben Dateien ändern. Merge jeden PR, dessen Checks grün sind und der keine offenen Befunde hat. Bei einem Konflikt: löse ihn, wenn er eindeutig ist, und lass die Checks neu laufen. Prüfe nach jedem Merge den nächsten gegen den neuen Stand.
+2. Issues: Suche danach die offenen Issues, die klar und klein genug sind oder die der neue Stand schon löst (gh issue list). Löse jedes in einem eigenen Branch mit eigenem PR („Closes #n“), lass die Tests laufen und merge ihn, wenn die Checks grün sind. Was der Stand ohnehin schon erledigt, schließt du mit einem Hinweis.
+
+Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende gibst du mir eine kurze Liste: was gemerged ist, was gelöst wurde und was offen blieb.</pre>
+  <p class="note">Nur bei grünen Checks. Kein Force-Push, keine Entwürfe; was rot ist oder eine Entscheidung braucht, bleibt liegen.</p>
+</article>
+  <p class="foot">Die Texte nennen Ziele und Grenzen, keine feste Gliederung. Was die Session daraus macht, hängt vom Gespräch ab.</p>
+</main>
+<script>
+document.querySelectorAll('.copy').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var el = document.getElementById(btn.dataset.target);
+    var text = el.innerText;
+    function done(ok) {
+      btn.textContent = ok ? 'Kopiert' : 'Markiert, Strg+C drücken';
+      setTimeout(function () { btn.textContent = 'Kopieren'; }, 1800);
+    }
+    function fallback() {
+      var r = document.createRange(); r.selectNodeContents(el);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); done(false);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function () { done(true); }, fallback);
+    } else { fallback(); }
+  });
+});
+</script>
+</body>
+</html>

@@ -78,6 +78,10 @@ These keys hold existing users' data: renaming them or changing their format nee
 
 UI tests find the repository link by its type (`Link`, `href`) and press buttons by their React `key` (`aktualisieren`, `ansicht`, `schliessen`, `falten-<id>`, `oeffnen-<id>`, `archivieren-<id>`, `uebersicht`, `farbe`, `meinung`, `review`, `handoff`, `farbe-<name>`, `abbrechen`, `ausblenden`, `prs`, `issues`, `repo`, `modus-<id>`), so keep those keys stable. Sleep mode is driven through `$.command.run` with `args: 'schlaf'`; the picker's `farbe-<name>` keys then carry the sleep set's names.
 
+## Reviewing the prompts
+
+The band's four prompt buttons (`meinungPrompt`, `reviewPrompt`, `handoffPrompt`, `mergePrompt` in colors.ts) are the part of the mod a reviewer cannot see in a diff of behavior. `/projektfarbe prompts` prints them as one Markdown document (`promptsMarkdown`, with `PROMPT_INFO`: what each button does and what to check), `docs/PROMPTS.md` is that output, and `docs/prompts.html` is a readable page of the same texts. An agent reviewing a change reads `docs/PROMPTS.md` first. The code is the one source: when a prompt or its `PROMPT_INFO` entry changes, regenerate both files (the command's output is the Markdown file; the page is rebuilt from it) so the diff of the docs shows what changed in what the session is asked. A test holds the document to the functions, not the files to the document.
+
 ## Previewing a change
 
 Every change that shows in the band or the panels is previewed in a session of its own before it is merged. This is how it is done every time:

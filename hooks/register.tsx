@@ -36,6 +36,7 @@ import {
   markSeen,
   handoffPrompt,
   meinungPrompt,
+  promptsMarkdown,
   mergePrs,
   modusLabel,
   nameBudget,
@@ -818,6 +819,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
     '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ⇉ Merge + Issues, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
+    '/projektfarbe prompts    die vier Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -928,6 +930,9 @@ export const register: Register = on => {
             ? 'Das Band wurde in dieser Session noch nicht gezeichnet.'
             : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${EINZEILER.map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt, lastBand!.isMono))}`).join(', ')} Zellen.`,
       }
+    }
+    if (arg === 'prompts') {
+      return { text: promptsMarkdown() }
     }
     if (arg === 'bunt') {
       return { text: await switchSatz($, BUNT) }
