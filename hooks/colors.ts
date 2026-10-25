@@ -191,6 +191,23 @@ export function handoffPrompt(projekt: string): string {
   ].join('\n\n')
 }
 
+/**
+ * What the merge button sends the session, as the person's own words: bring the open pull requests into
+ * the main branch in a sensible order, and solve the issues that fit, merging those too. Pressing the
+ * button is the go-ahead for merging; the limits keep it safe (green checks, no force, no drafts) and
+ * what needs a decision stays open and is named.
+ */
+export function mergePrompt(projekt: string): string {
+  return [
+    `Bring die offenen PRs in „${projekt}“ sinnvoll in den Hauptzweig und löse passende Issues gleich mit.`,
+    [
+      '1. PRs: Sieh dir alle offenen PRs an (gh pr list) und lege eine sinnvolle Reihenfolge fest: erst die unabhängigen, dann die, die darauf aufbauen oder dieselben Dateien ändern. Merge jeden PR, dessen Checks grün sind und der keine offenen Befunde hat. Bei einem Konflikt: löse ihn, wenn er eindeutig ist, und lass die Checks neu laufen. Prüfe nach jedem Merge den nächsten gegen den neuen Stand.',
+      '2. Issues: Suche danach die offenen Issues, die klar und klein genug sind oder die der neue Stand schon löst (gh issue list). Löse jedes in einem eigenen Branch mit eigenem PR („Closes #n“), lass die Tests laufen und merge ihn, wenn die Checks grün sind. Was der Stand ohnehin schon erledigt, schließt du mit einem Hinweis.',
+    ].join('\n'),
+    'Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende gibst du mir eine kurze Liste: was gemerged ist, was gelöst wurde und was offen blieb.',
+  ].join('\n\n')
+}
+
 /** A color from a project's name, the same every time: used once every color of the set is taken. */
 function hashFarbe(project: string, satz: Satz): Farbe {
   let hash = 0
@@ -416,12 +433,13 @@ export function contextFill(percent: number, width: number = CONTEXT_CELLS): num
 }
 
 /**
- * The band's layouts, from the roomiest down. The one-row layouts: `voll` writes the three actions out,
- * `icons` turns them into icons, `kompakt` also drops the gauge's word and shortens its bar, `dicht`
- * moves the items closer together, `minimal` keeps only the percentage of the gauge. `zwei` is the
- * last resort: two rows, name and gauge above, counts and icons below.
+ * The band's layouts, from the roomiest down. The actions are icons in all of them (what one does is
+ * the hover card's to say). The one-row layouts: `icons` has the gauge with its word and full bar,
+ * `kompakt` drops the word and shortens the bar, `dicht` moves the items closer together, `minimal`
+ * keeps only the percentage of the gauge. `zwei` is the last resort: two rows, name and gauge above,
+ * counts and icons below.
  */
-export type BandStufe = 'voll' | 'icons' | 'kompakt' | 'dicht' | 'minimal' | 'zwei'
+export type BandStufe = 'icons' | 'kompakt' | 'dicht' | 'minimal' | 'zwei'
 
 /** The gauge's bar in the compact layouts; the roomier ones keep the full `CONTEXT_CELLS`. */
 export const COMPACT_CELLS = 4
@@ -430,8 +448,6 @@ export const COMPACT_CELLS = 4
 export type BandForm = {
   /** The `columnGap` of its rows, in cells. */
   gap: number
-  /** The actions are written out; else they are icons. */
-  isWritten: boolean
   /** The gauge's bar in cells; null: the percentage alone. */
   bar: number | null
   /** The word "Kontext" before the bar. */
@@ -441,11 +457,10 @@ export type BandForm = {
 }
 
 export const BAND_FORMEN: Record<Exclude<BandStufe, 'zwei'>, BandForm> = {
-  voll: { gap: 2, isWritten: true, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
-  icons: { gap: 2, isWritten: false, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
-  kompakt: { gap: 2, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: true },
-  dicht: { gap: 1, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: false },
-  minimal: { gap: 1, isWritten: false, bar: null, hasWord: false, hasSpacer: false },
+  icons: { gap: 2, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
+  kompakt: { gap: 2, bar: COMPACT_CELLS, hasWord: false, hasSpacer: true },
+  dicht: { gap: 1, bar: COMPACT_CELLS, hasWord: false, hasSpacer: false },
+  minimal: { gap: 1, bar: null, hasWord: false, hasSpacer: false },
 }
 
 /** What the band's width depends on, in characters. */
@@ -466,6 +481,8 @@ export type BandInhalt = {
 // the theme's text color, so the stroke is one mid gray that reads on the light and the dark theme alike.
 // Line icons on a 24 grid.
 export const ICON_SVG_COLOR = '#666c78'
+/** The green of the check on the merge icon: mid-tone, like the gray, so it reads on both themes. */
+export const ICON_SVG_OK = '#2ea35e'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
 
@@ -494,6 +511,13 @@ export const ICON_SVG = {
       '<g transform="rotate(-9 14.5 12)"><rect x="7.5" y="6.5" width="14.5" height="11" rx="2"/><path d="m8 8.5 6.8 5.2L21.5 8.5"/></g><path d="M2 9.5h3M1 12.5h4M2.5 15.5h2.5"/>',
     ),
   },
+  // A merge (two commits flowing into one) with a green check: the open pull requests, merged.
+  merge: {
+    alt: 'Offene PRs mergen',
+    source: svgIcon(
+      `<circle cx="5" cy="4.5" r="2"/><circle cx="5" cy="16.5" r="2"/><circle cx="14" cy="10.5" r="2"/><path d="M5 6.5v8"/><path d="M5 6.5v.5a3.5 3.5 0 0 0 3.5 3.5h3.5"/><path d="m12.5 17.5 3.2 3.2 6-6.7" stroke="${ICON_SVG_OK}" stroke-width="2.25"/>`,
+    ),
+  },
   // Three lines: the overview of all sessions.
   uebersicht: {
     alt: 'Übersicht',
@@ -515,21 +539,22 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// Opus-Meinung, Review + PR, Handoff, Übersicht ☰, Farbe ändern, ausblenden: in the order the band draws them.
-const ACTION_CHARS = [12, 11, 7, 11, 12, 10] as const
+// The band's actions, in the order it draws them: opinion, review + PR, handoff, merge, overview, color, hide.
+export const ACTION_COUNT = 7
+// The merge action also shows the number of open pull requests next to its icon: its field is this many
+// cells wider.
+export const MERGE_EXTRA = 1
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
 /** What the band's widths are measured in: the cells a character, a gap and a node take on a surface. */
 type Metrics = {
-  /** Cells per character of plain text, of the bold name and of a button's label. */
+  /** Cells per character of plain text and of the bold name. */
   text: number
   name: number
-  button: number
-  /** Cells of the gap `columnGap: 2` and `columnGap: 1` draw, of the gap between two written-out buttons and between two icon fields. */
+  /** Cells of the gap `columnGap: 2` and `columnGap: 1` draw, and of the gap between two icon fields. */
   gap: number
   gapTight: number
-  buttonGap: number
   iconGap: number
   /** The blank node before the gauge. */
   spacer: number
@@ -539,16 +564,14 @@ type Metrics = {
 
 // Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
 // font, so a character takes less than a cell, the bold name a little more; the gap between the items
-// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), a native button adds some to its own gaps, and the blank
+// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), and the blank
 // spacer before the gauge takes no room of its own. The gauge's bar is a run of blanks on a background:
 // exact cells. The band's padding is less than the engine's marks at its right end, hence the slack.
 const DESKTOP: Metrics = {
   text: 0.83,
   name: 0.89,
-  button: 0.82,
   gap: 2.85,
   gapTight: 1.85,
-  buttonGap: 3.55,
   iconGap: 1.5,
   spacer: 0,
   slack: 0.5,
@@ -558,10 +581,8 @@ const DESKTOP: Metrics = {
 const TERMINAL: Metrics = {
   text: 1,
   name: 1,
-  button: 1,
   gap: 2,
   gapTight: 1,
-  buttonGap: 2,
   iconGap: ICON_GAP,
   spacer: 4,
   slack: 0,
@@ -594,9 +615,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
     const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * m.text
     items.push((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
   }
-  const actions = form.isWritten
-    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * m.button, 0) + (ACTION_CHARS.length - 1) * m.buttonGap
-    : ACTION_CHARS.length * ICON_BOX + (ACTION_CHARS.length - 1) * m.iconGap
+  const actions = ACTION_COUNT * ICON_BOX + MERGE_EXTRA + (ACTION_COUNT - 1) * m.iconGap
 
   return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
 }
@@ -607,7 +626,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
 const HYSTERESIS_CELLS = 1
 
 /** The one-row layouts, the roomiest first. */
-export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['voll', 'icons', 'kompakt', 'dicht', 'minimal']
+export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['icons', 'kompakt', 'dicht', 'minimal']
 
 const STUFEN: readonly BandStufe[] = [...EINZEILER, 'zwei']
 
@@ -691,6 +710,11 @@ export function superscript(count: number): string {
   const digits = [...String(Math.floor(count))].map(d => SUPERSCRIPT[Number(d)]).join('')
 
   return `⁺${digits}`
+}
+
+/** A count label (`3`, `100+`) as small raised characters (`³`, `¹⁰⁰⁺`). */
+export function raised(label: string): string {
+  return [...label].map(c => (c === '+' ? '⁺' : /\d/.test(c) ? SUPERSCRIPT[Number(c)] : c)).join('')
 }
 
 /** The highest seen numbers from the store; anything that is not a number is left out. */

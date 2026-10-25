@@ -28,7 +28,10 @@ import {
   ICON_BOX,
   ICON_GAP,
   ICON_SVG,
+  MERGE_EXTRA,
+  mergePrompt,
   ICON_SVG_SIZE,
+  raised,
   learnPicks,
   markSeen,
   handoffPrompt,
@@ -814,7 +817,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
+    '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ⇉ Merge + Issues, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -1036,7 +1039,6 @@ export const register: Register = on => {
       lastBand = { columns, stufe, inhalt, isMono }
     }
     const form = stufe === 'zwei' ? null : BAND_FORMEN[stufe]
-    const isWritten = form?.isWritten ?? false
     const block = isCalm ? (
       <Text color={hex}>{state.mark}</Text>
     ) : (
@@ -1100,10 +1102,10 @@ export const register: Register = on => {
     }
     // Written out while there is room, else the icon alone (✦ opinion, ↑ review + PR, ☰ overview, ◐ color, ✕ hide), each in a
     // field of one width so the five are evenly spaced. The two session actions stand left of the overview.
+    const mergeBadge = openPrs !== null && openPrs > 0 ? raised(prLabel(openPrs)) : ''
     const defs = [
       {
         key: 'meinung',
-        label: 'Opus-Meinung',
         hint: 'Opus-Meinung im Chat anfordern',
         icon: '✦',
         svg: ICON_SVG.meinung,
@@ -1111,7 +1113,6 @@ export const register: Register = on => {
       },
       {
         key: 'review',
-        label: 'Review + PR',
         hint: 'Review, Commit und Pull Request anfordern',
         icon: '↑',
         svg: ICON_SVG.review,
@@ -1119,15 +1120,22 @@ export const register: Register = on => {
       },
       {
         key: 'handoff',
-        label: 'Handoff',
         hint: 'Übergabe für eine frische Session schreiben lassen',
         icon: '✉',
         svg: ICON_SVG.handoff,
         press: () => bitteSenden($, 'Die Übergabe wurde nicht angefordert', handoffPrompt),
       },
       {
+        key: 'merge',
+        hint: 'Offene PRs mergen und passende Issues lösen',
+        icon: '⇉',
+        svg: ICON_SVG.merge,
+        // The open pull requests as small raised digits at the icon: what it will merge.
+        badge: mergeBadge,
+        press: () => bitteSenden($, 'Merge und Issues wurden nicht gestartet', mergePrompt),
+      },
+      {
         key: 'uebersicht',
-        label: 'Übersicht ☰',
         hint: 'Übersicht',
         icon: '☰',
         svg: ICON_SVG.uebersicht,
@@ -1139,7 +1147,6 @@ export const register: Register = on => {
       },
       {
         key: 'farbe',
-        label: 'Farbe ändern',
         hint: 'Farbe ändern',
         icon: '◐',
         svg: ICON_SVG.farbe,
@@ -1151,7 +1158,6 @@ export const register: Register = on => {
       },
       {
         key: 'ausblenden',
-        label: 'ausblenden',
         hint: 'Band ausblenden',
         icon: '✕',
         svg: ICON_SVG.ausblenden,
@@ -1164,34 +1170,40 @@ export const register: Register = on => {
     // Where the surface has `Svg` (not the terminal) the actions are drawn as vector icons, all of one
     // family so they stand on one line at one height. A Button takes only text, so the icon stands in the
     // field, centered in the row, and a Button of blanks lies over it, in the same cells; the press lands
-    // on the Button.
+    // on the Button. The terminal keeps its text glyphs.
     const elements = $.ui.resolve(e)
     const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : null
     const actions = defs.map(def => {
-      const hasSvg = !isWritten && Svg !== null && def.svg !== undefined
+      const hasSvg = Svg !== null && def.svg !== undefined
+      const width = def.key === 'merge' ? ICON_BOX + MERGE_EXTRA : ICON_BOX
+      const badge = def.badge === undefined || def.badge === '' ? null : <Text dimColor>{def.badge}</Text>
       const button = (
         <Button key={def.key} plain onPress={def.press}>
-          <Text dimColor>{isWritten ? def.label : hasSvg ? NBSP.repeat(ICON_BOX) : def.icon}</Text>
+          <Text dimColor>{hasSvg ? NBSP.repeat(width) : def.icon}</Text>
         </Button>
       )
 
-      return isWritten ? (
-        button
-      ) : (
-        <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center" alignItems="center">
+      return (
+        <Box key={`${def.key}-feld`} width={width} justifyContent="center" alignItems="center">
           {hasSvg && Svg !== null && def.svg !== undefined ? (
             <>
-              <Svg source={def.svg.source} alt={def.svg.alt} width={ICON_SVG_SIZE} height={ICON_SVG_SIZE} />
+              <Box alignItems="center">
+                <Svg source={def.svg.source} alt={def.svg.alt} width={ICON_SVG_SIZE} height={ICON_SVG_SIZE} />
+                {badge}
+              </Box>
               <Box position="absolute" top={0} left={0}>
                 {button}
               </Box>
             </>
           ) : (
-            button
+            <>
+              {button}
+              {badge}
+            </>
           )}
           {/* What the icon does, as a card to its left in the band's own row (a card is clipped to the band),
               shown while the pointer is over the field; the surface does it, no hook runs. */}
-          <Box position="absolute" top={0} right={ICON_BOX} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>
+          <Box position="absolute" top={0} right={width} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>
             <Text>{def.hint}</Text>
           </Box>
         </Box>
@@ -1249,7 +1261,7 @@ export const register: Register = on => {
           {!showsGauge || !form.hasSpacer ? null : <Text>{NBSP.repeat(4)}</Text>}
           {!showsGauge ? null : gauge(form.bar, form.hasWord)}
         </Box>
-        <Box columnGap={isWritten ? 2 : ICON_GAP}>{actions}</Box>
+        <Box columnGap={ICON_GAP}>{actions}</Box>
       </Box>
     )
   })
