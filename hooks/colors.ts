@@ -159,6 +159,24 @@ export function meinungPrompt(projekt: string): string {
   ].join('\n\n')
 }
 
+/**
+ * What the review button sends the session, as the person's own words: check the work, commit it, open
+ * the pull request. Pressing the button is the go-ahead for those three steps, and for nothing beyond
+ * them (no merge, no push to the main branch, no force). Like `meinungPrompt` it states goals and leaves
+ * the how to the session, which knows the repository; where a step cannot be done it stops and says why.
+ */
+export function reviewPrompt(projekt: string): string {
+  return [
+    `Bring die Änderungen in „${projekt}“ bis zum Pull Request: erst prüfen, dann committen, dann den PR öffnen.`,
+    [
+      '1. Review: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist (git status, git diff, bei Bedarf der code-review-Skill). Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was du gefunden und geändert hast.',
+      '2. Commit: Fasse zusammen, was zusammengehört, mit Nachrichten in der Art der letzten Commits. Nimm nur Dateien dieser Arbeit mit, keine Nebenprodukte und keine Geheimnisse.',
+      '3. PR: Pushe den Branch (nie auf den Basis-Branch, nie mit force) und öffne einen Pull Request dagegen, mit einer Beschreibung, die sagt, was sich ändert, warum und was geprüft ist. Mergen tust du nicht.',
+    ].join('\n'),
+    'Wenn einer der Schritte nicht geht (Tests rot, nichts zu committen, kein Remote, ein Befund, der meine Entscheidung braucht), halte an und sag mir, woran es liegt, statt es zu umgehen. Am Ende nennst du mir den Link zum PR.',
+  ].join('\n\n')
+}
+
 /** A color from a project's name, the same every time: used once every color of the set is taken. */
 function hashFarbe(project: string, satz: Satz): Farbe {
   let hash = 0
@@ -432,8 +450,8 @@ export type BandInhalt = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// Opus-Meinung, Übersicht ☰, Farbe ändern, ausblenden: in the order the band draws them.
-const ACTION_CHARS = [12, 11, 12, 10] as const
+// Opus-Meinung, Review + PR, Übersicht ☰, Farbe ändern, ausblenden: in the order the band draws them.
+const ACTION_CHARS = [12, 11, 11, 12, 10] as const
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 

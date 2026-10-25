@@ -35,6 +35,7 @@ import {
   nameBudget,
   neuesterBuild,
   newCount,
+  reviewPrompt,
   planTitle,
   PR_LIMIT,
   prLabel,
@@ -702,19 +703,19 @@ async function openPanel($: Engine): Promise<boolean> {
 }
 
 /**
- * Asks the session for an independent Opus opinion, as a prompt of the person's own (`meinungPrompt`): the
- * session starts an Opus subagent that reads the repository, and the answer stands in the chat like any
- * other, where the person can reply to it.
+ * Sends the session a prompt of the person's own (`asUser`), a turn of its own once the session is idle:
+ * the band's two session actions (the Opus opinion, review + commit + PR) are such prompts, and the answer
+ * is a chat turn the person sees and can reply to. A refused or failing submission is a toast.
  */
-async function meinungAnfordern($: Engine): Promise<void> {
+async function bitteSenden($: Engine, failure: string, text: (projekt: string) => string): Promise<void> {
   try {
     const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
-    const sent = await $.prompt.submit({ text: meinungPrompt(projekt), asUser: true })
+    const sent = await $.prompt.submit({ text: text(projekt), asUser: true })
     if (sent.drop !== undefined) {
-      $.ui.toast(`Die Opus-Meinung wurde nicht angefordert: ${sent.drop}`)
+      $.ui.toast(`${failure}: ${sent.drop}`)
     }
   } catch (error) {
-    $.ui.toast(`Die Opus-Meinung wurde nicht angefordert: ${firstLine(String(error))}`)
+    $.ui.toast(`${failure}: ${firstLine(String(error))}`)
   }
 }
 
@@ -810,7 +811,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ✦ Opus-Meinung, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
+    '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -1094,15 +1095,22 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // Written out while there is room, else the icon alone (✦ opinion, ☰ overview, ◐ color, ✕ hide), each in a
-    // field of one width so the four are evenly spaced. The opinion stands left of the overview.
+    // Written out while there is room, else the icon alone (✦ opinion, ↑ review + PR, ☰ overview, ◐ color, ✕ hide), each in a
+    // field of one width so the five are evenly spaced. The two session actions stand left of the overview.
     const defs = [
       {
         key: 'meinung',
         label: 'Opus-Meinung',
         hint: 'Opus-Meinung im Chat anfordern',
         icon: '✦',
-        press: () => meinungAnfordern($),
+        press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
+      },
+      {
+        key: 'review',
+        label: 'Review + PR',
+        hint: 'Review, Commit und Pull Request anfordern',
+        icon: '↑',
+        press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
       },
       {
         key: 'uebersicht',
