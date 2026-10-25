@@ -846,7 +846,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ☰ Übersicht, ◐ Farbe ändern, ✦ Opus-Meinung, ✕ ausblenden',
+    '                         Symbole im Band: ✦ Opus-Meinung, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -1162,9 +1162,16 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // Written out while there is room, else the icon alone (☰ overview, ◐ color, ✕ hide), each in a
-    // field of one width so the three are evenly spaced.
+    // Written out while there is room, else the icon alone (✦ opinion, ☰ overview, ◐ color, ✕ hide), each in a
+    // field of one width so the four are evenly spaced. The opinion stands left of the overview.
     const defs = [
+      {
+        key: 'meinung',
+        label: 'Opus-Meinung',
+        hint: 'Unabhängige Opus-Meinung öffnen',
+        icon: '✦',
+        press: () => meinungOeffnen($),
+      },
       {
         key: 'uebersicht',
         label: 'Übersicht ☰',
@@ -1186,13 +1193,6 @@ export const register: Register = on => {
           const current = await satzNow($)
           await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
         },
-      },
-      {
-        key: 'meinung',
-        label: 'Opus-Meinung',
-        hint: 'Unabhängige Opus-Meinung öffnen',
-        icon: '✦',
-        press: () => meinungOeffnen($),
       },
       {
         key: 'ausblenden',

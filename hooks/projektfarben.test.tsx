@@ -1479,6 +1479,17 @@ test('the icons press what the written actions do, in every layout', async ($, o
   await ui.unmount()
 })
 
+test('the actions stand in this order, the opinion left of the overview, written out and as icons', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  for (const bodyColumns of [120, 70]) {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+    const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+    await ui.unmount()
+    expect(keys.filter(key => ['meinung', 'uebersicht', 'farbe', 'ausblenden'].includes(key))).toEqual(['meinung', 'uebersicht', 'farbe', 'ausblenden'])
+  }
+})
+
 test('each icon has a hover card saying what it does; the written-out actions need none', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
@@ -1493,7 +1504,7 @@ test('each icon has a hover card saying what it does; the written-out actions ne
   expect(await cardsAt(120)).toHaveLength(0)
   for (const bodyColumns of [70, 56, 48, 42, 30]) {
     const cards = await cardsAt(bodyColumns)
-    expect(cards.map(card => card.text)).toEqual(['Übersicht', 'Farbe ändern', 'Unabhängige Opus-Meinung öffnen', 'Band ausblenden'])
+    expect(cards.map(card => card.text)).toEqual(['Unabhängige Opus-Meinung öffnen', 'Übersicht', 'Farbe ändern', 'Band ausblenden'])
     // Hidden until the pointer is on the icon's field (its `hover` reveals it), and out of the flow, so
     // showing it moves nothing; it stands to the left of the icon's field.
     for (const card of cards) {

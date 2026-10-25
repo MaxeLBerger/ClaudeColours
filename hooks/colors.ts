@@ -457,8 +457,8 @@ export type BandInhalt = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// Übersicht ☰, Farbe ändern, Opus-Meinung, ausblenden: in the order the band draws them.
-const ACTION_CHARS = [11, 12, 12, 10] as const
+// Opus-Meinung, Übersicht ☰, Farbe ändern, ausblenden: in the order the band draws them.
+const ACTION_CHARS = [12, 11, 12, 10] as const
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
