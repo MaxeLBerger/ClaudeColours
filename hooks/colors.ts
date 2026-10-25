@@ -446,12 +446,14 @@ export type BandInhalt = {
   percent: number | null
 }
 
-// The two session actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
-// terminal, which keeps the text glyphs). An `Svg` is an image: it does not take the theme's text color,
-// so the stroke is one mid gray that reads on the light and the dark theme alike. Line icons on a 24 grid.
-export const ICON_SVG_COLOR = '#8b919b'
+// The band's five actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
+// terminal, which keeps the text glyphs). All five are one family, so they share height, weight and
+// color: text glyphs next to them sat lower, smaller and darker. An `Svg` is an image and does not take
+// the theme's text color, so the stroke is one mid gray that reads on the light and the dark theme alike.
+// Line icons on a 24 grid.
+export const ICON_SVG_COLOR = '#666c78'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
-export const ICON_SVG_SIZE = 16
+export const ICON_SVG_SIZE = 14
 
 const svgIcon = (inner: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
@@ -470,6 +472,21 @@ export const ICON_SVG = {
     source: svgIcon(
       '<circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/>',
     ),
+  },
+  // Three lines: the overview of all sessions.
+  uebersicht: {
+    alt: 'Übersicht',
+    source: svgIcon('<path d="M4 6.5h16M4 12h16M4 17.5h16"/>'),
+  },
+  // A half-filled disc: the color.
+  farbe: {
+    alt: 'Farbe ändern',
+    source: svgIcon(`<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="${ICON_SVG_COLOR}"/>`),
+  },
+  // A cross: hide the band.
+  ausblenden: {
+    alt: 'Band ausblenden',
+    source: svgIcon('<path d="M6 6l12 12M18 6 6 18"/>'),
   },
 } as const
 

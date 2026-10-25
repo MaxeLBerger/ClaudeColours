@@ -1366,23 +1366,23 @@ test('the band lays itself out by its cells: written out, icons, a short bar, cl
   expect(wide).toMatchObject({ isStacked: false, actions: ['Übersicht ☰', 'Farbe ändern', 'Opus-Meinung', 'Review + PR', 'ausblenden'], hasWord: true, barCells: 8 })
 
   const medium = await drawBand($, 75)
-  expect(medium).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: true, barCells: 8 })
+  expect(medium).toMatchObject({ isStacked: false, actions: [BLANK, BLANK, BLANK, BLANK, BLANK], hasWord: true, barCells: 8 })
 
   // No word and a bar of four cells; still one row.
   const compact = await drawBand($, 64)
-  expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 4 })
+  expect(compact).toMatchObject({ isStacked: false, actions: [BLANK, BLANK, BLANK, BLANK, BLANK], hasWord: false, barCells: 4 })
 
   // The items closer together, the same bar.
   const dense = await drawBand($, 58)
-  expect(dense).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 4 })
+  expect(dense).toMatchObject({ isStacked: false, actions: [BLANK, BLANK, BLANK, BLANK, BLANK], hasWord: false, barCells: 4 })
 
   // Only the percentage of the gauge is left, in the same row.
   const minimal = await drawBand($, 52)
-  expect(minimal).toMatchObject({ isStacked: false, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 0 })
+  expect(minimal).toMatchObject({ isStacked: false, actions: [BLANK, BLANK, BLANK, BLANK, BLANK], hasWord: false, barCells: 0 })
 
   // Two rows: the gauge stays above, with the name.
   const narrow = await drawBand($, 30)
-  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', BLANK, BLANK, '✕'], hasWord: false, barCells: 4, name: ' Beta' })
+  expect(narrow).toMatchObject({ isStacked: true, actions: [BLANK, BLANK, BLANK, BLANK, BLANK], hasWord: false, barCells: 4, name: ' Beta' })
 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
     'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 111, icons 72, kompakt 61, dicht 55, minimal 50 Zellen.',
@@ -2539,7 +2539,7 @@ test('a refused review request says so in a toast', async ($, on) => {
   expect(toasts).toEqual(['Review und PR wurden nicht gestartet: Stop-Hook'])
 })
 
-test('the two session icons are vector line icons in one gray that reads on both themes', async () => {
+test('the five action icons are vector line icons of one family in one gray that reads on both themes', async () => {
   for (const icon of Object.values(ICON_SVG)) {
     expect(icon.source.startsWith('<svg ')).toBe(true)
     expect(icon.source.endsWith('</svg>')).toBe(true)
@@ -2555,24 +2555,35 @@ test('the two session icons are vector line icons in one gray that reads on both
   expect(Math.max(r, g, b)).toBeLessThan(190)
 })
 
-test('on the desktop the icon layouts draw the session actions as Svg with a Button over each; written out and on the terminal there is none', async ($, on) => {
+test('on the desktop the icon layouts draw every action as Svg, centered in the row, with a Button over each; written out and on the terminal there is none', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   const svgsAt = async (bodyColumns: number, surface: 'desktop' | 'terminal') => {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface })
     const svgs = await ui.findAll({ type: 'Svg' })
     const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+    const fields = (await ui.findAll({ type: 'Box' })).filter(box => String(box.key).endsWith('-feld'))
     await ui.unmount()
 
-    return { svgs, keys }
+    return { svgs, keys, fields }
   }
 
   for (const bodyColumns of [75, 64, 30]) {
-    const { svgs, keys } = await svgsAt(bodyColumns, 'desktop')
-    expect(svgs.map(svg => svg.props.alt)).toEqual([ICON_SVG.meinung.alt, ICON_SVG.review.alt])
+    const { svgs, keys, fields } = await svgsAt(bodyColumns, 'desktop')
+    // One family: same size, in the order of the actions.
+    expect(svgs.map(svg => svg.props.alt)).toEqual(Object.values(ICON_SVG).map(icon => icon.alt))
     expect(svgs.every(svg => svg.props.width === ICON_SVG_SIZE && svg.props.height === ICON_SVG_SIZE)).toBe(true)
     // The Buttons that take the press are still there, in the order of the icons.
-    expect(keys.filter(key => ['meinung', 'review'].includes(key))).toEqual(['meinung', 'review'])
+    expect(keys.filter(key => ['meinung', 'review', 'uebersicht', 'farbe', 'ausblenden'].includes(key))).toEqual([
+      'meinung',
+      'review',
+      'uebersicht',
+      'farbe',
+      'ausblenden',
+    ])
+    // Each field centers its icon in the row, so all stand on one line.
+    expect(fields).toHaveLength(5)
+    expect(fields.every(box => box.props.alignItems === 'center')).toBe(true)
   }
   expect((await svgsAt(120, 'desktop')).svgs).toEqual([])
   expect((await svgsAt(75, 'terminal')).svgs).toEqual([])

@@ -1121,6 +1121,7 @@ export const register: Register = on => {
         label: 'Übersicht ☰',
         hint: 'Übersicht',
         icon: '☰',
+        svg: ICON_SVG.uebersicht,
         press: async () => {
           if (!(await openPanel($))) {
             $.ui.toast('Hier ist kein Platz für das Panel; /projektfarbe status zeigt den Stand als Text.')
@@ -1132,6 +1133,7 @@ export const register: Register = on => {
         label: 'Farbe ändern',
         hint: 'Farbe ändern',
         icon: '◐',
+        svg: ICON_SVG.farbe,
         press: async () => {
           // The picker offers the colors of the set in the store, not of the last turn's reading.
           const current = await satzNow($)
@@ -1143,15 +1145,17 @@ export const register: Register = on => {
         label: 'ausblenden',
         hint: 'Band ausblenden',
         icon: '✕',
+        svg: ICON_SVG.ausblenden,
         press: async () => {
           await $.store.set('bandAus', true)
           await update($, view, v => ({ ...v, isHidden: true }))
         },
       },
     ]
-    // Where the surface has `Svg` (not the terminal) the two session actions are drawn as vector icons. A
-    // Button takes only text, so the icon stands in the field and a Button of blanks lies over it, in the
-    // same cells; the press lands on the Button.
+    // Where the surface has `Svg` (not the terminal) the actions are drawn as vector icons, all of one
+    // family so they stand on one line at one height. A Button takes only text, so the icon stands in the
+    // field, centered in the row, and a Button of blanks lies over it, in the same cells; the press lands
+    // on the Button.
     const elements = $.ui.resolve(e)
     const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : null
     const actions = defs.map(def => {
@@ -1165,7 +1169,7 @@ export const register: Register = on => {
       return isWritten ? (
         button
       ) : (
-        <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center">
+        <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center" alignItems="center">
           {hasSvg && Svg !== null && def.svg !== undefined ? (
             <>
               <Svg source={def.svg.source} alt={def.svg.alt} width={ICON_SVG_SIZE} height={ICON_SVG_SIZE} />
