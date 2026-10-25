@@ -138,49 +138,18 @@ export function projectOf(cwd: string): string | null {
   return name === '' || /^[a-z]:$/i.test(name) ? null : name
 }
 
-// The independent opinion runs on this model as a subagent, which may take minutes.
-export const MEINUNG_MODELL = 'claude-opus-5-5'
-
-// A run older than this is taken as lost (a reload or an app restart drops the subagent), so the button works again.
-export const MEINUNG_STALE_MS = 30 * 60 * 1000
-
-/** Whether an opinion is on its way: asked for, not yet answered, and not so old that it must have been lost. */
-export function meinungLaeuft(state: { isLoading: boolean; um: number | null }, now: number): boolean {
-  return state.isLoading && state.um !== null && now - state.um < MEINUNG_STALE_MS
-}
-
 /**
- * The state once the subagent `turn.agentId` has ended its turn: its answer, or why there is none. Any
- * other subagent's turn is not the question's, and leaves the state as it is.
- */
-export function meinungErgebnis<T extends { text: string | null; fehler: string | null; isLoading: boolean; agentId: string | null }>(
-  state: T,
-  turn: { agentId?: string; reason: string; answer: string },
-): T {
-  if (state.agentId === null || state.agentId !== turn.agentId) {
-    return state
-  }
-  const answer = turn.reason === 'answer' ? turn.answer.trim() : ''
-  const fehler =
-    answer !== ''
-      ? null
-      : turn.reason === 'answer'
-        ? 'Die Opus-Meinung kam leer zurück.'
-        : `Die Opus-Meinung ist nicht fertig geworden (${turn.reason}).`
-
-  return { ...state, agentId: null, isLoading: false, text: answer === '' ? null : answer, fehler }
-}
-
-/**
- * The question the opinion answers. It names no plan of this session on purpose: the model reads the
- * repository itself, so its answer does not follow the person's or Claude's own recommendation.
+ * What the opinion button sends the session, as the person's own words (they would type the same): one
+ * Opus subagent that reads the repository itself. It names no plan of this session and hands the
+ * subagent no conversation, so its view stays independent and carries no unneeded context; the session
+ * then relays the answer and adds where it differs.
  */
 export function meinungPrompt(projekt: string): string {
   return [
-    `Du gibst eine unabhängige zweite Meinung zum Projekt „${projekt}“ in diesem Ordner.`,
-    'Beantworte die Frage selbst aus dem Repository. Du kennst keine Empfehlung von außen. Lies CLAUDE.md und README.md, git status, die letzten Commits (git log) sowie die offenen Pull Requests und Issues (gh pr list, gh issue list).',
-    'Sag dann auf Deutsch und knapp: was jetzt als Nächstes ansteht und in welcher Reihenfolge, was du weglassen würdest und welche Risiken du siehst.',
-    'Stütze jede Aussage auf eine Stelle (Datei, Commit oder Nummer). Ändere nichts.',
+    `Hol eine unabhängige zweite Meinung von Opus zum Stand von „${projekt}“ ein.`,
+    'Starte dafür mit dem Agent-Tool genau einen Subagenten (subagent_type general-purpose, model opus). Gib ihm nur den Projektnamen und die Aufgabe unten mit: keine Zusammenfassung dieses Gesprächs, keine eigene Empfehlung, keinen Plan. So bleibt seine Meinung unabhängig, und es landet kein unnötiger Kontext bei ihm.',
+    'Aufgabe für den Subagenten: Lies selbst CLAUDE.md und README.md, git status, die letzten Commits (git log) sowie die offenen Pull Requests und Issues (gh pr list, gh issue list). Ändere nichts. Sag dann auf Deutsch: was jetzt als Nächstes ansteht und in welcher Reihenfolge, was du weglassen würdest und welche Risiken du siehst. Belege jede Aussage mit einer Stelle (Datei, Commit oder Nummer). Höchstens 25 Zeilen, ohne Einleitung.',
+    'Gib seine Antwort danach unverändert wieder und setze darunter in höchstens fünf Zeilen, wo du anderer Meinung bist. Lies selbst nichts zusätzlich und wiederhole nichts, was ich schon weiß.',
   ].join('\n\n')
 }
 

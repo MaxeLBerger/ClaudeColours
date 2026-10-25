@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, McpContentBlock, Register, TurnCompleteInput } from 'claude-code'
+import type { EngineInterface, McpContentBlock, Register } from 'claude-code'
 
-import type { ProjektfarbenMeinung, ProjektfarbenPanel, ProjektfarbenView } from '../types'
+import type { ProjektfarbenPanel, ProjektfarbenView } from '../types'
 import {
   archiveReason,
   assignFarben,
@@ -29,9 +29,6 @@ import {
   ICON_GAP,
   learnPicks,
   markSeen,
-  MEINUNG_MODELL,
-  meinungErgebnis,
-  meinungLaeuft,
   meinungPrompt,
   mergePrs,
   modusLabel,
@@ -131,11 +128,6 @@ function statusFarbe(status: Status): 'error' | 'warning' | 'success' | 'suggest
 }
 
 const panel = atom({ plugin: 'projektfarben', key: 'uebersicht' } as const, EMPTY_PANEL)
-
-// The independent Opus opinion, shown in its own pane; `meinungEinholen` asks for it.
-const MEINUNG_PANE = 'meinung'
-const EMPTY_MEINUNG: ProjektfarbenMeinung = { projekt: null, text: null, fehler: null, isLoading: false, agentId: null, um: null }
-const meinung = atom({ plugin: 'projektfarben', key: 'meinung' } as const, EMPTY_MEINUNG)
 
 // Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
 // the warning and error colors from where the window is filling up.
@@ -709,49 +701,21 @@ async function openPanel($: Engine): Promise<boolean> {
   return true
 }
 
-/** Opens the pane of the Opus opinion. It starts nothing: the run costs model calls, so the pane asks first. */
-async function meinungOeffnen($: Engine): Promise<void> {
-  const opened = await $.ui.open({ id: MEINUNG_PANE, title: 'Opus-Meinung' })
-  if (!opened.isPlaced) {
-    $.ui.toast('Die Opus-Meinung braucht die Seitenleiste der Desktop-App; hier ist kein Platz dafür.')
-  }
-}
-
 /**
- * Asks Opus for an independent opinion on where the project stands. It runs as a subagent of its own
- * on the engine's client, so no `claude` binary is needed; the subagent reads the repository itself, and
- * its answer comes back as its `turn.complete` (`meinungAntwort`).
+ * Asks the session for an independent Opus opinion, as a prompt of the person's own (`meinungPrompt`): the
+ * session starts an Opus subagent that reads the repository, and the answer stands in the chat like any
+ * other, where the person can reply to it.
  */
-async function meinungEinholen($: Engine): Promise<void> {
-  const um = await $.clock.now()
-  if (meinungLaeuft(await read($, meinung), um)) {
-    $.ui.toast('Die Opus-Meinung läuft noch.')
-
-    return
-  }
-  const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
-  await update($, meinung, m => ({ ...m, projekt, text: null, fehler: null, isLoading: true, agentId: null, um }))
+async function meinungAnfordern($: Engine): Promise<void> {
   try {
-    const { agentId, deny } = await $.agent.spawn({
-      prompt: meinungPrompt(projekt),
-      description: 'Opus-Meinung',
-      subagentType: 'general-purpose',
-      model: MEINUNG_MODELL,
-    })
-    if (agentId === undefined) {
-      await update($, meinung, m => ({ ...m, isLoading: false, fehler: `Die Opus-Meinung wurde nicht gestartet${deny === undefined ? '.' : ': ' + String(deny)}` }))
-
-      return
+    const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
+    const sent = await $.prompt.submit({ text: meinungPrompt(projekt), asUser: true })
+    if (sent.drop !== undefined) {
+      $.ui.toast(`Die Opus-Meinung wurde nicht angefordert: ${sent.drop}`)
     }
-    await update($, meinung, m => ({ ...m, agentId }))
   } catch (error) {
-    await update($, meinung, m => ({ ...m, isLoading: false, fehler: firstLine(String(error)) }))
+    $.ui.toast(`Die Opus-Meinung wurde nicht angefordert: ${firstLine(String(error))}`)
   }
-}
-
-/** The subagent's `turn.complete` answers the question `meinungEinholen` asked; other subagents are not its concern. */
-async function meinungAntwort($: Engine, e: TurnCompleteInput): Promise<void> {
-  await update($, meinung, m => meinungErgebnis(m, e))
 }
 
 // What opens a `claude://` address, tried in turn until one starts: Windows, macOS, Linux.
@@ -874,8 +838,6 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
       void afterTurn($, e.reason).catch(() => undefined)
-    } else {
-      void meinungAntwort($, e).catch(() => undefined)
     }
 
     return next(e)
@@ -983,36 +945,6 @@ export const register: Register = on => {
     }
 
     return { text: await choose($, farbe) }
-  })
-
-  // The independent Opus opinion: the pane explains what it costs, and only its button starts the run.
-  on('ui.render', { component: 'Pane', requestId: MEINUNG_PANE }, async ($, e) => {
-    const { Box, Button, Text } = $.ui.resolve(e)
-    const state = await read($, meinung)
-    const isRunning = meinungLaeuft(state, await $.clock.now())
-    const lines = (state.text ?? '').split(/\r?\n/)
-    const isFresh = state.um === null
-
-    return (
-      <Box flexDirection="column">
-        {state.projekt === null ? null : <Text dimColor>{`Stand von „${state.projekt}“, ohne deine Empfehlung`}</Text>}
-        {isFresh ? (
-          <Text dimColor>Opus beurteilt das Projekt selbst aus dem Repository: was als Nächstes ansteht, was wegfallen kann, welche Risiken es gibt. Das dauert einige Minuten und kostet Modellaufrufe.</Text>
-        ) : null}
-        {isRunning ? <Text dimColor>Opus liest das Repository. Das dauert einige Minuten.</Text> : null}
-        {state.fehler === null ? null : <Text color="error">{state.fehler}</Text>}
-        {lines.map((line, index) => (
-          <Text key={`zeile-${index}`}>{line === '' ? ' ' : line}</Text>
-        ))}
-        {isRunning ? null : (
-          <Box marginTop="lg">
-            <Button key="meinung-start" plain onPress={() => meinungEinholen($)}>
-              <Text dimColor>{isFresh ? 'Opus-Meinung einholen' : 'neu einholen'}</Text>
-            </Button>
-          </Box>
-        )}
-      </Box>
-    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -1168,9 +1100,9 @@ export const register: Register = on => {
       {
         key: 'meinung',
         label: 'Opus-Meinung',
-        hint: 'Unabhängige Opus-Meinung öffnen',
+        hint: 'Opus-Meinung im Chat anfordern',
         icon: '✦',
-        press: () => meinungOeffnen($),
+        press: () => meinungAnfordern($),
       },
       {
         key: 'uebersicht',

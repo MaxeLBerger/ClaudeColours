@@ -49,10 +49,6 @@ import {
   uebersichtText,
   type GhPr,
   type Grund,
-  MEINUNG_MODELL,
-  MEINUNG_STALE_MS,
-  meinungErgebnis,
-  meinungLaeuft,
   meinungPrompt,
 } from './colors'
 
@@ -1504,7 +1500,7 @@ test('each icon has a hover card saying what it does; the written-out actions ne
   expect(await cardsAt(120)).toHaveLength(0)
   for (const bodyColumns of [70, 56, 48, 42, 30]) {
     const cards = await cardsAt(bodyColumns)
-    expect(cards.map(card => card.text)).toEqual(['Unabhängige Opus-Meinung öffnen', 'Übersicht', 'Farbe ändern', 'Band ausblenden'])
+    expect(cards.map(card => card.text)).toEqual(['Opus-Meinung im Chat anfordern', 'Übersicht', 'Farbe ändern', 'Band ausblenden'])
     // Hidden until the pointer is on the icon's field (its `hover` reveals it), and out of the flow, so
     // showing it moves nothing; it stands to the left of the icon's field.
     for (const card of cards) {
@@ -2414,26 +2410,10 @@ test('with a Bramble build the name, PRs and Issues open their pages in the newe
   expect(gh.asked.some(argv => argv.includes('--web'))).toBe(false)
 })
 
-// The independent Opus opinion: the band's button only opens its pane; the pane's button starts the run.
+// The independent Opus opinion: the band's button sends the session a prompt of the person's own.
 
-const MEINUNG = {
-  ...PANE,
-  requestId: 'meinung',
-  props: { ...PANE.props, title: 'Opus-Meinung' },
-} as const
-
-type Spawned = { prompt: string; description: string; model?: string }
-
-/**
- * A session in Beta whose subagents are answered by `spawn`; what was opened, toasted and spawned is
- * recorded. The test kit has no core beneath `agent.spawn`, so a plugin's own spawn never gets an
- * `agentId` back (the engine sets it): the answer of a run is tested through `meinungErgebnis`.
- */
-async function meinungSession(
-  $: TestEngine,
-  on: TestOn,
-  options: { spawn?: (input: Spawned) => unknown; isPlaced?: boolean } = {},
-) {
+/** A session in Beta whose submitted prompts are recorded and answered by `answer`; toasts are recorded too. */
+async function meinungSession($: TestEngine, on: TestOn, answer: (text: string) => unknown = text => ({ text })) {
   const clock = mock.clock(on)
   await clock.set(NOW)
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
@@ -2443,161 +2423,69 @@ async function meinungSession(
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: self.cwd }))
   on('turn.complete', () => ({ text: '' }))
-  const opened: string[] = []
+  const sent: { text: string; origin: unknown }[] = []
   const toasts: string[] = []
-  const spawned: Spawned[] = []
-  on('ui.open', (_, e) => {
-    opened.push(e.id)
+  on('prompt.submit', (_, e) => {
+    sent.push({ text: e.text, origin: e.origin })
 
-    return { value: options.isPlaced === false ? { isPlaced: false, reason: 'no surface' } : { isPlaced: true } }
+    return answer(e.text) as never
   })
   on('ui.toast', (_, e) => {
     toasts.push(e.text)
 
     return { value: undefined }
   })
-  on('agent.spawn', (_, e) => {
-    const input = { prompt: e.prompt, description: e.description, model: e.model }
-    spawned.push(input)
-
-    return (options.spawn ?? (() => ({ model: MEINUNG_MODELL })))(input) as never
-  })
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
 
-  return { clock, opened, toasts, spawned }
+  return { sent, toasts }
 }
 
-/** What the pane shows now, and the keys of its buttons. */
-async function meinungPane($: TestEngine) {
-  const ui = await $.ui.mount({ ...MEINUNG, surface: 'desktop' })
-  const text = (await ui.find({ type: 'Box' }))?.text ?? ''
-  const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
-  await ui.unmount()
-
-  return { text, keys }
+async function pressMeinung($: TestEngine, bodyColumns = 120) {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await band.press({ key: 'meinung' })
+  await band.unmount()
 }
 
-async function pressInPane($: TestEngine, key: string) {
-  const ui = await $.ui.mount({ ...MEINUNG, surface: 'desktop' })
-  await ui.press({ key })
-  await ui.unmount()
-}
-
-test('the question asks for a view of its own, names the project and changes nothing', async () => {
+test('the question sends one Opus subagent to read the repository, with no plan and no conversation', async () => {
   const prompt = meinungPrompt('Beta')
   expect(prompt).toContain('„Beta“')
+  expect(prompt).toContain('subagent_type general-purpose, model opus')
+  expect(prompt).toContain('keine Zusammenfassung dieses Gesprächs, keine eigene Empfehlung, keinen Plan')
   expect(prompt).toContain('Ändere nichts')
   expect(prompt).toContain('git log')
   expect(prompt).toContain('gh pr list')
-  // It carries no plan of this session: the opinion is meant to be independent.
-  expect(prompt).not.toMatch(/Empfehlung (von|des) (Claude|dir)/)
+  // Short answers and no extra reading: the best output with no unneeded context.
+  expect(prompt).toContain('Höchstens 25 Zeilen')
+  expect(prompt).toContain('Lies selbst nichts zusätzlich')
 })
 
-test('an opinion runs until it is answered, and is taken as lost after half an hour', async () => {
-  const asked = 1_000
-  expect(meinungLaeuft({ isLoading: true, um: asked }, asked + 1)).toBe(true)
-  expect(meinungLaeuft({ isLoading: true, um: asked }, asked + MEINUNG_STALE_MS - 1)).toBe(true)
-  expect(meinungLaeuft({ isLoading: true, um: asked }, asked + MEINUNG_STALE_MS)).toBe(false)
-  expect(meinungLaeuft({ isLoading: false, um: asked }, asked + 1)).toBe(false)
-  expect(meinungLaeuft({ isLoading: true, um: null }, asked)).toBe(false)
+test('the opinion button submits the question as the person\'s own words, written out and as an icon', async ($, on) => {
+  const { sent, toasts } = await meinungSession($, on)
+
+  await pressMeinung($, 120)
+  await pressMeinung($, 70)
+  expect(sent.map(prompt => prompt.text)).toEqual([meinungPrompt('Beta'), meinungPrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
 })
 
-test("only the asked subagent's turn is the answer: its text, or why there is none", async () => {
-  const running = { text: null, fehler: null, isLoading: true, agentId: 'ag1' }
-  const turn = { agentId: 'ag1', reason: 'answer', answer: '  Zuerst die Tests.\n\nDann der Rest.  ' }
+test('a refused or failing submission says so in a toast', async ($, on) => {
+  let mode: 'drop' | 'throw' = 'drop'
+  const { toasts } = await meinungSession($, on, () => {
+    if (mode === 'throw') {
+      throw new Error('boom\nsecond line')
+    }
 
-  expect(meinungErgebnis(running, turn)).toEqual({
-    text: 'Zuerst die Tests.\n\nDann der Rest.',
-    fehler: null,
-    isLoading: false,
-    agentId: null,
-  })
-  // Another subagent's end, or none being asked for, changes nothing.
-  expect(meinungErgebnis(running, { ...turn, agentId: 'other' })).toBe(running)
-  const idle = { ...running, isLoading: false, agentId: null }
-  expect(meinungErgebnis(idle, { ...turn, agentId: undefined })).toBe(idle)
-  expect(meinungErgebnis(idle, turn)).toBe(idle)
-
-  expect(meinungErgebnis(running, { ...turn, reason: 'aborted', answer: '' })).toMatchObject({
-    text: null,
-    fehler: 'Die Opus-Meinung ist nicht fertig geworden (aborted).',
-    isLoading: false,
-    agentId: null,
-  })
-  expect(meinungErgebnis(running, { ...turn, answer: '  ' }).fehler).toBe('Die Opus-Meinung kam leer zurück.')
-  // A later answer replaces an older one only through a new run: the id is cleared once answered.
-  const answered = meinungErgebnis(running, turn)
-  expect(meinungErgebnis(answered, { ...turn, answer: 'Zweite Antwort' })).toBe(answered)
-})
-
-test('the band button only opens the pane: nothing runs, and so nothing is paid for, until its own button', async ($, on) => {
-  const { opened, spawned } = await meinungSession($, on)
-
-  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await band.press({ key: 'meinung' })
-  await band.unmount()
-  expect(opened).toEqual(['meinung'])
-  expect(spawned).toEqual([])
-
-  const pane = await meinungPane($)
-  expect(pane.keys).toEqual(['meinung-start'])
-  expect(pane.text).toContain('kostet Modellaufrufe')
-  expect(pane.text).toContain('Opus-Meinung einholen')
-})
-
-test('the pane starts Opus as a subagent on the opinion model, with the question of the project', async ($, on) => {
-  const { spawned } = await meinungSession($, on)
-
-  await pressInPane($, 'meinung-start')
-  expect(spawned).toHaveLength(1)
-  expect(spawned[0]).toMatchObject({ description: 'Opus-Meinung', model: MEINUNG_MODELL })
-  expect(spawned[0].prompt).toBe(meinungPrompt('Beta'))
-})
-
-test('a refused spawn, a spawn without an id and a failing spawn each say so, and can be asked again', async ($, on) => {
-  let mode: 'deny' | 'throw' | 'noid' = 'deny'
-  const { spawned } = await meinungSession($, on, {
-    spawn: () => {
-      if (mode === 'deny') {
-        return { deny: 'Limit erreicht' }
-      }
-      if (mode === 'throw') {
-        throw new Error('boom\nsecond line')
-      }
-
-      return { model: MEINUNG_MODELL }
-    },
+    return { drop: 'Stop-Hook' }
   })
 
-  await pressInPane($, 'meinung-start')
-  let pane = await meinungPane($)
-  expect(pane.text).toContain('Die Opus-Meinung wurde nicht gestartet: Limit erreicht')
-  expect(pane.keys).toEqual(['meinung-start'])
+  await pressMeinung($)
+  expect(toasts).toEqual(['Die Opus-Meinung wurde nicht angefordert: Stop-Hook'])
 
   mode = 'throw'
-  await pressInPane($, 'meinung-start')
-  pane = await meinungPane($)
-  // The error of the engine, its first line.
-  expect(pane.text).toContain('agent.spawn')
-  expect(pane.text).not.toContain('Limit erreicht')
-  expect(pane.keys).toEqual(['meinung-start'])
-
-  mode = 'noid'
-  await pressInPane($, 'meinung-start')
-  pane = await meinungPane($)
-  expect(pane.text).toContain('Die Opus-Meinung wurde nicht gestartet.')
-  expect(pane.text).not.toContain('agent.spawn')
-  expect(pane.keys).toEqual(['meinung-start'])
-  expect(spawned).toHaveLength(3)
-})
-
-test('where no surface places the pane, the band button says so and nothing runs', async ($, on) => {
-  const { toasts, spawned } = await meinungSession($, on, { isPlaced: false })
-
-  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await band.press({ key: 'meinung' })
-  await band.unmount()
-  expect(toasts).toEqual(['Die Opus-Meinung braucht die Seitenleiste der Desktop-App; hier ist kein Platz dafür.'])
-  expect(spawned).toEqual([])
+  await pressMeinung($)
+  expect(toasts).toHaveLength(2)
+  expect(toasts[1]).toMatch(/^Die Opus-Meinung wurde nicht angefordert: /)
+  expect(toasts[1]).not.toContain('second line')
 })
