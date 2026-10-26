@@ -1033,6 +1033,8 @@ export const register: Register = on => {
       prs: countRest(openPrs, state.newPrs).length,
       issues: countRest(openIssues, state.newIssues).length,
       percent: showsGauge ? String(percent).length : null,
+      // New pull requests (the raised "+x") are what makes merging one worth offering.
+      hasTick: state.newPrs > 0,
     }
     // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
     const columns = Number.isFinite(e.props.bodyColumns) ? e.props.bodyColumns : 120
@@ -1065,10 +1067,10 @@ export const register: Register = on => {
     )
     // Only the word is the button: the desktop draws a Button natively and drops the bold count
     // and the colored "+x" inside it, so those stand beside it.
-    const count = (art: Art, label: string, open: number | null, fresh: number) => {
+    const count = (art: Art, label: string, open: number | null, fresh: number, extra: JSX.Element | null = null) => {
       const key = art === 'pr' ? 'prs' : 'issues'
 
-      return (
+      const zahl = (
         <Box key={`${key}-zahl`}>
           <Button key={key} plain dimColor onPress={() => openList($, art)}>
             {label}
@@ -1081,6 +1083,16 @@ export const register: Register = on => {
               </Text>
             )}
           </Text>
+        </Box>
+      )
+
+      // The extra (the merge tick) stands beside the count, not inside it: the count keeps its own box.
+      return extra === null ? (
+        zahl
+      ) : (
+        <Box key={`${key}-reihe`}>
+          {zahl}
+          {extra}
         </Box>
       )
     }
@@ -1123,13 +1135,6 @@ export const register: Register = on => {
         icon: '↑',
         svg: ICON_SVG.review,
         press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
-      },
-      {
-        key: 'mergepr',
-        hint: 'Offenen PR dieser Session mergen',
-        icon: '✓',
-        svg: ICON_SVG.mergepr,
-        press: () => bitteSenden($, 'Der PR wurde nicht gemergt', mergePrPrompt),
       },
       {
         key: 'handoff',
@@ -1186,7 +1191,7 @@ export const register: Register = on => {
     // on the Button. The terminal keeps its text glyphs.
     const elements = $.ui.resolve(e)
     const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : null
-    const actions = defs.map(def => {
+    const feld = (def: (typeof defs)[number]) => {
       const hasSvg = Svg !== null && def.svg !== undefined
       const width = def.key === 'merge' ? ICON_BOX + MERGE_EXTRA : ICON_BOX
       const badge = def.badge === undefined || def.badge === '' ? null : <Text dimColor>{def.badge}</Text>
@@ -1221,7 +1226,20 @@ export const register: Register = on => {
           </Box>
         </Box>
       )
-    })
+    }
+    const actions = defs.map(feld)
+    // The green check behind the PR count: merge the session's pull request. Only while the count shows
+    // new pull requests, which is when there is one to merge.
+    const tick =
+      state.newPrs > 0
+        ? feld({
+            key: 'mergepr',
+            hint: 'Offenen PR dieser Session mergen',
+            icon: '✓',
+            svg: ICON_SVG.mergepr,
+            press: () => bitteSenden($, 'Der PR wurde nicht gemergt', mergePrPrompt),
+          })
+        : null
     const repoUrl = state.repoUrl
     // With a Bramble build the name is a Button that opens the repository there: a Link is opened by
     // the surface, in the system's browser. The block stays beside it, since a Button drops its color.
@@ -1238,7 +1256,7 @@ export const register: Register = on => {
           </Button>
         </Box>
       )
-    const prs = count('pr', 'PRs:', openPrs, state.newPrs)
+    const prs = count('pr', 'PRs:', openPrs, state.newPrs, tick)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
 
     // Too narrow for one row: two rows, name and gauge above, counts and icons below. The gauge stays in

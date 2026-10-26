@@ -581,6 +581,8 @@ export type BandInhalt = {
   issues: number
   /** The digits of the context percentage; null where there is no gauge. */
   percent: number | null
+  /** The green check that merges the session's pull request stands behind the PR count (one icon field). */
+  hasTick?: boolean
 }
 
 // The band's five actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
@@ -612,7 +614,8 @@ export const ICON_SVG = {
       '<circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/>',
     ),
   },
-  // A green check alone: merge the pull request this session has open.
+  // A green check alone: merge the pull request this session has open. It stands behind the PR count while
+  // there are new pull requests.
   mergepr: {
     alt: 'PR dieser Session mergen',
     source: svgIcon(`<path d="m4 12.5 5 5L20 6.5" stroke="${ICON_SVG_OK}" stroke-width="2.25"/>`),
@@ -652,8 +655,8 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// The band's actions, in the order it draws them: opinion, review + PR, merge this PR, handoff, merge, overview, color, hide.
-export const ACTION_COUNT = 8
+// The band's actions, in the order it draws them: opinion, review + PR, handoff, merge, overview, color, hide.
+export const ACTION_COUNT = 7
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
 export const MERGE_EXTRA = 1
@@ -716,7 +719,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
   const gapCells = form.gap === 1 ? m.gapTight : m.gap
   const items = [
     BLOCK_CELLS + (1 + inhalt.name) * m.name,
-    (4 + inhalt.prs) * m.text,
+    (4 + inhalt.prs) * m.text + (inhalt.hasTick === true ? ICON_BOX : 0),
     (7 + inhalt.issues) * m.text,
   ]
   if (inhalt.percent !== null) {
