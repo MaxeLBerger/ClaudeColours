@@ -2362,12 +2362,13 @@ test('Bramble is looked for in its repository and every worktree; the newest bui
   ])
   expect(neuesterBuild([])).toBe(null)
   expect(neuesterBuild([{ path: 'alt', mtimeMs: 1 }, { path: 'neu', mtimeMs: 3 }, { path: 'mitte', mtimeMs: 2 }])).toBe('neu')
-  // Its own profile, so a link never overwrites the tabs the person saved in Bramble.
+  // Its own profile, so a link never overwrites the tabs the person saved in Bramble; no ad blocker, so it stays lean.
   expect(brambleStart('D:\\b.exe', 'https://github.com/me/beta').env).toEqual({
     BRAMBLE_EXE: 'D:\\b.exe',
     LWB_URL: 'https://github.com/me/beta',
     LWB_PROFILE: 'projektfarben',
     LWB_NO_PINS: '1',
+    LWB_ADBLOCK: 'off',
   })
 })
 

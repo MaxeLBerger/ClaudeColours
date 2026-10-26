@@ -1436,6 +1436,9 @@ export const BRAMBLE_HOME = ['Documents', 'Repositories', 'LightWeightBrowser']
 /** The Bramble profile links from the band open in: its own, so they never overwrite the person's saved tabs. */
 export const BRAMBLE_PROFILE = 'projektfarben'
 
+/** `LWB_ADBLOCK` for links from the band: Bramble starts without its built-in ad blocker (uBlock Origin Lite), so it stays lean. */
+export const BRAMBLE_ADBLOCK = 'off'
+
 const winPath = (...parts: string[]): string => parts.map(p => p.replace(/[\\/]+$/, '').replace(/\//g, '\\')).join('\\')
 
 /** The repository folder: `BRAMBLE_REPO` when set, else `BRAMBLE_HOME` under the home folder; null without either. */
@@ -1470,6 +1473,6 @@ export function neuesterBuild(builds: readonly { path: string; mtimeMs: number }
 export function brambleStart(exe: string, url: string): { argv: string[]; env: Record<string, string> } {
   return {
     argv: ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Start-Process -FilePath $env:BRAMBLE_EXE'],
-    env: { BRAMBLE_EXE: exe, LWB_URL: url, LWB_PROFILE: BRAMBLE_PROFILE, LWB_NO_PINS: '1' },
+    env: { BRAMBLE_EXE: exe, LWB_URL: url, LWB_PROFILE: BRAMBLE_PROFILE, LWB_NO_PINS: '1', LWB_ADBLOCK: BRAMBLE_ADBLOCK },
   }
 }
