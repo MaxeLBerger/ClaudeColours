@@ -49,16 +49,22 @@ import {
   uebersichtText,
   type GhPr,
   type Grund,
+  DOCKER_BLUE,
+  erkenneDienste,
   ICON_SVG,
   ICON_SVG_COLOR,
+  ICON_BOX,
+  ICON_SVG_OK,
   ICON_SVG_SIZE,
   handoffPrompt,
   meinungPrompt,
   mergePrompt,
   PROMPT_INFO,
   promptsMarkdown,
+  pruefenPrompt,
   raised,
   reviewPrompt,
+  stackPrompt,
 } from './colors'
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
@@ -91,8 +97,10 @@ const NBSP = String.fromCharCode(0xa0)
 const BLANK = NBSP.repeat(3)
 // The merge field is a cell wider: its icon carries the number of open pull requests.
 const BLANK_MERGE = NBSP.repeat(4)
-// The seven fields drawBand reads, in its own order: overview, color, opinion, review, handoff, merge, hide.
-const ICON_FIELDS = [BLANK, BLANK, BLANK, BLANK, BLANK, BLANK_MERGE, BLANK]
+// The keys of the band's actions, in the order the band draws them (the stack only beside a compose file).
+const ACTION_KEYS = ['meinung', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen']
+// The seven fields drawBand reads, in its own order: overview, settings, opinion, review, handoff, check, merge.
+const ICON_FIELDS = [BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK_MERGE]
 
 const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
@@ -216,7 +224,8 @@ test('the band picks the roomiest layout that fits its cells, and none is roomie
 
 test('the layouts switch where the metrics of the desktop screenshots put them', async () => {
   // ClaudeColours (13 characters, counts 0). The screenshots measured the metrics with three written-out
-  // actions; the actions are seven icon fields now (the merge field a cell wider), so the switch points
+  // actions; the actions are seven icon fields now (the merge field a cell wider; one more beside a compose
+  // file, see `hasStack`), so the switch points
   // are those of the same metrics: the icons with the gauge's word from 90 cells, the short bar from 79,
   // closer together from 73, only the percentage from 68. The margin stays one cell: a row a little too
   // tight broke the gauge in two.
@@ -467,13 +476,14 @@ test('the band shows the project in its color and hides on request', async ($, o
     expect(texts.some(text => /Kontext/.test(text.text))).toBe(false)
     // No gh in this test: the counts show a dimmed ? (unknown) rather than leave a gap.
     expect(await countOf(ui, 'prs')).toBe('PRs: ?')
-    await ui.press({ key: 'farbe' })
+    await ui.press({ key: 'einstellungen' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
     await ui.unmount()
   }
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  await ui.press({ key: 'einstellungen' })
   await ui.press({ key: 'ausblenden' })
   expect(await ui.find({ type: 'Text', text: /Beta/ })).toBe(undefined)
   await ui.unmount()
@@ -872,7 +882,7 @@ test('sleep mode swaps every mark for a calm one, and bunt swaps them back', asy
   const texts = await ui.findAll({ type: 'Text' })
   expect(texts.find(text => text.text === '⬤')?.props).toMatchObject({ color: DAEMMERUNG.farben[0]?.hex })
   expect(texts.some(text => /Alpha/.test(text.text))).toBe(true)
-  await ui.press({ key: 'farbe' })
+  await ui.press({ key: 'einstellungen' })
   expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
   expect(await ui.find({ key: 'farbe-lila' })).toBe(undefined)
   await ui.press({ key: 'abbrechen' })
@@ -938,13 +948,13 @@ test('the color picker switches between the bright colors and sleep mode', async
       .map(text => `${text.props.bold === true ? 'an' : 'aus'}: ${text.text}`)
 
   // The switch sits in the color picker.
-  await ui.press({ key: 'farbe' })
+  await ui.press({ key: 'einstellungen' })
   expect(await modes()).toEqual(['an: 🎨 Bunt', 'aus: 🌙 Dämmerung'])
 
   await ui.press({ key: 'modus-daemmerung' })
   expect(desk.all.map(row => row.title)).toEqual(['⬤ Fix the login bug', '⬤ Write the docs'])
   // The switch closed the picker; opened again it shows the new mode, and its colors.
-  await ui.press({ key: 'farbe' })
+  await ui.press({ key: 'einstellungen' })
   expect(await modes()).toEqual(['aus: 🎨 Bunt', 'an: 🌙 Dämmerung'])
   expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
 
@@ -980,7 +990,7 @@ test('the picker reads the mode from the store: another session may have switche
   kept.set('modus', 'daemmerung')
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  await ui.press({ key: 'farbe' })
+  await ui.press({ key: 'einstellungen' })
   const bold = (await ui.findAll({ type: 'Text' })).filter(text => text.props.bold === true)
   expect(bold.some(text => text.text === modusLabel(DAEMMERUNG))).toBe(true)
   expect(await ui.find({ key: 'farbe-moos' })).toBeDefined()
@@ -1347,12 +1357,12 @@ async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'te
     isStacked: (await ui.find({ type: 'Box' }))?.props.flexDirection === 'column',
     actions: [
       (await ui.find({ key: 'uebersicht' }))?.text,
-      (await ui.find({ key: 'farbe' }))?.text,
+      (await ui.find({ key: 'einstellungen' }))?.text,
       (await ui.find({ key: 'meinung' }))?.text,
       (await ui.find({ key: 'review' }))?.text,
       (await ui.find({ key: 'handoff' }))?.text,
+      (await ui.find({ key: 'pruefen' }))?.text,
       (await ui.find({ key: 'merge' }))?.text,
-      (await ui.find({ key: 'ausblenden' }))?.text,
     ],
     hasWord: texts.some(text => /Kontext/.test(text.text)),
     barCells: texts
@@ -1475,26 +1485,27 @@ test('the icons press what they say, in every layout', async ($, on) => {
 
   for (const bodyColumns of [100, 70, 56, 30]) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
-    await ui.press({ key: 'farbe' })
+    await ui.press({ key: 'einstellungen' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
     await ui.press({ key: 'abbrechen' })
     await ui.unmount()
   }
 
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 30 }, surface: 'desktop' })
+  await ui.press({ key: 'einstellungen' })
   await ui.press({ key: 'ausblenden' })
   expect(await ui.find({ type: 'Text', text: /Beta/ })).toBe(undefined)
   await ui.unmount()
 })
 
-test('the actions stand in this order, the session actions left of the overview, in a wide and a narrow band', async ($, on) => {
+test('the actions stand in this order: the session actions with merge last of them, the overview and settings at the right edge', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   for (const bodyColumns of [100, 70]) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
     const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
     await ui.unmount()
-    expect(keys.filter(key => ['meinung', 'review', 'handoff', 'merge', 'uebersicht', 'farbe', 'ausblenden'].includes(key))).toEqual(['meinung', 'review', 'handoff', 'merge', 'uebersicht', 'farbe', 'ausblenden'])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
   }
 })
 
@@ -1515,10 +1526,10 @@ test('each icon has a hover card saying what it does', async ($, on) => {
       'Opus-Meinung im Chat anfordern',
       'Review, Commit und Pull Request anfordern',
       'Übergabe für eine frische Session schreiben lassen',
+      'Prüfen: Qualität, Tests und e2e mit Playwright',
       'Offene PRs mergen und passende Issues lösen',
       'Übersicht',
-      'Farbe ändern',
-      'Band ausblenden',
+      'Einstellungen: Farbe, Modus, Band ausblenden',
     ])
     // Hidden until the pointer is on the icon's field (its `hover` reveals it), and out of the flow, so
     // showing it moves nothing; it stands to the left of the icon's field.
@@ -1555,7 +1566,7 @@ test('the band on the terminal switches layouts by whole cells, and keeps its te
   // The terminal has no Svg: its icons stay text glyphs.
   const roomy = await drawBand($, 84, 'terminal')
   expect(roomy.hasWord).toBe(true)
-  expect(roomy.actions).toEqual(['☰', '◐', '✦', '↑', '✉', '⇉', '✕'])
+  expect(roomy.actions).toEqual(['☰', '⚙', '✦', '↑', '✉', '✓', '⇉'])
   expect((await drawBand($, 83, 'terminal')).hasWord).toBe(false)
 })
 
@@ -2552,20 +2563,56 @@ test('a refused review request says so in a toast', async ($, on) => {
   expect(toasts).toEqual(['Review und PR wurden nicht gestartet: Stop-Hook'])
 })
 
-test('the seven action icons are vector line icons of one family in one gray that reads on both themes', async () => {
-  for (const icon of Object.values(ICON_SVG)) {
+test('the action icons are vector line icons of one family in one gray that reads on both themes, bar the Docker logo', async () => {
+  for (const [key, icon] of Object.entries(ICON_SVG)) {
     expect(icon.source.startsWith('<svg ')).toBe(true)
     expect(icon.source.endsWith('</svg>')).toBe(true)
-    expect(icon.source).toContain('viewBox="0 0 24 24"')
-    expect(icon.source).toContain(`stroke="${ICON_SVG_COLOR}"`)
     expect(icon.source).not.toMatch(/<script|on\w+=|currentColor/)
     expect(icon.source.length).toBeLessThan(131072)
     expect(icon.alt).not.toBe('')
+    // The logo and the written-out e2e have a size of their own; the line icons stand on the 24 grid.
+    if (key !== 'stack' && key !== 'pruefen') {
+      expect(icon.source).toContain('viewBox="0 0 24 24"')
+    }
+    if (key !== 'stack') {
+      expect(icon.source).toContain(`stroke="${ICON_SVG_COLOR}"`)
+    }
   }
   // An image takes no theme color: the one gray has to be mid-tone, neither near white nor near black.
   const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(ICON_SVG_COLOR.slice(i, i + 2), 16))
   expect(Math.min(r, g, b)).toBeGreaterThan(90)
   expect(Math.max(r, g, b)).toBeLessThan(190)
+})
+
+test('the Docker logo is the original in its blue with a green rebuild arrow, drawn in its own proportions', async () => {
+  const { stack } = ICON_SVG
+  expect(stack.source).toContain('viewBox="0 0 1350 780"')
+  // Nine containers and the whale in Docker's blue, the arrow in the family's green.
+  expect(stack.source.match(new RegExp(`<rect [^>]*fill="${DOCKER_BLUE}"`, 'g'))).toHaveLength(9)
+  expect(stack.source).toContain(`<path fill="${DOCKER_BLUE}"`)
+  expect(stack.source).toContain(`stroke="${ICON_SVG_OK}"`)
+  // The logo's proportions, at the height of the line icons' drawing.
+  expect(Math.abs(stack.width / stack.height - 1350 / 780)).toBeLessThan(0.02)
+  expect(stack.height).toBeLessThan(ICON_SVG_SIZE)
+})
+
+test('the e2e icon is wider than the square but fits its field, in its own proportions', async () => {
+  const { pruefen } = ICON_SVG
+  expect(pruefen.source).toContain('viewBox="0 0 37.9 24"')
+  expect(Math.abs(pruefen.width / pruefen.height - 37.9 / 24)).toBeLessThan(0.02)
+  // A field is `ICON_BOX` cells of about 7.75 px on the desktop; the icon stays inside it.
+  expect(pruefen.width).toBeLessThanOrEqual(ICON_BOX * 7.75)
+  expect(pruefen.height).toBeLessThanOrEqual(ICON_SVG_SIZE)
+})
+
+test('a compose file in the folder is a Docker stack, in its usual names', async () => {
+  for (const name of ['docker-compose.yml', 'docker-compose.override.yml', 'compose.yaml', 'compose.dev.yml', 'Docker-Compose.YML']) {
+    expect(erkenneDienste([name]).hasCompose).toBe(true)
+  }
+  for (const name of ['Dockerfile', 'compose.md', 'docker-compose.ts', 'my-compose.yml', 'docker-compose']) {
+    expect(erkenneDienste([name]).hasCompose).toBe(false)
+  }
+  expect(erkenneDienste([]).hasCompose).toBe(false)
 })
 
 test('on the desktop every action is drawn as Svg, centered in the row, with a Button over each; on the terminal there is none', async ($, on) => {
@@ -2581,26 +2628,43 @@ test('on the desktop every action is drawn as Svg, centered in the row, with a B
     return { svgs, keys, fields }
   }
 
+  // No compose file here, so no stack: the other seven, in the band's order.
+  const icons = Object.entries(ICON_SVG).filter(([key]) => key !== 'stack')
   for (const bodyColumns of [100, 75, 64, 30]) {
     const { svgs, keys, fields } = await svgsAt(bodyColumns, 'desktop')
-    // One family: same size, in the order of the actions.
-    expect(svgs.map(svg => svg.props.alt)).toEqual(Object.values(ICON_SVG).map(icon => icon.alt))
-    expect(svgs.every(svg => svg.props.width === ICON_SVG_SIZE && svg.props.height === ICON_SVG_SIZE)).toBe(true)
+    expect(svgs.map(svg => svg.props.alt)).toEqual(icons.map(([, icon]) => icon.alt))
+    // Square at the family's size, bar the e2e, which is as wide as its field takes.
+    expect(svgs.map(svg => [svg.props.width, svg.props.height])).toEqual(
+      icons.map(([, icon]) => ('width' in icon ? [icon.width, icon.height] : [ICON_SVG_SIZE, ICON_SVG_SIZE])),
+    )
     // The Buttons that take the press are still there, in the order of the icons.
-    expect(keys.filter(key => ['meinung', 'review', 'handoff', 'merge', 'uebersicht', 'farbe', 'ausblenden'].includes(key))).toEqual([
-      'meinung',
-      'review',
-      'handoff',
-      'merge',
-      'uebersicht',
-      'farbe',
-      'ausblenden',
-    ])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
     // Each field centers its icon in the row, so all stand on one line.
     expect(fields).toHaveLength(7)
     expect(fields.every(box => box.props.alignItems === 'center')).toBe(true)
   }
   expect((await svgsAt(75, 'terminal')).svgs).toEqual([])
+})
+
+test('beside a compose file the band offers the stack rebuild, before the check, in the logo\'s own size', async ($, on) => {
+  const cwd = `${BETA}\\.claude\\worktrees\\a`
+  on('fs.list', () => ({
+    value: ['docker-compose.yml', 'README.md'].map(name => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
+  }))
+  await startBand($, on, cwd)
+
+  for (const bodyColumns of [100, 70, 30]) {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+    const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+    const svgs = await ui.findAll({ type: 'Svg' })
+    await ui.unmount()
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
+    expect(svgs.map(svg => svg.props.alt)).toEqual(Object.values(ICON_SVG).map(icon => icon.alt))
+    const logo = svgs.find(svg => svg.props.alt === ICON_SVG.stack.alt)
+    expect(logo?.props).toMatchObject({ width: ICON_SVG.stack.width, height: ICON_SVG.stack.height })
+  }
+  // One more action takes more room than the seven.
+  expect(bandBreite('icons', { ...ZIEL, hasStack: true })).toBeGreaterThan(bandBreite('icons', ZIEL))
 })
 
 async function pressHandoff($: TestEngine, bodyColumns = 100) {
@@ -2707,10 +2771,86 @@ test('the merge icon carries the number of open pull requests as raised digits, 
   expect(await badges('terminal')).toEqual(['³'])
 })
 
+async function pressKey($: TestEngine, key: string, bodyColumns = 100) {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await band.press({ key })
+  await band.unmount()
+}
+
+test('the check prompt goes from quality to tests to the real flow, may set up Playwright, and keeps its limits', async () => {
+  const prompt = pruefenPrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  const order = ['1. Qualität', '2. Tests', '3. E2E', '4. Stack'].map(step => prompt.indexOf(step))
+  expect(order.every(at => at >= 0)).toBe(true)
+  expect(order).toEqual([...order].sort((a, b) => a - b))
+  // Tests that would be red without the change; production code is left alone.
+  expect(prompt).toContain('Tests, die ohne die Änderung rot wären')
+  expect(prompt).toContain('Produktivcode änderst du dafür nicht')
+  // The real flow: Playwright, set up if missing and said so; the project's own skills first; snapshots reported.
+  expect(prompt).toContain('mit Playwright')
+  expect(prompt).toContain('richte es minimal ein und sag mir, was du installiert hast')
+  expect(prompt).toContain('Nutze die Skills und Skripte des Projekts')
+  expect(prompt).toContain('melde Abweichungen, statt sie ungefragt zu aktualisieren')
+  expect(prompt).toContain('Das ist nur lesen')
+  // Limits.
+  expect(prompt).toContain('nichts pushen, nichts mergen, keine Tests löschen oder abschwächen')
+  expect(prompt).toContain('halte an und sag mir, woran es liegt')
+})
+
+test('the stack prompt looks before it builds, builds without touching data, and checks the running state', async () => {
+  const prompt = stackPrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  const order = ['1. Vorher', '2. Bauen', '3. Danach'].map(step => prompt.indexOf(step))
+  expect(order.every(at => at >= 0)).toBe(true)
+  expect(order).toEqual([...order].sort((a, b) => a - b))
+  // Something live and armed stops it.
+  expect(prompt).toContain('Live-Konto')
+  expect(prompt).toContain('halte an und frag mich')
+  expect(prompt).toContain('docker compose -p <Projektname> up -d --build')
+  // The running state is the folder's: health and a state marker.
+  expect(prompt).toContain('Health-Endpunkt')
+  expect(prompt).toContain('Git-SHA, Version oder Build-Zeit')
+  // Limits that keep a stack with data safe.
+  expect(prompt).toContain('kein docker compose down mit -v')
+  expect(prompt).toContain('keine Volumes oder Daten löschen')
+  expect(prompt).toContain('keine Container anfassen, die nicht zu diesem Stack gehören')
+})
+
+test('the check and stack buttons submit their prompts as the person\'s own words, and a refusal is a toast', async ($, on) => {
+  on('fs.list', () => ({
+    value: [{ name: 'compose.yaml', kind: 'file', size: 0, mtimeMs: 0, isLink: false }],
+  }))
+  let isRefused = false
+  const { sent, toasts } = await meinungSession($, on, text => (isRefused ? { drop: 'Stop-Hook' } : { text }))
+
+  await pressKey($, 'pruefen', 100)
+  await pressKey($, 'stack', 70)
+  expect(sent.map(prompt => prompt.text)).toEqual([pruefenPrompt('Beta'), stackPrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
+
+  isRefused = true
+  await pressKey($, 'pruefen')
+  await pressKey($, 'stack')
+  expect(toasts).toEqual(['Die Prüfung wurde nicht gestartet: Stop-Hook', 'Der Stack wurde nicht neu gebaut: Stop-Hook'])
+})
+
+test('the settings icon opens the color picker with the mode switch and the hide button', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ key: 'ausblenden' })).toBe(undefined)
+  await ui.press({ key: 'einstellungen' })
+  expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
+  expect(await ui.find({ key: 'modus-daemmerung' })).toBeDefined()
+  expect(await ui.find({ key: 'ausblenden' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('the prompts document shows what each button does, what to check, and the text itself', async () => {
   const doc = promptsMarkdown()
   expect(doc.startsWith('# Prompts hinter den Band-Knöpfen')).toBe(true)
-  expect(PROMPT_INFO.map(info => info.key)).toEqual(['meinung', 'review', 'handoff', 'merge'])
+  expect(PROMPT_INFO.map(info => info.key)).toEqual(['meinung', 'review', 'handoff', 'merge', 'pruefen', 'stack'])
   for (const info of PROMPT_INFO) {
     expect(doc).toContain(`## ${info.name} (\`${info.key}\`)`)
     expect(doc).toContain(info.does)
