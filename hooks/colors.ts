@@ -208,6 +208,51 @@ export function mergePrompt(projekt: string): string {
   ].join('\n\n')
 }
 
+/**
+ * What the check button sends the session, as the person's own words: static checks, then tests for the
+ * change, then the real flow in a browser (Playwright), and, where there is a Docker stack, a read of its
+ * health. It may write tests and set up Playwright, and nothing beyond that: no push, no merge, no tests
+ * weakened. Where a step cannot be done it stops and says why.
+ */
+export function pruefenPrompt(projekt: string): string {
+  return [
+    `Prüf „${projekt}“ gründlich, bevor ich es weitergebe: erst die statische Prüfung, dann die Tests, dann der echte Ablauf im Browser.`,
+    [
+      '1. Qualität: Lass Lint, Typprüfung und Formatierung des Projekts über die geänderten Dateien laufen (siehe CLAUDE.md oder README) und behebe, was sie finden. Keine Regeln abschwächen, nichts mit Ausnahmen stummschalten.',
+      '2. Tests: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist, und schreib Tests für die Pfade, die noch keiner abdeckt: Tests, die ohne die Änderung rot wären. Lass danach die ganze Suite laufen. Produktivcode änderst du dafür nicht; findest du darin einen Fehler, nenne ihn mir.',
+      '3. E2E: Starte die App wirklich und geh den geänderten Ablauf mit Playwright durch. Nutze die Skills und Skripte des Projekts, falls es welche gibt (siehe CLAUDE.md und .claude/skills); fehlt Playwright, richte es minimal ein und sag mir, was du installiert hast. Mach Screenshots der wichtigen Stellen. Wo es schon Snapshots gibt, melde Abweichungen, statt sie ungefragt zu aktualisieren. Lohnt sich der Durchlauf als bleibender Test, leg ihn als Spec an.',
+      '4. Stack: Läuft ein Docker-Stack dieses Projekts, sieh danach in Container-Status und Logs nach Fehlern. Das ist nur lesen.',
+    ].join('\n'),
+    'Grenzen: nichts pushen, nichts mergen, keine Tests löschen oder abschwächen. Lässt sich die App nicht starten oder braucht ein Schritt meine Entscheidung, halte an und sag mir, woran es liegt, statt es zu umgehen. Am Ende eine kurze Liste: was geprüft ist, was du geändert hast, was rot blieb und was du nicht prüfen konntest.',
+  ].join('\n\n')
+}
+
+/**
+ * What the stack button sends the session, as the person's own words: rebuild the repository's Docker
+ * stack from this folder and check that it runs this state. It runs where the project has a compose file.
+ * Pressing it is the go-ahead for building and starting; the limits keep a stack with real data safe (no
+ * volumes removed, nothing outside the stack touched, a stop where something live is armed).
+ */
+export function stackPrompt(projekt: string): string {
+  return [
+    `Bau den Docker-Stack von „${projekt}“ auf dem Stand dieses Ordners neu, damit er läuft, was hier liegt.`,
+    [
+      '1. Vorher: Finde die Compose-Datei und den Projektnamen des Stacks (docker compose ls, `name:` in der Datei). Lies, ob er gegen ein Live-Konto oder mit einer Live-Freigabe läuft (Umgebungsvariablen, Konfiguration, CLAUDE.md), und nenn mir, was du gefunden hast. Ist etwas Live-Scharfes aktiv oder bleibt es unklar, halte an und frag mich.',
+      '2. Bauen: Bau die Images neu und starte die Dienste mit docker compose -p <Projektname> up -d --build aus diesem Ordner.',
+      '3. Danach: Warte, bis die Container gesund sind, frag den Health-Endpunkt ab und prüf, dass der laufende Stand dem dieses Ordners entspricht (Git-SHA, Version oder Build-Zeit). Lies die Logs der ersten Minuten auf Fehler.',
+    ].join('\n'),
+    'Grenzen: kein docker compose down mit -v, keine Volumes oder Daten löschen, keine Datenbank zurücksetzen, keine Container anfassen, die nicht zu diesem Stack gehören. Bleibt ein Dienst rot oder passt der Stand nicht, sag mir, was du siehst, statt weiterzubasteln. Am Ende: welche Container laufen, auf welchem Stand, und was dir aufgefallen ist.',
+  ].join('\n\n')
+}
+
+/**
+ * What a project's folder offers the band, from the names in it: a Docker stack shows the rebuild
+ * button. Matches `docker-compose.yml`, `compose.yaml` and their `.override` / `.dev` forms.
+ */
+export function erkenneDienste(namen: readonly string[]): { hasCompose: boolean } {
+  return { hasCompose: namen.some(name => /^(docker-)?compose(\.[\w-]+)*\.ya?ml$/i.test(name)) }
+}
+
 /** What each prompt button does and what a review of it checks, for `promptsMarkdown`. */
 export const PROMPT_INFO = [
   {
@@ -252,6 +297,29 @@ export const PROMPT_INFO = [
       'Was rot ist, eine Entscheidung braucht oder unklar bleibt, bleibt liegen und wird mit Grund genannt.',
     ],
     text: mergePrompt,
+  },
+  {
+    key: 'pruefen',
+    name: 'Prüfen (e2e)',
+    does: 'Prüft die Änderung in vier Schritten: Qualität, Tests für den Diff, der echte Ablauf mit Playwright und, wo es einen Stack gibt, ein Blick in seine Logs.',
+    checks: [
+      'Die Reihenfolge ist Qualität, Tests, E2E, Stack.',
+      'Playwright darf eingerichtet werden, und die Session sagt, was sie installiert hat.',
+      'Kein Push, kein Merge, keine gelöschten oder abgeschwächten Tests; Snapshots werden gemeldet, nicht ungefragt erneuert.',
+      'Der Stack wird nur gelesen.',
+    ],
+    text: pruefenPrompt,
+  },
+  {
+    key: 'stack',
+    name: 'Stack neu bauen',
+    does: 'Baut den Docker-Stack des Projekts auf dem Stand des Ordners neu und prüft, dass er diesen Stand läuft. Der Knopf erscheint nur, wo eine Compose-Datei liegt.',
+    checks: [
+      'Vor dem Bauen wird geprüft, ob etwas Live-Scharfes aktiv ist; dann hält die Session an und fragt.',
+      'Kein `down -v`, keine Volumes oder Daten gelöscht, keine fremden Container angefasst.',
+      'Danach Health und Stand (SHA, Version oder Build-Zeit) geprüft.',
+    ],
+    text: stackPrompt,
   },
 ] as const
 
@@ -551,21 +619,26 @@ export type BandInhalt = {
   issues: number
   /** The digits of the context percentage; null where there is no gauge. */
   percent: number | null
+  /** True where the project has a Docker stack: one more action, the rebuild. */
+  hasStack?: boolean
 }
 
-// The band's five actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
-// terminal, which keeps the text glyphs). All five are one family, so they share height, weight and
+// The band's actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
+// terminal, which keeps the text glyphs). They are one family (the Docker logo is the one exception, and
+// the written-out e2e has a width of its own), so they share height, weight and
 // color: text glyphs next to them sat lower, smaller and darker. An `Svg` is an image and does not take
 // the theme's text color, so the stroke is one mid gray that reads on the light and the dark theme alike.
 // Line icons on a 24 grid.
 export const ICON_SVG_COLOR = '#666c78'
 /** The green of the check on the merge icon: mid-tone, like the gray, so it reads on both themes. */
 export const ICON_SVG_OK = '#2ea35e'
+/** Docker's own blue, for its logo: an image takes no theme color, and this one reads on both themes. */
+export const DOCKER_BLUE = '#2496ED'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
 
-const svgIcon = (inner: string): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
+const svgIcon = (inner: string, viewBox = '0 0 24 24'): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
 
 export const ICON_SVG = {
   // A doctoral cap with a spark: the independent second opinion.
@@ -589,6 +662,43 @@ export const ICON_SVG = {
       '<g transform="rotate(-9 14.5 12)"><rect x="7.5" y="6.5" width="14.5" height="11" rx="2"/><path d="m8 8.5 6.8 5.2L21.5 8.5"/></g><path d="M2 9.5h3M1 12.5h4M2.5 15.5h2.5"/>',
     ),
   },
+  // The Docker whale carrying its containers, with a green circular arrow: rebuild the stack. The logo is
+  // the one exception to the gray line family: it is drawn as the original, filled in Docker's blue, and
+  // wider than tall, so it has a size of its own. The band shows it only where a compose file lies.
+  stack: {
+    alt: 'Docker-Stack neu bauen',
+    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1350 780" fill="none">${[
+      [297, 227],
+      [419, 227],
+      [543, 227],
+      [665, 227],
+      [789, 227],
+      [419, 113],
+      [543, 113],
+      [665, 113],
+      [665, 0],
+    ]
+      .map(([x, y]) => `<rect x="${x}" y="${y}" width="104" height="94" rx="8" fill="${DOCKER_BLUE}"/>`)
+      .join(
+        '',
+      )}<path fill="${DOCKER_BLUE}" d="M243 340H903C925 340 955 335 978 323C955 290 950 250 960 212C968 182 980 160 996 138L1018 151C1052 170 1076 207 1082 254C1122 248 1175 250 1209 272L1216 278L1211 292C1200 325 1160 377 1060 378C1000 540 920 640 780 690C690 715 620 719 562 719C470 719 390 705 340 680C255 640 212 520 212 372C212 355 226 340 243 340Z"/><g transform="translate(1000 420) scale(14.17)" stroke="${ICON_SVG_OK}" stroke-width="3.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4.5M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4.5"/></g></svg>`,
+    // The logo's own proportions (1350 by 780) at the height of the line icons' drawing.
+    width: 18,
+    height: 10.4,
+  },
+  // "e2e" written out, the 2 in the check's green: check the change, tests and the real flow in a browser.
+  // Round letters with an open counter (narrow ones read as "0 2 0" at this size), so it is wider than the
+  // square, as wide as its field takes: a size of its own.
+  pruefen: {
+    alt: 'Prüfen: Tests und e2e',
+    source: svgIcon(
+      `<path d="M2.125 12h10a5 5 0 1 0-1.46 3.54"/><path d="M15.275 9.6a3.6 3.6 0 1 1 6.72 1.8C21.2 14 17.8 15.8 15.275 18h7.2" stroke="${ICON_SVG_OK}"/><path d="M25.725 12h10a5 5 0 1 0-1.46 3.54"/>`,
+      '0 0 37.9 24',
+    ),
+    // The viewBox's proportions (37.9 by 24) at the height of the drawing.
+    width: 21,
+    height: 13.3,
+  },
   // A merge (two commits flowing into one) with a green check: the open pull requests, merged.
   merge: {
     alt: 'Offene PRs mergen',
@@ -601,17 +711,14 @@ export const ICON_SVG = {
     alt: 'Übersicht',
     source: svgIcon('<path d="M3 3.5h18M3 12h18M3 20.5h18"/>'),
   },
-  // A half-filled disc: the color.
-  farbe: {
-    alt: 'Farbe ändern',
-    source: svgIcon(`<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="${ICON_SVG_COLOR}"/>`),
+  // A cogwheel: the settings (color, mode, hide the band).
+  einstellungen: {
+    alt: 'Einstellungen',
+    source: svgIcon(
+      '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    ),
   },
-  // A cross: hide the band.
-  ausblenden: {
-    alt: 'Band ausblenden',
-    source: svgIcon('<path d="M3.5 3.5l17 17M20.5 3.5l-17 17"/>'),
-  },
-} as const
+} as const satisfies Record<string, { alt: string; source: string; width?: number; height?: number }>
 
 // An icon's field and the gap between two: three icons take as many cells as `ICON_BOX` and `ICON_GAP` say.
 export const ICON_BOX = 3
@@ -693,7 +800,8 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
     const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * m.text
     items.push((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
   }
-  const actions = ACTION_COUNT * ICON_BOX + MERGE_EXTRA + (ACTION_COUNT - 1) * m.iconGap
+  const count = ACTION_COUNT + (inhalt.hasStack === true ? 1 : 0)
+  const actions = count * ICON_BOX + MERGE_EXTRA + (count - 1) * m.iconGap
 
   return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
 }

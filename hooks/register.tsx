@@ -12,6 +12,7 @@ import {
   brambleStart,
   bandStufe,
   EINZEILER,
+  erkenneDienste,
   bereichOf,
   buildBereiche,
   buildUebersicht,
@@ -37,6 +38,8 @@ import {
   handoffPrompt,
   meinungPrompt,
   promptsMarkdown,
+  pruefenPrompt,
+  stackPrompt,
   mergePrs,
   modusLabel,
   nameBudget,
@@ -106,6 +109,7 @@ const EMPTY: ProjektfarbenView = {
   satz: BUNT.id,
   isPicking: false,
   isHidden: false,
+  hasStack: false,
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 
@@ -310,6 +314,17 @@ async function readContext($: Engine): Promise<number | null> {
   }
 }
 
+/** True where the session's folder holds a compose file: the band then offers the stack rebuild. */
+async function readDienste($: Engine, cwd: string): Promise<boolean> {
+  try {
+    const entries = await $.fs.list(cwd)
+
+    return erkenneDienste(entries.filter(entry => entry.kind === 'file').map(entry => entry.name)).hasCompose
+  } catch {
+    return false
+  }
+}
+
 /** Reads the project, its color and the context fill into the band's state. */
 async function refreshView($: Engine, cwd: string): Promise<void> {
   const satz = await satzNow($)
@@ -318,6 +333,7 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
     project === null ? null : farbeFor(project, await ensurePicks($, [project], satz), satz)
   const isHidden = (await $.store.get('bandAus')) === true
   const percent = await readContext($)
+  const hasStack = await readDienste($, cwd)
   await update($, view, v => ({
     ...v,
     project,
@@ -326,6 +342,7 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
     contextPercent: percent,
     satz: satz.id,
     isHidden,
+    hasStack,
   }))
   await refreshNew($, cwd)
 }
@@ -818,8 +835,8 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ⇉ Merge + Issues, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
-    '/projektfarbe prompts    die vier Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
+    '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
+    '/projektfarbe prompts    die Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -1014,6 +1031,18 @@ export const register: Register = on => {
             ))}
             <Text dimColor>benennt alle Sessions um</Text>
           </Box>
+          <Box marginTop="lg">
+            <Button
+              key="ausblenden"
+              plain
+              onPress={async () => {
+                await $.store.set('bandAus', true)
+                await update($, view, v => ({ ...v, isPicking: false, isHidden: true }))
+              }}
+            >
+              <Text dimColor>Band ausblenden</Text>
+            </Button>
+          </Box>
         </Box>
       )
     }
@@ -1032,6 +1061,7 @@ export const register: Register = on => {
       prs: countRest(openPrs, state.newPrs).length,
       issues: countRest(openIssues, state.newIssues).length,
       percent: showsGauge ? String(percent).length : null,
+      hasStack: state.hasStack,
     }
     // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
     const columns = Number.isFinite(e.props.bodyColumns) ? e.props.bodyColumns : 120
@@ -1105,8 +1135,9 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // Written out while there is room, else the icon alone (✦ opinion, ↑ review + PR, ☰ overview, ◐ color, ✕ hide), each in a
-    // field of one width so the five are evenly spaced. The two session actions stand left of the overview.
+    // The actions in the band's order (✦ opinion, ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
+    // ✓ check, ⇉ merge, then ☰ overview and ⚙ settings at the right edge), each in a field of one width so
+    // they are evenly spaced.
     const mergeBadge = openPrs !== null && openPrs > 0 ? raised(prLabel(openPrs)) : ''
     const defs = [
       {
@@ -1131,6 +1162,20 @@ export const register: Register = on => {
         press: () => bitteSenden($, 'Die Übergabe wurde nicht angefordert', handoffPrompt),
       },
       {
+        key: 'stack',
+        hint: 'Docker-Stack auf diesen Stand neu bauen',
+        icon: '▣',
+        svg: ICON_SVG.stack,
+        press: () => bitteSenden($, 'Der Stack wurde nicht neu gebaut', stackPrompt),
+      },
+      {
+        key: 'pruefen',
+        hint: 'Prüfen: Qualität, Tests und e2e mit Playwright',
+        icon: '✓',
+        svg: ICON_SVG.pruefen,
+        press: () => bitteSenden($, 'Die Prüfung wurde nicht gestartet', pruefenPrompt),
+      },
+      {
         key: 'merge',
         hint: 'Offene PRs mergen und passende Issues lösen',
         icon: '⇉',
@@ -1151,27 +1196,18 @@ export const register: Register = on => {
         },
       },
       {
-        key: 'farbe',
-        hint: 'Farbe ändern',
-        icon: '◐',
-        svg: ICON_SVG.farbe,
+        key: 'einstellungen',
+        hint: 'Einstellungen: Farbe, Modus, Band ausblenden',
+        icon: '⚙',
+        svg: ICON_SVG.einstellungen,
         press: async () => {
           // The picker offers the colors of the set in the store, not of the last turn's reading.
           const current = await satzNow($)
           await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
         },
       },
-      {
-        key: 'ausblenden',
-        hint: 'Band ausblenden',
-        icon: '✕',
-        svg: ICON_SVG.ausblenden,
-        press: async () => {
-          await $.store.set('bandAus', true)
-          await update($, view, v => ({ ...v, isHidden: true }))
-        },
-      },
-    ]
+      // The rebuild needs a compose file in the folder.
+    ].filter(def => def.key !== 'stack' || state.hasStack)
     // Where the surface has `Svg` (not the terminal) the actions are drawn as vector icons, all of one
     // family so they stand on one line at one height. A Button takes only text, so the icon stands in the
     // field, centered in the row, and a Button of blanks lies over it, in the same cells; the press lands
@@ -1193,7 +1229,12 @@ export const register: Register = on => {
           {hasSvg && Svg !== null && def.svg !== undefined ? (
             <>
               <Box alignItems="center">
-                <Svg source={def.svg.source} alt={def.svg.alt} width={ICON_SVG_SIZE} height={ICON_SVG_SIZE} />
+                <Svg
+                  source={def.svg.source}
+                  alt={def.svg.alt}
+                  width={'width' in def.svg ? def.svg.width : ICON_SVG_SIZE}
+                  height={'height' in def.svg ? def.svg.height : ICON_SVG_SIZE}
+                />
                 {badge}
               </Box>
               <Box position="absolute" top={0} left={0}>

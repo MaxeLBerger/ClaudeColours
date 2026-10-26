@@ -142,6 +142,43 @@ Schreib sie so, dass ich sie unverändert als erste Nachricht in eine neue Sessi
 
 Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende gibst du mir eine kurze Liste: was gemerged ist, was gelöst wurde und was offen blieb.</pre>
   <p class="note">Nur bei grünen Checks. Kein Force-Push, keine Entwürfe; was rot ist oder eine Entscheidung braucht, bleibt liegen.</p>
+</article><article class="card" id="pruefen">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 37.9 24" width="44" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.125 12h10a5 5 0 1 0-1.46 3.54"/><path d="M15.275 9.6a3.6 3.6 0 1 1 6.72 1.8C21.2 14 17.8 15.8 15.275 18h7.2" class="ok"/><path d="M25.725 12h10a5 5 0 1 0-1.46 3.54"/></svg>
+    <div class="titles">
+      <h2>Prüfen (e2e)</h2>
+      <p class="does">Prüft in vier Schritten: Qualität, Tests für den Diff, der echte Ablauf mit Playwright und die Logs des Stacks.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-pruefen" id="copy-pruefen">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-pruefen">Prüf „<span class="slot">{Projekt}</span>“ gründlich, bevor ich es weitergebe: erst die statische Prüfung, dann die Tests, dann der echte Ablauf im Browser.
+
+1. Qualität: Lass Lint, Typprüfung und Formatierung des Projekts über die geänderten Dateien laufen (siehe CLAUDE.md oder README) und behebe, was sie finden. Keine Regeln abschwächen, nichts mit Ausnahmen stummschalten.
+2. Tests: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist, und schreib Tests für die Pfade, die noch keiner abdeckt: Tests, die ohne die Änderung rot wären. Lass danach die ganze Suite laufen. Produktivcode änderst du dafür nicht; findest du darin einen Fehler, nenne ihn mir.
+3. E2E: Starte die App wirklich und geh den geänderten Ablauf mit Playwright durch. Nutze die Skills und Skripte des Projekts, falls es welche gibt (siehe CLAUDE.md und .claude/skills); fehlt Playwright, richte es minimal ein und sag mir, was du installiert hast. Mach Screenshots der wichtigen Stellen. Wo es schon Snapshots gibt, melde Abweichungen, statt sie ungefragt zu aktualisieren. Lohnt sich der Durchlauf als bleibender Test, leg ihn als Spec an.
+4. Stack: Läuft ein Docker-Stack dieses Projekts, sieh danach in Container-Status und Logs nach Fehlern. Das ist nur lesen.
+
+Grenzen: nichts pushen, nichts mergen, keine Tests löschen oder abschwächen. Lässt sich die App nicht starten oder braucht ein Schritt meine Entscheidung, halte an und sag mir, woran es liegt, statt es zu umgehen. Am Ende eine kurze Liste: was geprüft ist, was du geändert hast, was rot blieb und was du nicht prüfen konntest.</pre>
+  <p class="note">Playwright darf eingerichtet werden. Kein Push, kein Merge, keine gelöschten oder abgeschwächten Tests; Snapshots werden gemeldet, nicht erneuert.</p>
+</article>
+
+<article class="card" id="stack">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 1350 780" width="49" height="28" fill="none" aria-hidden="true"><rect x="297" y="227" width="104" height="94" rx="8" fill="#2496ED"/><rect x="419" y="227" width="104" height="94" rx="8" fill="#2496ED"/><rect x="543" y="227" width="104" height="94" rx="8" fill="#2496ED"/><rect x="665" y="227" width="104" height="94" rx="8" fill="#2496ED"/><rect x="789" y="227" width="104" height="94" rx="8" fill="#2496ED"/><rect x="419" y="113" width="104" height="94" rx="8" fill="#2496ED"/><rect x="543" y="113" width="104" height="94" rx="8" fill="#2496ED"/><rect x="665" y="113" width="104" height="94" rx="8" fill="#2496ED"/><rect x="665" y="0" width="104" height="94" rx="8" fill="#2496ED"/><path fill="#2496ED" d="M243 340H903C925 340 955 335 978 323C955 290 950 250 960 212C968 182 980 160 996 138L1018 151C1052 170 1076 207 1082 254C1122 248 1175 250 1209 272L1216 278L1211 292C1200 325 1160 377 1060 378C1000 540 920 640 780 690C690 715 620 719 562 719C470 719 390 705 340 680C255 640 212 520 212 372C212 355 226 340 243 340Z"/><g transform="translate(1000 420) scale(14.17)" stroke="#2ea35e" stroke-width="3.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8.1 8.1 0 0 0 4.5 9M4 5v4h4.5M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4.5"/></g></svg>
+    <div class="titles">
+      <h2>Stack neu bauen</h2>
+      <p class="does">Baut den Docker-Stack auf dem Stand des Ordners neu. Der Knopf erscheint nur, wo eine Compose-Datei liegt.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-stack" id="copy-stack">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-stack">Bau den Docker-Stack von „<span class="slot">{Projekt}</span>“ auf dem Stand dieses Ordners neu, damit er läuft, was hier liegt.
+
+1. Vorher: Finde die Compose-Datei und den Projektnamen des Stacks (docker compose ls, `name:` in der Datei). Lies, ob er gegen ein Live-Konto oder mit einer Live-Freigabe läuft (Umgebungsvariablen, Konfiguration, CLAUDE.md), und nenn mir, was du gefunden hast. Ist etwas Live-Scharfes aktiv oder bleibt es unklar, halte an und frag mich.
+2. Bauen: Bau die Images neu und starte die Dienste mit docker compose -p &lt;Projektname&gt; up -d --build aus diesem Ordner.
+3. Danach: Warte, bis die Container gesund sind, frag den Health-Endpunkt ab und prüf, dass der laufende Stand dem dieses Ordners entspricht (Git-SHA, Version oder Build-Zeit). Lies die Logs der ersten Minuten auf Fehler.
+
+Grenzen: kein docker compose down mit -v, keine Volumes oder Daten löschen, keine Datenbank zurücksetzen, keine Container anfassen, die nicht zu diesem Stack gehören. Bleibt ein Dienst rot oder passt der Stand nicht, sag mir, was du siehst, statt weiterzubasteln. Am Ende: welche Container laufen, auf welchem Stand, und was dir aufgefallen ist.</pre>
+  <p class="note">Bei etwas Live-Scharfem hält die Session an. Kein down -v, keine Volumes gelöscht, keine fremden Container angefasst.</p>
 </article>
   <p class="foot">Die Texte nennen Ziele und Grenzen, keine feste Gliederung. Was die Session daraus macht, hängt vom Gespräch ab.</p>
 </main>

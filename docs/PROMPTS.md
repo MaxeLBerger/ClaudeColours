@@ -75,3 +75,43 @@ Bring die offenen PRs in „{Projekt}“ sinnvoll in den Hauptzweig und löse pa
 
 Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende gibst du mir eine kurze Liste: was gemerged ist, was gelöst wurde und was offen blieb.
 ```
+
+## Prüfen (e2e) (`pruefen`)
+
+Prüft die Änderung in vier Schritten: Qualität, Tests für den Diff, der echte Ablauf mit Playwright und, wo es einen Stack gibt, ein Blick in seine Logs.
+
+Prüfen:
+- Die Reihenfolge ist Qualität, Tests, E2E, Stack.
+- Playwright darf eingerichtet werden, und die Session sagt, was sie installiert hat.
+- Kein Push, kein Merge, keine gelöschten oder abgeschwächten Tests; Snapshots werden gemeldet, nicht ungefragt erneuert.
+- Der Stack wird nur gelesen.
+
+```text
+Prüf „{Projekt}“ gründlich, bevor ich es weitergebe: erst die statische Prüfung, dann die Tests, dann der echte Ablauf im Browser.
+
+1. Qualität: Lass Lint, Typprüfung und Formatierung des Projekts über die geänderten Dateien laufen (siehe CLAUDE.md oder README) und behebe, was sie finden. Keine Regeln abschwächen, nichts mit Ausnahmen stummschalten.
+2. Tests: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist, und schreib Tests für die Pfade, die noch keiner abdeckt: Tests, die ohne die Änderung rot wären. Lass danach die ganze Suite laufen. Produktivcode änderst du dafür nicht; findest du darin einen Fehler, nenne ihn mir.
+3. E2E: Starte die App wirklich und geh den geänderten Ablauf mit Playwright durch. Nutze die Skills und Skripte des Projekts, falls es welche gibt (siehe CLAUDE.md und .claude/skills); fehlt Playwright, richte es minimal ein und sag mir, was du installiert hast. Mach Screenshots der wichtigen Stellen. Wo es schon Snapshots gibt, melde Abweichungen, statt sie ungefragt zu aktualisieren. Lohnt sich der Durchlauf als bleibender Test, leg ihn als Spec an.
+4. Stack: Läuft ein Docker-Stack dieses Projekts, sieh danach in Container-Status und Logs nach Fehlern. Das ist nur lesen.
+
+Grenzen: nichts pushen, nichts mergen, keine Tests löschen oder abschwächen. Lässt sich die App nicht starten oder braucht ein Schritt meine Entscheidung, halte an und sag mir, woran es liegt, statt es zu umgehen. Am Ende eine kurze Liste: was geprüft ist, was du geändert hast, was rot blieb und was du nicht prüfen konntest.
+```
+
+## Stack neu bauen (`stack`)
+
+Baut den Docker-Stack des Projekts auf dem Stand des Ordners neu und prüft, dass er diesen Stand läuft. Der Knopf erscheint nur, wo eine Compose-Datei liegt.
+
+Prüfen:
+- Vor dem Bauen wird geprüft, ob etwas Live-Scharfes aktiv ist; dann hält die Session an und fragt.
+- Kein `down -v`, keine Volumes oder Daten gelöscht, keine fremden Container angefasst.
+- Danach Health und Stand (SHA, Version oder Build-Zeit) geprüft.
+
+```text
+Bau den Docker-Stack von „{Projekt}“ auf dem Stand dieses Ordners neu, damit er läuft, was hier liegt.
+
+1. Vorher: Finde die Compose-Datei und den Projektnamen des Stacks (docker compose ls, `name:` in der Datei). Lies, ob er gegen ein Live-Konto oder mit einer Live-Freigabe läuft (Umgebungsvariablen, Konfiguration, CLAUDE.md), und nenn mir, was du gefunden hast. Ist etwas Live-Scharfes aktiv oder bleibt es unklar, halte an und frag mich.
+2. Bauen: Bau die Images neu und starte die Dienste mit docker compose -p <Projektname> up -d --build aus diesem Ordner.
+3. Danach: Warte, bis die Container gesund sind, frag den Health-Endpunkt ab und prüf, dass der laufende Stand dem dieses Ordners entspricht (Git-SHA, Version oder Build-Zeit). Lies die Logs der ersten Minuten auf Fehler.
+
+Grenzen: kein docker compose down mit -v, keine Volumes oder Daten löschen, keine Datenbank zurücksetzen, keine Container anfassen, die nicht zu diesem Stack gehören. Bleibt ein Dienst rot oder passt der Stand nicht, sag mir, was du siehst, statt weiterzubasteln. Am Ende: welche Container laufen, auf welchem Stand, und was dir aufgefallen ist.
+```
