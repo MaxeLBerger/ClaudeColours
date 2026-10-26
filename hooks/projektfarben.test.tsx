@@ -49,6 +49,16 @@ import {
   uebersichtText,
   type GhPr,
   type Grund,
+  ICON_SVG,
+  ICON_SVG_COLOR,
+  ICON_SVG_SIZE,
+  handoffPrompt,
+  meinungPrompt,
+  mergePrompt,
+  PROMPT_INFO,
+  promptsMarkdown,
+  raised,
+  reviewPrompt,
 } from './colors'
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
@@ -63,7 +73,7 @@ const BAND = {
     hasSurvey: false,
     isWorking: false,
     maxRows: 10,
-    bodyColumns: 80,
+    bodyColumns: 100,
     scroll: { offset: 0, bodyRows: 10 },
     view: {},
   },
@@ -77,6 +87,12 @@ const RUN = {
 
 // What the band's color block and gauge are drawn with: blanks that keep their width on a colored background.
 const NBSP = String.fromCharCode(0xa0)
+// The Button of blanks over an icon drawn as Svg: one `ICON_BOX` of cells.
+const BLANK = NBSP.repeat(3)
+// The merge field is a cell wider: its icon carries the number of open pull requests.
+const BLANK_MERGE = NBSP.repeat(4)
+// The seven fields drawBand reads, in its own order: overview, color, opinion, review, handoff, merge, hide.
+const ICON_FIELDS = [BLANK, BLANK, BLANK, BLANK, BLANK, BLANK_MERGE, BLANK]
 
 const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
@@ -172,35 +188,40 @@ test('the context fill is read from the usage figures; the gauge warns from 70 %
 const ZIEL = { name: 18, prs: 2, issues: 2, percent: 1 } as const
 
 test('the band picks the roomiest layout that fits its cells, and none is roomier when there is less room', async () => {
-  expect(bandStufe(120, ZIEL)).toBe('voll')
-  expect(bandStufe(100, ZIEL)).toBe('voll')
-  expect(bandStufe(80, ZIEL)).toBe('icons')
-  expect(bandStufe(66, ZIEL)).toBe('kompakt')
-  expect(bandStufe(60, ZIEL)).toBe('dicht')
-  expect(bandStufe(55, ZIEL)).toBe('minimal')
-  expect(bandStufe(40, ZIEL)).toBe('zwei')
+  expect(bandStufe(140, ZIEL)).toBe('icons')
+  expect(bandStufe(95, ZIEL)).toBe('icons')
+  expect(bandStufe(94, ZIEL)).toBe('kompakt')
+  expect(bandStufe(84, ZIEL)).toBe('kompakt')
+  expect(bandStufe(83, ZIEL)).toBe('dicht')
+  expect(bandStufe(77, ZIEL)).toBe('dicht')
+  expect(bandStufe(76, ZIEL)).toBe('minimal')
+  expect(bandStufe(72, ZIEL)).toBe('minimal')
+  expect(bandStufe(71, ZIEL)).toBe('zwei')
+  expect(bandStufe(50, ZIEL)).toBe('zwei')
 
-  const order = ['zwei', 'minimal', 'dicht', 'kompakt', 'icons', 'voll']
-  const steps = Array.from({ length: 140 }, (_, i) => order.indexOf(bandStufe(i + 1, ZIEL)))
+  const order = ['zwei', 'minimal', 'dicht', 'kompakt', 'icons']
+  const steps = Array.from({ length: 160 }, (_, i) => order.indexOf(bandStufe(i + 1, ZIEL)))
   expect(steps).toEqual([...steps].sort((a, b) => a - b))
 
   // A longer name or more digits need more room; a missing gauge needs less.
-  expect(bandStufe(100, { ...ZIEL, name: 28 })).not.toBe('voll')
-  expect(bandStufe(100, { ...ZIEL, prs: 6, issues: 6 })).not.toBe('voll')
-  expect(bandBreite('voll', { ...ZIEL, percent: null })).toBeLessThan(bandBreite('voll', ZIEL))
+  expect(bandStufe(100, ZIEL)).toBe('icons')
+  expect(bandStufe(100, { ...ZIEL, name: 28 })).not.toBe('icons')
+  expect(bandStufe(100, { ...ZIEL, prs: 6, issues: 6 })).not.toBe('icons')
+  expect(bandBreite('icons', { ...ZIEL, percent: null })).toBeLessThan(bandBreite('icons', ZIEL))
   expect(bandBreite('zwei', ZIEL)).toBe(Number.POSITIVE_INFINITY)
   // Each layout takes less room than the one before it.
-  const widths = (['voll', 'icons', 'kompakt', 'dicht', 'minimal'] as const).map(stufe => bandBreite(stufe, ZIEL))
+  const widths = (['icons', 'kompakt', 'dicht', 'minimal'] as const).map(stufe => bandBreite(stufe, ZIEL))
   expect(widths).toEqual([...widths].sort((a, b) => b - a))
 })
 
-test('the layouts switch where the desktop screenshots of the band switched', async () => {
-  // ClaudeColours (13 characters, counts 0): written-out actions from about 744 px, the icons from about
-  // 560 px, the short bar from about 500 px. At 731 px the written-out row was a little too tight and its
-  // gauge broke in two.
+test('the layouts switch where the metrics of the desktop screenshots put them', async () => {
+  // ClaudeColours (13 characters, counts 0). The screenshots measured the metrics with three written-out
+  // actions; the actions are seven icon fields now (the merge field a cell wider), so the switch points
+  // are those of the same metrics: the icons with the gauge's word from 90 cells, the short bar from 79,
+  // closer together from 73, only the percentage from 68. The margin stays one cell: a row a little too
+  // tight broke the gauge in two.
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
-  expect([96, 91, 82, 61, 57, 50, 45, 34].map(columns => bandStufe(columns, claude))).toEqual([
-    'voll',
+  expect([120, 95, 85, 76, 70, 60, 34].map(columns => bandStufe(columns, claude))).toEqual([
     'icons',
     'icons',
     'kompakt',
@@ -209,26 +230,34 @@ test('the layouts switch where the desktop screenshots of the band switched', as
     'zwei',
     'zwei',
   ])
+  // The edges: one cell less and the roomier layout does not fit.
+  expect([90, 89, 79, 78, 73, 72, 68, 67].map(columns => bandStufe(columns, claude))).toEqual([
+    'icons',
+    'kompakt',
+    'kompakt',
+    'dicht',
+    'dicht',
+    'minimal',
+    'minimal',
+    'zwei',
+  ])
 })
 
 test('the band stays in its layout until the room for a roomier one is clear', async () => {
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
-  // At 60 cells the compact row fits ...
-  expect(bandStufe(60, claude)).toBe('kompakt')
+  // At 79 cells the compact row fits ...
+  expect(bandStufe(79, claude)).toBe('kompakt')
   // ... but a band that was in a tighter layout stays there until it has a cell to spare, and so on up.
-  expect(bandStufe(60, claude, 'dicht')).toBe('dicht')
-  expect(bandStufe(61, claude, 'dicht')).toBe('kompakt')
-  expect(bandStufe(49, claude)).toBe('minimal')
-  expect(bandStufe(49, claude, 'zwei')).toBe('zwei')
-  expect(bandStufe(50, claude, 'zwei')).toBe('minimal')
-  expect(bandStufe(71, claude)).toBe('icons')
-  expect(bandStufe(71, claude, 'kompakt')).toBe('kompakt')
-  expect(bandStufe(72, claude, 'kompakt')).toBe('icons')
-  expect(bandStufe(93, claude)).toBe('voll')
-  expect(bandStufe(93, claude, 'icons')).toBe('icons')
-  expect(bandStufe(94, claude, 'icons')).toBe('voll')
+  expect(bandStufe(79, claude, 'dicht')).toBe('dicht')
+  expect(bandStufe(80, claude, 'dicht')).toBe('kompakt')
+  expect(bandStufe(68, claude)).toBe('minimal')
+  expect(bandStufe(68, claude, 'zwei')).toBe('zwei')
+  expect(bandStufe(69, claude, 'zwei')).toBe('minimal')
+  expect(bandStufe(90, claude)).toBe('icons')
+  expect(bandStufe(90, claude, 'kompakt')).toBe('kompakt')
+  expect(bandStufe(91, claude, 'kompakt')).toBe('icons')
   // Getting less room is never held back: the old layout would not fit.
-  expect(bandStufe(60, claude, 'voll')).toBe('kompakt')
+  expect(bandStufe(70, claude, 'icons')).toBe('minimal')
   expect(bandStufe(30, claude, 'icons')).toBe('zwei')
 })
 
@@ -1319,6 +1348,10 @@ async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'te
     actions: [
       (await ui.find({ key: 'uebersicht' }))?.text,
       (await ui.find({ key: 'farbe' }))?.text,
+      (await ui.find({ key: 'meinung' }))?.text,
+      (await ui.find({ key: 'review' }))?.text,
+      (await ui.find({ key: 'handoff' }))?.text,
+      (await ui.find({ key: 'merge' }))?.text,
       (await ui.find({ key: 'ausblenden' }))?.text,
     ],
     hasWord: texts.some(text => /Kontext/.test(text.text)),
@@ -1332,40 +1365,38 @@ async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'te
   return shown
 }
 
-test('the band lays itself out by its cells: written out, icons, a short bar, closer together, then two rows', async ($, on) => {
+test('the band lays itself out by its cells: icons, a short bar, closer together, then two rows', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  const wide = await drawBand($, 120)
-  expect(wide).toMatchObject({ isStacked: false, actions: ['Übersicht ☰', 'Farbe ändern', 'ausblenden'], hasWord: true, barCells: 8 })
-
-  const medium = await drawBand($, 70)
-  expect(medium).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: true, barCells: 8 })
+  // The gauge with its word and the full bar; the actions are icon fields, in every layout.
+  const wide = await drawBand($, 100)
+  expect(wide).toMatchObject({ isStacked: false, actions: ICON_FIELDS, hasWord: true, barCells: 8 })
 
   // No word and a bar of four cells; still one row.
-  const compact = await drawBand($, 56)
-  expect(compact).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4 })
+  const compact = await drawBand($, 75)
+  expect(compact).toMatchObject({ isStacked: false, actions: ICON_FIELDS, hasWord: false, barCells: 4 })
 
   // The items closer together, the same bar.
-  const dense = await drawBand($, 48)
-  expect(dense).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4 })
+  const dense = await drawBand($, 66)
+  expect(dense).toMatchObject({ isStacked: false, actions: ICON_FIELDS, hasWord: false, barCells: 4 })
 
   // Only the percentage of the gauge is left, in the same row.
-  const minimal = await drawBand($, 42)
-  expect(minimal).toMatchObject({ isStacked: false, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 0 })
+  const minimal = await drawBand($, 62)
+  expect(minimal).toMatchObject({ isStacked: false, actions: ICON_FIELDS, hasWord: false, barCells: 0 })
 
   // Two rows: the gauge stays above, with the name.
   const narrow = await drawBand($, 30)
-  expect(narrow).toMatchObject({ isStacked: true, actions: ['☰', '◐', '✕'], hasWord: false, barCells: 4, name: ' Beta' })
+  expect(narrow).toMatchObject({ isStacked: true, actions: ICON_FIELDS, hasWord: false, barCells: 4, name: ' Beta' })
 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
-    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: voll 85, icons 63, kompakt 52, dicht 46, minimal 41 Zellen.',
+    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: icons 82, kompakt 71, dicht 65, minimal 60 Zellen.',
   )
 })
 
 test('the one-row layouts never wrap, so a stale tree in a narrower window does not jump to two rows', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  for (const bodyColumns of [120, 70, 56]) {
+  for (const bodyColumns of [100, 75, 62]) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
     const root = await ui.find({ type: 'Box' })
     await ui.unmount()
@@ -1376,7 +1407,7 @@ test('the one-row layouts never wrap, so a stale tree in a narrower window does 
 test('the one-row band spreads to its ends: the actions flush right, and the percent sign never breaks away', async ($, on) => {
   await startBand($, on, `${BETA}${String.fromCharCode(92).repeat(2)}.claude${String.fromCharCode(92).repeat(2)}worktrees${String.fromCharCode(92).repeat(2)}a`)
 
-  for (const bodyColumns of [120, 70, 56]) {
+  for (const bodyColumns of [100, 75, 62]) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
     const root = await ui.find({ type: 'Box' })
     const texts = await ui.findAll({ type: 'Text' })
@@ -1392,10 +1423,10 @@ test('the one-row band spreads to its ends: the actions flush right, and the per
 test('the band keeps its layout over a narrow stretch while the window is dragged wider', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  // Beta's smallest one-row layout needs about 41 cells: it fits at 41, but the band came from two rows.
+  // Beta's smallest one-row layout needs about 60 cells: it fits at 60, but the band came from two rows.
   expect((await drawBand($, 30)).isStacked).toBe(true)
-  expect((await drawBand($, 41)).isStacked).toBe(true)
-  expect((await drawBand($, 43)).isStacked).toBe(false)
+  expect((await drawBand($, 60)).isStacked).toBe(true)
+  expect((await drawBand($, 62)).isStacked).toBe(false)
   // Narrowing again is not held back.
   expect((await drawBand($, 30)).isStacked).toBe(true)
 })
@@ -1411,8 +1442,8 @@ test('/projektfarbe breite says so when the band is hidden, and when it was not 
   )
 
   await $.command.run({ ...RUN, args: 'band' })
-  await drawBand($, 120)
-  expect((await $.command.run({ ...RUN, args: 'breite' })).text).toMatch(/^Das Band hat 120 Zellen und ist im Layout „voll“/)
+  await drawBand($, 100)
+  expect((await $.command.run({ ...RUN, args: 'breite' })).text).toMatch(/^Das Band hat 100 Zellen und ist im Layout „icons“/)
 })
 
 test('the two-row band keeps the gauge in its first row, and counts and icons in the second', async ($, on) => {
@@ -1439,10 +1470,10 @@ test('the two-row band keeps the gauge in its first row, and counts and icons in
   expect(alone).not.toMatch(/%/)
 })
 
-test('the icons press what the written actions do, in every layout', async ($, on) => {
+test('the icons press what they say, in every layout', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  for (const bodyColumns of [120, 70, 56, 30]) {
+  for (const bodyColumns of [100, 70, 56, 30]) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
     await ui.press({ key: 'farbe' })
     expect(await ui.find({ key: 'farbe-lila' })).toBeDefined()
@@ -1456,7 +1487,18 @@ test('the icons press what the written actions do, in every layout', async ($, o
   await ui.unmount()
 })
 
-test('each icon has a hover card saying what it does; the written-out actions need none', async ($, on) => {
+test('the actions stand in this order, the session actions left of the overview, in a wide and a narrow band', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  for (const bodyColumns of [100, 70]) {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+    const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+    await ui.unmount()
+    expect(keys.filter(key => ['meinung', 'review', 'handoff', 'merge', 'uebersicht', 'farbe', 'ausblenden'].includes(key))).toEqual(['meinung', 'review', 'handoff', 'merge', 'uebersicht', 'farbe', 'ausblenden'])
+  }
+})
+
+test('each icon has a hover card saying what it does', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   const cardsAt = async (bodyColumns: number) => {
@@ -1464,27 +1506,33 @@ test('each icon has a hover card saying what it does; the written-out actions ne
     const boxes = await ui.findAll({ type: 'Box' })
     await ui.unmount()
 
-    return boxes.filter(box => box.props.position === 'absolute')
+    return boxes.filter(box => box.props.position === 'absolute' && box.props.display === 'none')
   }
 
-  expect(await cardsAt(120)).toHaveLength(0)
-  for (const bodyColumns of [70, 56, 48, 42, 30]) {
+  for (const bodyColumns of [100, 70, 56, 48, 42, 30]) {
     const cards = await cardsAt(bodyColumns)
-    expect(cards.map(card => card.text)).toEqual(['Übersicht', 'Farbe ändern', 'Band ausblenden'])
+    expect(cards.map(card => card.text)).toEqual([
+      'Opus-Meinung im Chat anfordern',
+      'Review, Commit und Pull Request anfordern',
+      'Übergabe für eine frische Session schreiben lassen',
+      'Offene PRs mergen und passende Issues lösen',
+      'Übersicht',
+      'Farbe ändern',
+      'Band ausblenden',
+    ])
     // Hidden until the pointer is on the icon's field (its `hover` reveals it), and out of the flow, so
     // showing it moves nothing; it stands to the left of the icon's field.
     for (const card of cards) {
-      expect(card.props).toMatchObject({ display: 'none', position: 'absolute', top: 0, right: 3 })
+      // To the left of its field: the merge field is a cell wider.
+      expect(card.props).toMatchObject({ display: 'none', position: 'absolute', top: 0, right: card.text.includes('mergen') ? 4 : 3 })
     }
   }
 })
 
 test('on the terminal a character is a whole cell: the roomy layouts need more columns than on the desktop', async () => {
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
-  expect(bandBreite('voll', claude, true)).toBeGreaterThan(bandBreite('voll', claude))
-  expect([105, 101, 76, 75, 64, 63, 54, 53, 49, 48].map(columns => bandStufe(columns, claude, null, true))).toEqual([
-    'voll',
-    'icons',
+  expect(bandBreite('icons', claude, true)).toBeGreaterThan(bandBreite('icons', claude))
+  expect([93, 92, 81, 80, 71, 70, 66, 65].map(columns => bandStufe(columns, claude, null, true))).toEqual([
     'icons',
     'kompakt',
     'kompakt',
@@ -1494,18 +1542,21 @@ test('on the terminal a character is a whole cell: the roomy layouts need more c
     'minimal',
     'zwei',
   ])
-  // The same 98 columns fit the written-out actions on the desktop but not on the terminal.
-  expect(bandStufe(98, claude)).toBe('voll')
-  expect(bandStufe(98, claude, null, true)).toBe('icons')
+  // The same 91 columns fit the full gauge on the desktop but not on the terminal.
+  expect(bandStufe(91, claude)).toBe('icons')
+  expect(bandStufe(91, claude, null, true)).toBe('kompakt')
   expect(nameBudget(40, claude, true)).toBeGreaterThan(0)
 })
 
-test('the band on the terminal switches layouts by whole cells', async ($, on) => {
+test('the band on the terminal switches layouts by whole cells, and keeps its text glyphs', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  expect((await drawBand($, 105, 'terminal')).actions).toEqual(['Übersicht ☰', 'Farbe ändern', 'ausblenden'])
-  // Beta needs 93 columns written out on the terminal; at 90 it shows the icons.
-  expect((await drawBand($, 90, 'terminal')).actions).toEqual(['☰', '◐', '✕'])
+  // Beta needs 84 columns for the gauge's word on the terminal; at 83 the word is gone.
+  // The terminal has no Svg: its icons stay text glyphs.
+  const roomy = await drawBand($, 84, 'terminal')
+  expect(roomy.hasWord).toBe(true)
+  expect(roomy.actions).toEqual(['☰', '◐', '✦', '↑', '✉', '⇉', '✕'])
+  expect((await drawBand($, 83, 'terminal')).hasWord).toBe(false)
 })
 
 test('a project name with blanks never breaks inside the band', async ($, on) => {
@@ -1532,7 +1583,7 @@ test('a subagent view neither sets nor reads the layout the band was drawn in la
 
   const ui = await $.ui.mount({
     ...BAND,
-    props: { ...BAND.props, bodyColumns: 120, view: { agentId: 'a1' } },
+    props: { ...BAND.props, bodyColumns: 140, view: { agentId: 'a1' } },
     surface: 'desktop',
   })
   await ui.unmount()
@@ -2379,4 +2430,302 @@ test('with a Bramble build the name, PRs and Issues open their pages in the newe
   ])
   // gh opens no browser of its own.
   expect(gh.asked.some(argv => argv.includes('--web'))).toBe(false)
+})
+
+// The independent Opus opinion: the band's button sends the session a prompt of the person's own.
+
+/** A session in Beta whose submitted prompts are recorded and answered by `answer`; toasts are recorded too. */
+async function meinungSession($: TestEngine, on: TestOn, answer: (text: string) => unknown = text => ({ text })) {
+  const clock = mock.clock(on)
+  await clock.set(NOW)
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  const sent: { text: string; origin: unknown }[] = []
+  const toasts: string[] = []
+  on('prompt.submit', (_, e) => {
+    sent.push({ text: e.text, origin: e.origin })
+
+    return answer(e.text) as never
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
+  })
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+
+  return { sent, toasts }
+}
+
+async function pressMeinung($: TestEngine, bodyColumns = 120) {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await band.press({ key: 'meinung' })
+  await band.unmount()
+}
+
+test('the question has the session build the task: the matter itself, no own conclusion, no bloat', async () => {
+  const prompt = meinungPrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  expect(prompt).toContain('subagent_type general-purpose, model opus')
+  // The session decides what is meant: the last question, a plan to rework or the state of the project.
+  expect(prompt).toContain('meine letzte Frage, der Plan, den wir haben, oder der Stand von „Beta“')
+  expect(prompt).toContain('Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein')
+  expect(prompt).toContain('nicht deine eigene Schlussfolgerung')
+  expect(prompt).toContain('keinen Gesprächsverlauf')
+  expect(prompt).toContain('Er ändert nichts')
+  expect(prompt).toContain('mit einer Stelle belegen')
+  expect(prompt).toContain('unverändert wieder')
+  // Goals, not a form: no length cap, no fixed headings, no ban on looking things up.
+  expect(prompt).not.toMatch(/Höchstens|\d+ Zeilen|zusätzlich lesen|Nächstes ansteht/)
+})
+
+test('the opinion button submits the question as the person\'s own words, in a wide and a narrow band', async ($, on) => {
+  const { sent, toasts } = await meinungSession($, on)
+
+  await pressMeinung($, 120)
+  await pressMeinung($, 70)
+  expect(sent.map(prompt => prompt.text)).toEqual([meinungPrompt('Beta'), meinungPrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
+})
+
+test('a refused or failing submission says so in a toast', async ($, on) => {
+  let mode: 'drop' | 'throw' = 'drop'
+  const { toasts } = await meinungSession($, on, () => {
+    if (mode === 'throw') {
+      throw new Error('boom\nsecond line')
+    }
+
+    return { drop: 'Stop-Hook' }
+  })
+
+  await pressMeinung($)
+  expect(toasts).toEqual(['Die Opus-Meinung wurde nicht angefordert: Stop-Hook'])
+
+  mode = 'throw'
+  await pressMeinung($)
+  expect(toasts).toHaveLength(2)
+  expect(toasts[1]).toMatch(/^Die Opus-Meinung wurde nicht angefordert: /)
+  expect(toasts[1]).not.toContain('second line')
+})
+
+async function pressReview($: TestEngine, bodyColumns = 120) {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await band.press({ key: 'review' })
+  await band.unmount()
+}
+
+test('the review prompt takes the work to the pull request and stops short of merging', async () => {
+  const prompt = reviewPrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  // Review first, then commit, then the pull request.
+  expect(prompt.indexOf('1. Review')).toBeLessThan(prompt.indexOf('2. Commit'))
+  expect(prompt.indexOf('2. Commit')).toBeLessThan(prompt.indexOf('3. PR'))
+  expect(prompt).toContain('Behebe echte Befunde')
+  expect(prompt).toContain('nie mit force')
+  expect(prompt).toContain('Mergen tust du nicht')
+  // Where a step does not work it stops and says why, rather than working around it.
+  expect(prompt).toContain('halte an und sag mir, woran es liegt')
+  expect(prompt).toContain('Link zum PR')
+})
+
+test('the review button submits the prompt as the person\'s own words, in a wide and a narrow band', async ($, on) => {
+  const { sent, toasts } = await meinungSession($, on)
+
+  await pressReview($, 120)
+  await pressReview($, 75)
+  expect(sent.map(prompt => prompt.text)).toEqual([reviewPrompt('Beta'), reviewPrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
+})
+
+test('a refused review request says so in a toast', async ($, on) => {
+  const { toasts } = await meinungSession($, on, () => ({ drop: 'Stop-Hook' }))
+
+  await pressReview($)
+  expect(toasts).toEqual(['Review und PR wurden nicht gestartet: Stop-Hook'])
+})
+
+test('the seven action icons are vector line icons of one family in one gray that reads on both themes', async () => {
+  for (const icon of Object.values(ICON_SVG)) {
+    expect(icon.source.startsWith('<svg ')).toBe(true)
+    expect(icon.source.endsWith('</svg>')).toBe(true)
+    expect(icon.source).toContain('viewBox="0 0 24 24"')
+    expect(icon.source).toContain(`stroke="${ICON_SVG_COLOR}"`)
+    expect(icon.source).not.toMatch(/<script|on\w+=|currentColor/)
+    expect(icon.source.length).toBeLessThan(131072)
+    expect(icon.alt).not.toBe('')
+  }
+  // An image takes no theme color: the one gray has to be mid-tone, neither near white nor near black.
+  const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(ICON_SVG_COLOR.slice(i, i + 2), 16))
+  expect(Math.min(r, g, b)).toBeGreaterThan(90)
+  expect(Math.max(r, g, b)).toBeLessThan(190)
+})
+
+test('on the desktop every action is drawn as Svg, centered in the row, with a Button over each; on the terminal there is none', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  const svgsAt = async (bodyColumns: number, surface: 'desktop' | 'terminal') => {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface })
+    const svgs = await ui.findAll({ type: 'Svg' })
+    const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+    const fields = (await ui.findAll({ type: 'Box' })).filter(box => String(box.key).endsWith('-feld'))
+    await ui.unmount()
+
+    return { svgs, keys, fields }
+  }
+
+  for (const bodyColumns of [100, 75, 64, 30]) {
+    const { svgs, keys, fields } = await svgsAt(bodyColumns, 'desktop')
+    // One family: same size, in the order of the actions.
+    expect(svgs.map(svg => svg.props.alt)).toEqual(Object.values(ICON_SVG).map(icon => icon.alt))
+    expect(svgs.every(svg => svg.props.width === ICON_SVG_SIZE && svg.props.height === ICON_SVG_SIZE)).toBe(true)
+    // The Buttons that take the press are still there, in the order of the icons.
+    expect(keys.filter(key => ['meinung', 'review', 'handoff', 'merge', 'uebersicht', 'farbe', 'ausblenden'].includes(key))).toEqual([
+      'meinung',
+      'review',
+      'handoff',
+      'merge',
+      'uebersicht',
+      'farbe',
+      'ausblenden',
+    ])
+    // Each field centers its icon in the row, so all stand on one line.
+    expect(fields).toHaveLength(7)
+    expect(fields.every(box => box.props.alignItems === 'center')).toBe(true)
+  }
+  expect((await svgsAt(75, 'terminal')).svgs).toEqual([])
+})
+
+async function pressHandoff($: TestEngine, bodyColumns = 100) {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await band.press({ key: 'handoff' })
+  await band.unmount()
+}
+
+test('the handoff prompt asks for a message a fresh session can start from, and changes and starts nothing', async () => {
+  const prompt = handoffPrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  // What the repository cannot tell goes in; what the new session reads there itself stays out.
+  expect(prompt).toContain('was schon erledigt und entschieden ist (mit dem Grund)')
+  expect(prompt).toContain('was offen ist und womit es weitergeht')
+  expect(prompt).toContain('lass weg und nenne nur, wo sie nachsehen soll')
+  expect(prompt).toContain('Keine Gesprächsgeschichte')
+  // Ready to paste as the first message; nothing is started or changed.
+  expect(prompt).toContain('unverändert als erste Nachricht')
+  expect(prompt).toContain('Ändere nichts und starte nichts')
+  // Goals, not a form: no length cap and no fixed headings.
+  expect(prompt).not.toMatch(/Höchstens|\d+ Zeilen|Überschrift/)
+})
+
+test('the handoff button submits the prompt as the person\'s own words, in a wide and a narrow band, and a refusal is a toast', async ($, on) => {
+  let isRefused = false
+  const { sent, toasts } = await meinungSession($, on, text => (isRefused ? { drop: 'Stop-Hook' } : { text }))
+
+  await pressHandoff($, 100)
+  await pressHandoff($, 70)
+  expect(sent.map(prompt => prompt.text)).toEqual([handoffPrompt('Beta'), handoffPrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
+
+  isRefused = true
+  await pressHandoff($)
+  expect(toasts).toEqual(['Die Übergabe wurde nicht angefordert: Stop-Hook'])
+})
+
+async function pressMerge($: TestEngine, bodyColumns = 100) {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await band.press({ key: 'merge' })
+  await band.unmount()
+}
+
+test('the merge prompt merges the open pull requests in order, solves and merges the fitting issues, and keeps its limits', async () => {
+  const prompt = mergePrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  expect(prompt.indexOf('1. PRs')).toBeLessThan(prompt.indexOf('2. Issues'))
+  // A sensible order, merged only on green checks.
+  expect(prompt).toContain('erst die unabhängigen, dann die, die darauf aufbauen')
+  expect(prompt).toContain('dessen Checks grün sind')
+  // The issues are solved in their own pull requests and merged too, again on green checks.
+  expect(prompt).toContain('eigenen Branch mit eigenem PR („Closes #n“)')
+  expect(prompt).toContain('merge ihn, wenn die Checks grün sind')
+  // The limits that keep one click safe, and what stays open is named.
+  expect(prompt).toContain('kein Force-Push')
+  expect(prompt).toContain('keine Entwürfe mergen')
+  expect(prompt).toContain('lässt du liegen und nennst es mir mit dem Grund')
+})
+
+test('the merge button submits the prompt as the person\'s own words, in a wide and a narrow band, and a refusal is a toast', async ($, on) => {
+  let isRefused = false
+  const { sent, toasts } = await meinungSession($, on, text => (isRefused ? { drop: 'Stop-Hook' } : { text }))
+
+  await pressMerge($, 100)
+  await pressMerge($, 70)
+  expect(sent.map(prompt => prompt.text)).toEqual([mergePrompt('Beta'), mergePrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
+
+  isRefused = true
+  await pressMerge($)
+  expect(toasts).toEqual(['Merge und Issues wurden nicht gestartet: Stop-Hook'])
+})
+
+test('a count label is raised as small digits, the plus included', async () => {
+  expect(raised('3')).toBe('³')
+  expect(raised('12')).toBe('¹²')
+  expect(raised('100+')).toBe('¹⁰⁰⁺')
+  expect(raised('')).toBe('')
+})
+
+test('the merge icon carries the number of open pull requests as raised digits, on the desktop and the terminal', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: self.cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', () => ghList([1, 2, 3]))
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+
+  const badges = async (surface: 'desktop' | 'terminal') => {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 100 }, surface })
+    const texts = await ui.findAll({ type: 'Text' })
+    await ui.unmount()
+
+    return texts.map(text => text.text).filter(text => /^[⁰¹²³⁴⁵⁶⁷⁸⁹]+$/.test(text))
+  }
+  expect(await badges('desktop')).toEqual(['³'])
+  expect(await badges('terminal')).toEqual(['³'])
+})
+
+test('the prompts document shows what each button does, what to check, and the text itself', async () => {
+  const doc = promptsMarkdown()
+  expect(doc.startsWith('# Prompts hinter den Band-Knöpfen')).toBe(true)
+  expect(PROMPT_INFO.map(info => info.key)).toEqual(['meinung', 'review', 'handoff', 'merge'])
+  for (const info of PROMPT_INFO) {
+    expect(doc).toContain(`## ${info.name} (\`${info.key}\`)`)
+    expect(doc).toContain(info.does)
+    for (const check of info.checks) {
+      expect(doc).toContain(`- ${check}`)
+    }
+    // The text stands verbatim in a fence, with the project left as a slot.
+    expect(doc).toContain(`\`\`\`text\n${info.text('{Projekt}')}\n\`\`\``)
+  }
+  expect(doc.endsWith('\n')).toBe(true)
+  expect(promptsMarkdown('Beta')).toContain(meinungPrompt('Beta'))
+})
+
+test('/projektfarbe prompts prints that document', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  expect((await $.command.run({ ...RUN, args: 'prompts' })).text).toBe(promptsMarkdown())
 })

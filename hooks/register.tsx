@@ -27,13 +27,22 @@ import {
   ghPrs,
   ICON_BOX,
   ICON_GAP,
+  ICON_SVG,
+  MERGE_EXTRA,
+  mergePrompt,
+  ICON_SVG_SIZE,
+  raised,
   learnPicks,
   markSeen,
+  handoffPrompt,
+  meinungPrompt,
+  promptsMarkdown,
   mergePrs,
   modusLabel,
   nameBudget,
   neuesterBuild,
   newCount,
+  reviewPrompt,
   planTitle,
   PR_LIMIT,
   prLabel,
@@ -700,6 +709,23 @@ async function openPanel($: Engine): Promise<boolean> {
   return true
 }
 
+/**
+ * Sends the session a prompt of the person's own (`asUser`), a turn of its own once the session is idle:
+ * the band's two session actions (the Opus opinion, review + commit + PR) are such prompts, and the answer
+ * is a chat turn the person sees and can reply to. A refused or failing submission is a toast.
+ */
+async function bitteSenden($: Engine, failure: string, text: (projekt: string) => string): Promise<void> {
+  try {
+    const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
+    const sent = await $.prompt.submit({ text: text(projekt), asUser: true })
+    if (sent.drop !== undefined) {
+      $.ui.toast(`${failure}: ${sent.drop}`)
+    }
+  } catch (error) {
+    $.ui.toast(`${failure}: ${firstLine(String(error))}`)
+  }
+}
+
 // What opens a `claude://` address, tried in turn until one starts: Windows, macOS, Linux.
 const OPENERS: readonly (readonly string[])[] = [['rundll32', 'url.dll,FileProtocolHandler'], ['open'], ['xdg-open']]
 
@@ -792,7 +818,8 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
+    '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ⇉ Merge + Issues, ☰ Übersicht, ◐ Farbe ändern, ✕ ausblenden',
+    '/projektfarbe prompts    die vier Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
@@ -904,6 +931,9 @@ export const register: Register = on => {
             : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${EINZEILER.map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt, lastBand!.isMono))}`).join(', ')} Zellen.`,
       }
     }
+    if (arg === 'prompts') {
+      return { text: promptsMarkdown() }
+    }
     if (arg === 'bunt') {
       return { text: await switchSatz($, BUNT) }
     }
@@ -1014,7 +1044,6 @@ export const register: Register = on => {
       lastBand = { columns, stufe, inhalt, isMono }
     }
     const form = stufe === 'zwei' ? null : BAND_FORMEN[stufe]
-    const isWritten = form?.isWritten ?? false
     const block = isCalm ? (
       <Text color={hex}>{state.mark}</Text>
     ) : (
@@ -1076,14 +1105,45 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // Written out while there is room, else the icon alone (☰ overview, ◐ color, ✕ hide), each in a
-    // field of one width so the three are evenly spaced.
+    // Written out while there is room, else the icon alone (✦ opinion, ↑ review + PR, ☰ overview, ◐ color, ✕ hide), each in a
+    // field of one width so the five are evenly spaced. The two session actions stand left of the overview.
+    const mergeBadge = openPrs !== null && openPrs > 0 ? raised(prLabel(openPrs)) : ''
     const defs = [
       {
+        key: 'meinung',
+        hint: 'Opus-Meinung im Chat anfordern',
+        icon: '✦',
+        svg: ICON_SVG.meinung,
+        press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
+      },
+      {
+        key: 'review',
+        hint: 'Review, Commit und Pull Request anfordern',
+        icon: '↑',
+        svg: ICON_SVG.review,
+        press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
+      },
+      {
+        key: 'handoff',
+        hint: 'Übergabe für eine frische Session schreiben lassen',
+        icon: '✉',
+        svg: ICON_SVG.handoff,
+        press: () => bitteSenden($, 'Die Übergabe wurde nicht angefordert', handoffPrompt),
+      },
+      {
+        key: 'merge',
+        hint: 'Offene PRs mergen und passende Issues lösen',
+        icon: '⇉',
+        svg: ICON_SVG.merge,
+        // The open pull requests as small raised digits at the icon: what it will merge.
+        badge: mergeBadge,
+        press: () => bitteSenden($, 'Merge und Issues wurden nicht gestartet', mergePrompt),
+      },
+      {
         key: 'uebersicht',
-        label: 'Übersicht ☰',
         hint: 'Übersicht',
         icon: '☰',
+        svg: ICON_SVG.uebersicht,
         press: async () => {
           if (!(await openPanel($))) {
             $.ui.toast('Hier ist kein Platz für das Panel; /projektfarbe status zeigt den Stand als Text.')
@@ -1092,9 +1152,9 @@ export const register: Register = on => {
       },
       {
         key: 'farbe',
-        label: 'Farbe ändern',
         hint: 'Farbe ändern',
         icon: '◐',
+        svg: ICON_SVG.farbe,
         press: async () => {
           // The picker offers the colors of the set in the store, not of the last turn's reading.
           const current = await satzNow($)
@@ -1103,30 +1163,52 @@ export const register: Register = on => {
       },
       {
         key: 'ausblenden',
-        label: 'ausblenden',
         hint: 'Band ausblenden',
         icon: '✕',
+        svg: ICON_SVG.ausblenden,
         press: async () => {
           await $.store.set('bandAus', true)
           await update($, view, v => ({ ...v, isHidden: true }))
         },
       },
     ]
+    // Where the surface has `Svg` (not the terminal) the actions are drawn as vector icons, all of one
+    // family so they stand on one line at one height. A Button takes only text, so the icon stands in the
+    // field, centered in the row, and a Button of blanks lies over it, in the same cells; the press lands
+    // on the Button. The terminal keeps its text glyphs.
+    const elements = $.ui.resolve(e)
+    const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : null
     const actions = defs.map(def => {
+      const hasSvg = Svg !== null && def.svg !== undefined
+      const width = def.key === 'merge' ? ICON_BOX + MERGE_EXTRA : ICON_BOX
+      const badge = def.badge === undefined || def.badge === '' ? null : <Text dimColor>{def.badge}</Text>
       const button = (
         <Button key={def.key} plain onPress={def.press}>
-          <Text dimColor>{isWritten ? def.label : def.icon}</Text>
+          <Text dimColor>{hasSvg ? NBSP.repeat(width) : def.icon}</Text>
         </Button>
       )
 
-      return isWritten ? (
-        button
-      ) : (
-        <Box key={`${def.key}-feld`} width={ICON_BOX} justifyContent="center">
-          {button}
+      return (
+        <Box key={`${def.key}-feld`} width={width} justifyContent="center" alignItems="center">
+          {hasSvg && Svg !== null && def.svg !== undefined ? (
+            <>
+              <Box alignItems="center">
+                <Svg source={def.svg.source} alt={def.svg.alt} width={ICON_SVG_SIZE} height={ICON_SVG_SIZE} />
+                {badge}
+              </Box>
+              <Box position="absolute" top={0} left={0}>
+                {button}
+              </Box>
+            </>
+          ) : (
+            <>
+              {button}
+              {badge}
+            </>
+          )}
           {/* What the icon does, as a card to its left in the band's own row (a card is clipped to the band),
               shown while the pointer is over the field; the surface does it, no hook runs. */}
-          <Box position="absolute" top={0} right={ICON_BOX} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>
+          <Box position="absolute" top={0} right={width} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>
             <Text>{def.hint}</Text>
           </Box>
         </Box>
@@ -1184,7 +1266,7 @@ export const register: Register = on => {
           {!showsGauge || !form.hasSpacer ? null : <Text>{NBSP.repeat(4)}</Text>}
           {!showsGauge ? null : gauge(form.bar, form.hasWord)}
         </Box>
-        <Box columnGap={isWritten ? 2 : ICON_GAP}>{actions}</Box>
+        <Box columnGap={ICON_GAP}>{actions}</Box>
       </Box>
     )
   })

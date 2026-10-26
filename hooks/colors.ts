@@ -138,6 +138,154 @@ export function projectOf(cwd: string): string | null {
   return name === '' || /^[a-z]:$/i.test(name) ? null : name
 }
 
+/**
+ * What the opinion button sends the session, as the person's own words (they would type the same). It
+ * states goals, not a form: the session decides from the conversation what the opinion is about (the last
+ * question, a plan to rework, the state of the project) and builds the subagent's task itself, handing
+ * over the matter and only what it needs, never its own conclusion, so the view stays independent and
+ * the subagent's context small. The subagent reads the rest of the repository itself.
+ */
+export function meinungPrompt(projekt: string): string {
+  return [
+    `Hol eine unabhängige zweite Meinung von Opus ein zu dem, worum es in diesem Gespräch gerade geht: meine letzte Frage, der Plan, den wir haben, oder der Stand von „${projekt}“. Du entscheidest, was gemeint ist.`,
+    [
+      'Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model opus) und baue seinen Auftrag selbst zusammen:',
+      '- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.',
+      '- Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.',
+      '- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.',
+      '- Er soll direkt sein, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und sagen, wo er anderer Meinung ist und warum. So lang wie nötig, ohne Füllstoff.',
+    ].join('\n'),
+    'Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.',
+  ].join('\n\n')
+}
+
+/**
+ * What the review button sends the session, as the person's own words: check the work, commit it, open
+ * the pull request. Pressing the button is the go-ahead for those three steps, and for nothing beyond
+ * them (no merge, no push to the main branch, no force). Like `meinungPrompt` it states goals and leaves
+ * the how to the session, which knows the repository; where a step cannot be done it stops and says why.
+ */
+export function reviewPrompt(projekt: string): string {
+  return [
+    `Bring die Änderungen in „${projekt}“ bis zum Pull Request: erst prüfen, dann committen, dann den PR öffnen.`,
+    [
+      '1. Review: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist (git status, git diff, bei Bedarf der code-review-Skill). Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was du gefunden und geändert hast.',
+      '2. Commit: Fasse zusammen, was zusammengehört, mit Nachrichten in der Art der letzten Commits. Nimm nur Dateien dieser Arbeit mit, keine Nebenprodukte und keine Geheimnisse.',
+      '3. PR: Pushe den Branch (nie auf den Basis-Branch, nie mit force) und öffne einen Pull Request dagegen, mit einer Beschreibung, die sagt, was sich ändert, warum und was geprüft ist. Mergen tust du nicht.',
+    ].join('\n'),
+    'Wenn einer der Schritte nicht geht (Tests rot, nichts zu committen, kein Remote, ein Befund, der meine Entscheidung braucht), halte an und sag mir, woran es liegt, statt es zu umgehen. Am Ende nennst du mir den Link zum PR.',
+  ].join('\n\n')
+}
+
+/**
+ * What the handoff button sends the session, as the person's own words: a message for a fresh session
+ * that carries on where this one stands. It holds what the repository cannot tell, and leaves out what
+ * the new session reads there itself; it is written so it can be pasted as the first message. Nothing is
+ * started or changed: the person decides what to do with the text.
+ */
+export function handoffPrompt(projekt: string): string {
+  return [
+    `Schreib mir eine Übergabe für eine frische Session, die an „${projekt}“ da weitermacht, wo wir gerade stehen.`,
+    'Sie soll enthalten, was die neue Session braucht und nicht aus dem Repository erfährt: das Ziel, was schon erledigt und entschieden ist (mit dem Grund), was offen ist und womit es weitergeht, wo es hakt oder riskant ist, und welche Dateien, Branches oder PRs betroffen sind. Was sie selbst lesen kann (Code, git log, CLAUDE.md), lass weg und nenne nur, wo sie nachsehen soll. Keine Gesprächsgeschichte, keine Füllsätze.',
+    'Schreib sie so, dass ich sie unverändert als erste Nachricht in eine neue Session einfügen kann. Ändere nichts und starte nichts.',
+  ].join('\n\n')
+}
+
+/**
+ * What the merge button sends the session, as the person's own words: bring the open pull requests into
+ * the main branch in a sensible order, and solve the issues that fit, merging those too. Pressing the
+ * button is the go-ahead for merging; the limits keep it safe (green checks, no force, no drafts) and
+ * what needs a decision stays open and is named.
+ */
+export function mergePrompt(projekt: string): string {
+  return [
+    `Bring die offenen PRs in „${projekt}“ sinnvoll in den Hauptzweig und löse passende Issues gleich mit.`,
+    [
+      '1. PRs: Sieh dir alle offenen PRs an (gh pr list) und lege eine sinnvolle Reihenfolge fest: erst die unabhängigen, dann die, die darauf aufbauen oder dieselben Dateien ändern. Merge jeden PR, dessen Checks grün sind und der keine offenen Befunde hat. Bei einem Konflikt: löse ihn, wenn er eindeutig ist, und lass die Checks neu laufen. Prüfe nach jedem Merge den nächsten gegen den neuen Stand.',
+      '2. Issues: Suche danach die offenen Issues, die klar und klein genug sind oder die der neue Stand schon löst (gh issue list). Löse jedes in einem eigenen Branch mit eigenem PR („Closes #n“), lass die Tests laufen und merge ihn, wenn die Checks grün sind. Was der Stand ohnehin schon erledigt, schließt du mit einem Hinweis.',
+    ].join('\n'),
+    'Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende gibst du mir eine kurze Liste: was gemerged ist, was gelöst wurde und was offen blieb.',
+  ].join('\n\n')
+}
+
+/** What each prompt button does and what a review of it checks, for `promptsMarkdown`. */
+export const PROMPT_INFO = [
+  {
+    key: 'meinung',
+    name: 'Opus-Meinung',
+    does: 'Holt eine unabhängige zweite Meinung von Opus ein: zur letzten Frage, zu einem Plan oder zum Stand des Projekts.',
+    checks: [
+      'Der Subagent bekommt die Sache selbst, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.',
+      'Das Modell ist der Alias `opus` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).',
+      'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
+    ],
+    text: meinungPrompt,
+  },
+  {
+    key: 'review',
+    name: 'Review + PR',
+    does: 'Prüft die Änderungen, committet sie und öffnet den Pull Request.',
+    checks: [
+      'Die Reihenfolge ist Review, Commit, PR.',
+      'Kein Merge, kein Push auf den Basis-Branch, nie mit force.',
+      'Geht ein Schritt nicht, hält die Session an und sagt, woran es liegt.',
+    ],
+    text: reviewPrompt,
+  },
+  {
+    key: 'handoff',
+    name: 'Handoff',
+    does: 'Schreibt eine Übergabe für eine frische Session, zum Einfügen als erste Nachricht.',
+    checks: [
+      'Verlangt, was das Repository nicht verrät, und lässt Lesbares (Code, git log, CLAUDE.md) weg.',
+      'Ändert und startet nichts.',
+    ],
+    text: handoffPrompt,
+  },
+  {
+    key: 'merge',
+    name: 'Merge',
+    does: 'Mergt die offenen PRs in sinnvoller Reihenfolge und löst passende Issues mit, auch diese werden gemergt.',
+    checks: [
+      'Gemergt wird nur bei grünen Checks, auch bei den neuen Issue-PRs.',
+      'Kein Force-Push, keine Änderung an der Historie des Hauptzweigs, keine Entwürfe.',
+      'Was rot ist, eine Entscheidung braucht oder unklar bleibt, bleibt liegen und wird mit Grund genannt.',
+    ],
+    text: mergePrompt,
+  },
+] as const
+
+/**
+ * The four prompts as one Markdown document, for a reviewer or an agent to read at a glance: what each
+ * button does, what to check, and the text itself. `/projektfarbe prompts` prints it, and `docs/PROMPTS.md`
+ * is its output, so the code stays the one source.
+ */
+export function promptsMarkdown(projekt = '{Projekt}'): string {
+  const parts = PROMPT_INFO.map(info =>
+    [
+      `## ${info.name} (\`${info.key}\`)`,
+      '',
+      info.does,
+      '',
+      'Prüfen:',
+      ...info.checks.map(check => `- ${check}`),
+      '',
+      '```text',
+      info.text(projekt),
+      '```',
+    ].join('\n'),
+  )
+
+  return [
+    '# Prompts hinter den Band-Knöpfen',
+    '',
+    'Jeder Knopf schickt der Session den Text als eigene Nachricht (`$.prompt.submit` mit `asUser`). `{Projekt}` steht für den Projektnamen. Die Texte stehen in `hooks/colors.ts`; diese Ausgabe kommt von `/projektfarbe prompts`.',
+    '',
+    parts.join('\n\n'),
+    '',
+  ].join('\n')
+}
+
 /** A color from a project's name, the same every time: used once every color of the set is taken. */
 function hashFarbe(project: string, satz: Satz): Farbe {
   let hash = 0
@@ -363,12 +511,13 @@ export function contextFill(percent: number, width: number = CONTEXT_CELLS): num
 }
 
 /**
- * The band's layouts, from the roomiest down. The one-row layouts: `voll` writes the three actions out,
- * `icons` turns them into icons, `kompakt` also drops the gauge's word and shortens its bar, `dicht`
- * moves the items closer together, `minimal` keeps only the percentage of the gauge. `zwei` is the
- * last resort: two rows, name and gauge above, counts and icons below.
+ * The band's layouts, from the roomiest down. The actions are icons in all of them (what one does is
+ * the hover card's to say). The one-row layouts: `icons` has the gauge with its word and full bar,
+ * `kompakt` drops the word and shortens the bar, `dicht` moves the items closer together, `minimal`
+ * keeps only the percentage of the gauge. `zwei` is the last resort: two rows, name and gauge above,
+ * counts and icons below.
  */
-export type BandStufe = 'voll' | 'icons' | 'kompakt' | 'dicht' | 'minimal' | 'zwei'
+export type BandStufe = 'icons' | 'kompakt' | 'dicht' | 'minimal' | 'zwei'
 
 /** The gauge's bar in the compact layouts; the roomier ones keep the full `CONTEXT_CELLS`. */
 export const COMPACT_CELLS = 4
@@ -377,8 +526,6 @@ export const COMPACT_CELLS = 4
 export type BandForm = {
   /** The `columnGap` of its rows, in cells. */
   gap: number
-  /** The actions are written out; else they are icons. */
-  isWritten: boolean
   /** The gauge's bar in cells; null: the percentage alone. */
   bar: number | null
   /** The word "Kontext" before the bar. */
@@ -388,11 +535,10 @@ export type BandForm = {
 }
 
 export const BAND_FORMEN: Record<Exclude<BandStufe, 'zwei'>, BandForm> = {
-  voll: { gap: 2, isWritten: true, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
-  icons: { gap: 2, isWritten: false, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
-  kompakt: { gap: 2, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: true },
-  dicht: { gap: 1, isWritten: false, bar: COMPACT_CELLS, hasWord: false, hasSpacer: false },
-  minimal: { gap: 1, isWritten: false, bar: null, hasWord: false, hasSpacer: false },
+  icons: { gap: 2, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
+  kompakt: { gap: 2, bar: COMPACT_CELLS, hasWord: false, hasSpacer: true },
+  dicht: { gap: 1, bar: COMPACT_CELLS, hasWord: false, hasSpacer: false },
+  minimal: { gap: 1, bar: null, hasWord: false, hasSpacer: false },
 }
 
 /** What the band's width depends on, in characters. */
@@ -407,24 +553,86 @@ export type BandInhalt = {
   percent: number | null
 }
 
+// The band's five actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
+// terminal, which keeps the text glyphs). All five are one family, so they share height, weight and
+// color: text glyphs next to them sat lower, smaller and darker. An `Svg` is an image and does not take
+// the theme's text color, so the stroke is one mid gray that reads on the light and the dark theme alike.
+// Line icons on a 24 grid.
+export const ICON_SVG_COLOR = '#666c78'
+/** The green of the check on the merge icon: mid-tone, like the gray, so it reads on both themes. */
+export const ICON_SVG_OK = '#2ea35e'
+/** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
+export const ICON_SVG_SIZE = 14
+
+const svgIcon = (inner: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
+
+export const ICON_SVG = {
+  // A doctoral cap with a spark: the independent second opinion.
+  meinung: {
+    alt: 'Opus-Meinung',
+    source: svgIcon(
+      '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>',
+    ),
+  },
+  // A pull request under a magnifying glass: review the work, then open it.
+  review: {
+    alt: 'Review und Pull Request',
+    source: svgIcon(
+      '<circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/>',
+    ),
+  },
+  // A letter in flight, speed lines behind it: the handoff to a fresh session.
+  handoff: {
+    alt: 'Handoff',
+    source: svgIcon(
+      '<g transform="rotate(-9 14.5 12)"><rect x="7.5" y="6.5" width="14.5" height="11" rx="2"/><path d="m8 8.5 6.8 5.2L21.5 8.5"/></g><path d="M2 9.5h3M1 12.5h4M2.5 15.5h2.5"/>',
+    ),
+  },
+  // A merge (two commits flowing into one) with a green check: the open pull requests, merged.
+  merge: {
+    alt: 'Offene PRs mergen',
+    source: svgIcon(
+      `<circle cx="5" cy="4.5" r="2"/><circle cx="5" cy="16.5" r="2"/><circle cx="14" cy="10.5" r="2"/><path d="M5 6.5v8"/><path d="M5 6.5v.5a3.5 3.5 0 0 0 3.5 3.5h3.5"/><path d="m12.5 17.5 3.2 3.2 6-6.7" stroke="${ICON_SVG_OK}" stroke-width="2.25"/>`,
+    ),
+  },
+  // Three lines: the overview of all sessions.
+  uebersicht: {
+    alt: 'Übersicht',
+    source: svgIcon('<path d="M3 3.5h18M3 12h18M3 20.5h18"/>'),
+  },
+  // A half-filled disc: the color.
+  farbe: {
+    alt: 'Farbe ändern',
+    source: svgIcon(`<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="${ICON_SVG_COLOR}"/>`),
+  },
+  // A cross: hide the band.
+  ausblenden: {
+    alt: 'Band ausblenden',
+    source: svgIcon('<path d="M3.5 3.5l17 17M20.5 3.5l-17 17"/>'),
+  },
+} as const
+
 // An icon's field and the gap between two: three icons take as many cells as `ICON_BOX` and `ICON_GAP` say.
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-const ACTION_CHARS = [11, 12, 10] as const
+// The band's actions, in the order it draws them: opinion, review + PR, handoff, merge, overview, color, hide.
+export const ACTION_COUNT = 7
+// The merge action also shows the number of open pull requests next to its icon: its field is this many
+// cells wider.
+export const MERGE_EXTRA = 1
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
 /** What the band's widths are measured in: the cells a character, a gap and a node take on a surface. */
 type Metrics = {
-  /** Cells per character of plain text, of the bold name and of a button's label. */
+  /** Cells per character of plain text and of the bold name. */
   text: number
   name: number
-  button: number
-  /** Cells of the gap `columnGap: 2` and `columnGap: 1` draw, of the gap between two written-out buttons and between two icon fields. */
+  /** Cells of the gap `columnGap: 2` and `columnGap: 1` draw, and of the gap between two icon fields. */
   gap: number
   gapTight: number
-  buttonGap: number
   iconGap: number
   /** The blank node before the gauge. */
   spacer: number
@@ -434,16 +642,14 @@ type Metrics = {
 
 // Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
 // font, so a character takes less than a cell, the bold name a little more; the gap between the items
-// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), a native button adds some to its own gaps, and the blank
+// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), and the blank
 // spacer before the gauge takes no room of its own. The gauge's bar is a run of blanks on a background:
 // exact cells. The band's padding is less than the engine's marks at its right end, hence the slack.
 const DESKTOP: Metrics = {
   text: 0.83,
   name: 0.89,
-  button: 0.82,
   gap: 2.85,
   gapTight: 1.85,
-  buttonGap: 3.55,
   iconGap: 1.5,
   spacer: 0,
   slack: 0.5,
@@ -453,10 +659,8 @@ const DESKTOP: Metrics = {
 const TERMINAL: Metrics = {
   text: 1,
   name: 1,
-  button: 1,
   gap: 2,
   gapTight: 1,
-  buttonGap: 2,
   iconGap: ICON_GAP,
   spacer: 4,
   slack: 0,
@@ -489,9 +693,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
     const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * m.text
     items.push((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
   }
-  const actions = form.isWritten
-    ? ACTION_CHARS.reduce((sum, chars) => sum + chars * m.button, 0) + 2 * m.buttonGap
-    : 3 * ICON_BOX + 2 * m.iconGap
+  const actions = ACTION_COUNT * ICON_BOX + MERGE_EXTRA + (ACTION_COUNT - 1) * m.iconGap
 
   return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
 }
@@ -502,7 +704,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
 const HYSTERESIS_CELLS = 1
 
 /** The one-row layouts, the roomiest first. */
-export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['voll', 'icons', 'kompakt', 'dicht', 'minimal']
+export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['icons', 'kompakt', 'dicht', 'minimal']
 
 const STUFEN: readonly BandStufe[] = [...EINZEILER, 'zwei']
 
@@ -586,6 +788,11 @@ export function superscript(count: number): string {
   const digits = [...String(Math.floor(count))].map(d => SUPERSCRIPT[Number(d)]).join('')
 
   return `⁺${digits}`
+}
+
+/** A count label (`3`, `100+`) as small raised characters (`³`, `¹⁰⁰⁺`). */
+export function raised(label: string): string {
+  return [...label].map(c => (c === '+' ? '⁺' : /\d/.test(c) ? SUPERSCRIPT[Number(c)] : c)).join('')
 }
 
 /** The highest seen numbers from the store; anything that is not a number is left out. */
