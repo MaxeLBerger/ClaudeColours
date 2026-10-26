@@ -1214,7 +1214,11 @@ export const register: Register = on => {
     // on the Button. The terminal keeps its text glyphs.
     const elements = $.ui.resolve(e)
     const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : null
-    const actions = defs.map(def => {
+    // The actions come in two groups: the session actions stand left, before the counts; the overview and
+    // the settings stand right, beside the gauge.
+    const RIGHT_KEYS = ['uebersicht', 'einstellungen']
+    const draw = (def: (typeof defs)[number]) => {
+      const isRight = RIGHT_KEYS.includes(def.key)
       const hasSvg = Svg !== null && def.svg !== undefined
       const width = def.key === 'merge' ? ICON_BOX + MERGE_EXTRA : ICON_BOX
       const badge = def.badge === undefined || def.badge === '' ? null : <Text dimColor>{def.badge}</Text>
@@ -1247,14 +1251,25 @@ export const register: Register = on => {
               {badge}
             </>
           )}
-          {/* What the icon does, as a card to its left in the band's own row (a card is clipped to the band),
-              shown while the pointer is over the field; the surface does it, no hook runs. */}
-          <Box position="absolute" top={0} right={width} display="none" hover={{ display: 'flex' }} backgroundColor="subtle" paddingX={1}>
+          {/* What the icon does, as a card in the band's own row (a card is clipped to the band), shown while
+              the pointer is over the field; the surface does it, no hook runs. The left group opens it to
+              the right of its icon, the right group to the left, so none reaches past the band's edge. */}
+          <Box
+            position="absolute"
+            top={0}
+            {...(isRight ? { right: width } : { left: width })}
+            display="none"
+            hover={{ display: 'flex' }}
+            backgroundColor="subtle"
+            paddingX={1}
+          >
             <Text>{def.hint}</Text>
           </Box>
         </Box>
       )
-    })
+    }
+    const sessionActions = defs.filter(def => !RIGHT_KEYS.includes(def.key)).map(draw)
+    const settingActions = defs.filter(def => RIGHT_KEYS.includes(def.key)).map(draw)
     const repoUrl = state.repoUrl
     // With a Bramble build the name is a Button that opens the repository there: a Link is opened by
     // the surface, in the system's browser. The block stays beside it, since a Button drops its color.
@@ -1274,40 +1289,45 @@ export const register: Register = on => {
     const prs = count('pr', 'PRs:', openPrs, state.newPrs)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
 
-    // Too narrow for one row: two rows, name and gauge above, counts and icons below. The gauge stays in
-    // the first row; the second is indented to stand under the name.
+    // Too narrow for one row: two rows. Name, counts and a short gauge above; below the session actions at
+    // the left and the overview and settings at the right, indented to stand under the name.
     if (form === null) {
       return (
         <Box flexDirection="column">
           <Box columnGap={1} justifyContent="space-between">
-            {project}
-            {!showsGauge ? null : gauge(COMPACT_CELLS, false)}
-          </Box>
-          <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
-            <Box columnGap={2}>
+            <Box columnGap={1}>
+              {project}
               {prs}
               {issues}
             </Box>
-            <Box columnGap={ICON_GAP}>{actions}</Box>
+            {!showsGauge ? null : gauge(COMPACT_CELLS, false)}
+          </Box>
+          <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
+            <Box columnGap={ICON_GAP}>{sessionActions}</Box>
+            <Box columnGap={ICON_GAP}>{settingActions}</Box>
           </Box>
         </Box>
       )
     }
 
-    // One row of two parts spread to its ends: the project, counts and gauge at the left, the actions
-    // flush right. It never wraps: after a resize the surface draws the old tree in the new width until
-    // the hook answers, and a wrap then made the band jump to two rows and back; what does not fit is
-    // cut off at the right for that moment. The narrower layouts move the items closer together.
+    // One row of two parts spread to its ends: the project, the session actions and the counts at the
+    // left, the gauge with the overview and the settings flush right. It never wraps: after a resize the
+    // surface draws the old tree in the new width until the hook answers, and a wrap then made the band
+    // jump to two rows and back; what does not fit is cut off at the right for that moment. The narrower
+    // layouts move the items closer together.
     return (
       <Box columnGap={form.gap} flexWrap="nowrap" overflow="hidden" justifyContent="space-between">
         <Box columnGap={form.gap}>
           {project}
+          <Box columnGap={ICON_GAP}>{sessionActions}</Box>
           {prs}
           {issues}
+        </Box>
+        <Box columnGap={form.gap}>
           {!showsGauge || !form.hasSpacer ? null : <Text>{NBSP.repeat(4)}</Text>}
           {!showsGauge ? null : gauge(form.bar, form.hasWord)}
+          <Box columnGap={ICON_GAP}>{settingActions}</Box>
         </Box>
-        <Box columnGap={ICON_GAP}>{actions}</Box>
       </Box>
     )
   })
