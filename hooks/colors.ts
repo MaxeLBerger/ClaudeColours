@@ -724,11 +724,13 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// The band's actions, in the order it draws them: opinion, review + PR, handoff, merge, overview, color, hide.
+// The band's actions: opinion, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right.
 export const ACTION_COUNT = 7
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
 export const MERGE_EXTRA = 1
+// The overview and the settings stand at the right edge, beside the gauge; the other actions stand left.
+export const SETTING_COUNT = 2
 // The shortest a name is cut to before the band lets the row run over instead.
 const NAME_MIN = 8
 
@@ -786,24 +788,30 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
   const m = isMono ? TERMINAL : DESKTOP
   const form = BAND_FORMEN[stufe]
   const gapCells = form.gap === 1 ? m.gapTight : m.gap
-  const items = [
+  // Left part: the project, the session actions, the counts. Right part: the gauge (with the blank spacer
+  // before it), the overview and the settings. Each node has a gap to the next; the two parts keep one
+  // gap between them.
+  const total = ACTION_COUNT + (inhalt.hasStack === true ? 1 : 0)
+  const group = (n: number, extra = 0): number => n * ICON_BOX + extra + (n - 1) * m.iconGap
+  const left = [
     BLOCK_CELLS + (1 + inhalt.name) * m.name,
+    group(total - SETTING_COUNT, MERGE_EXTRA),
     (4 + inhalt.prs) * m.text,
     (7 + inhalt.issues) * m.text,
   ]
+  const right = [group(SETTING_COUNT)]
   if (inhalt.percent !== null) {
-    // The blank spacer before the gauge is a node of its own, with a gap on each side.
-    if (form.hasSpacer) {
-      items.push(m.spacer)
-    }
     // " 8 %" after a bar, "8 %" alone.
     const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * m.text
-    items.push((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
+    right.unshift((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
+    // The blank spacer before the gauge is a node of its own, with a gap on each side.
+    if (form.hasSpacer) {
+      right.unshift(m.spacer)
+    }
   }
-  const count = ACTION_COUNT + (inhalt.hasStack === true ? 1 : 0)
-  const actions = count * ICON_BOX + MERGE_EXTRA + (count - 1) * m.iconGap
+  const nodes = [...left, ...right]
 
-  return items.reduce((sum, cells) => sum + cells, 0) + (items.length - 1) * gapCells + gapCells + actions
+  return nodes.reduce((sum, cells) => sum + cells, 0) + (left.length - 1 + right.length - 1 + 1) * gapCells
 }
 
 // Going back to a roomier layout than the one drawn last takes this many cells more than fitting does,
@@ -843,7 +851,10 @@ export function nameBudget(columns: number, inhalt: BandInhalt, isMono = false):
   const m = isMono ? TERMINAL : DESKTOP
   const gauge = inhalt.percent === null ? 0 : m.gapTight + COMPACT_CELLS + (inhalt.percent + 3) * m.text
 
-  return Math.max(NAME_MIN, Math.floor((columns - BLOCK_CELLS - m.name - gauge) / m.name))
+  // The counts stand in the first row beside the name, a tight gap apart.
+  const counts = 2 * m.gapTight + (4 + inhalt.prs + 7 + inhalt.issues) * m.text
+
+  return Math.max(NAME_MIN, Math.floor((columns - BLOCK_CELLS - m.name - gauge - counts) / m.name))
 }
 
 /** The name cut to `max` characters with an ellipsis; as it is when it fits. */
