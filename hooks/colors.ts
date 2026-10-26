@@ -208,6 +208,24 @@ export function mergePrompt(projekt: string): string {
   ].join('\n\n')
 }
 
+/**
+ * What the check-mark button sends the session, as the person's own words: merge the pull request this
+ * session has open. Pressing the button is the go-ahead for that merge, and for more only where the
+ * session itself asked in this conversation what it should merge; where it is unclear what was meant, it
+ * asks again instead of guessing. The limits are the merge button's.
+ */
+export function mergePrPrompt(projekt: string): string {
+  return [
+    `Merge den Pull Request, den wir in „${projekt}“ gerade offen haben.`,
+    [
+      '1. Finde den PR dieser Session (der Branch, an dem wir arbeiten; gh pr view). Gibt es keinen offenen, halte an und sag es mir.',
+      '2. Merge ihn, wenn seine Checks grün sind, er kein Entwurf ist und keine offenen Befunde hat. Bei einem eindeutigen Konflikt: löse ihn und lass die Checks neu laufen. Nimm die Merge-Art, die das Repository sonst verwendet (siehe die letzten Merges).',
+      '3. Mehr als diesen PR mergst du nur, wenn du im Gespräch selbst gefragt hast, ob du etwas Weiteres mergen sollst (einen anderen PR, einen Folge-PR), und ich darauf nicht widersprochen habe; dieser Klick ist dann die Zustimmung dazu, aber nur für genau das, was du gefragt hast. Ist unklar, was gemeint war, oder ob ich zugestimmt habe, frag mich noch einmal, bevor du es tust.',
+    ].join('\n'),
+    'Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende sagst du mir in einem Satz, was gemergt ist.',
+  ].join('\n\n')
+}
+
 /** What each prompt button does and what a review of it checks, for `promptsMarkdown`. */
 export const PROMPT_INFO = [
   {
@@ -252,6 +270,18 @@ export const PROMPT_INFO = [
       'Was rot ist, eine Entscheidung braucht oder unklar bleibt, bleibt liegen und wird mit Grund genannt.',
     ],
     text: mergePrompt,
+  },
+  {
+    key: 'mergepr',
+    name: 'PR mergen',
+    does: 'Mergt den offenen Pull Request dieser Session; mehr nur, wenn die Session im Gespräch selbst danach gefragt hat.',
+    checks: [
+      'Gemergt wird nur bei grünen Checks und nie ein Entwurf.',
+      'Weitere Merges nur nach einer Frage der Session im Gespräch, und nur für genau das Gefragte; bei Unklarheit fragt sie erneut.',
+      'Kein Force-Push, keine Änderung an der Historie des Hauptzweigs.',
+      'Geht etwas nicht (kein PR, rot, Entscheidung nötig), hält die Session an und nennt den Grund.',
+    ],
+    text: mergePrPrompt,
   },
 ] as const
 
@@ -582,6 +612,11 @@ export const ICON_SVG = {
       '<circle cx="5" cy="5" r="2"/><circle cx="5" cy="14" r="2"/><path d="M5 7v5"/><path d="M13 10V8a3 3 0 0 0-3-3H8"/><path d="m9.6 3.4-1.6 1.6 1.6 1.6"/><circle cx="16" cy="16" r="4.5"/><path d="M19.3 19.3 22 22"/>',
     ),
   },
+  // A green check alone: merge the pull request this session has open.
+  mergepr: {
+    alt: 'PR dieser Session mergen',
+    source: svgIcon(`<path d="m4 12.5 5 5L20 6.5" stroke="${ICON_SVG_OK}" stroke-width="2.25"/>`),
+  },
   // A letter in flight, speed lines behind it: the handoff to a fresh session.
   handoff: {
     alt: 'Handoff',
@@ -617,8 +652,8 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// The band's actions, in the order it draws them: opinion, review + PR, handoff, merge, overview, color, hide.
-export const ACTION_COUNT = 7
+// The band's actions, in the order it draws them: opinion, review + PR, merge this PR, handoff, merge, overview, color, hide.
+export const ACTION_COUNT = 8
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
 export const MERGE_EXTRA = 1

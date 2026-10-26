@@ -30,6 +30,7 @@ import {
   ICON_SVG,
   MERGE_EXTRA,
   mergePrompt,
+  mergePrPrompt,
   ICON_SVG_SIZE,
   raised,
   learnPicks,
@@ -1122,6 +1123,13 @@ export const register: Register = on => {
         icon: '↑',
         svg: ICON_SVG.review,
         press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
+      },
+      {
+        key: 'mergepr',
+        hint: 'Offenen PR dieser Session mergen',
+        icon: '✓',
+        svg: ICON_SVG.mergepr,
+        press: () => bitteSenden($, 'Der PR wurde nicht gemergt', mergePrPrompt),
       },
       {
         key: 'handoff',

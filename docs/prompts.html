@@ -143,6 +143,24 @@ Schreib sie so, dass ich sie unverändert als erste Nachricht in eine neue Sessi
 Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende gibst du mir eine kurze Liste: was gemerged ist, was gelöst wurde und was offen blieb.</pre>
   <p class="note">Nur bei grünen Checks. Kein Force-Push, keine Entwürfe; was rot ist oder eine Entscheidung braucht, bleibt liegen.</p>
 </article>
+<article class="card" id="mergepr">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path class="ok" d="m4 12.5 5 5L20 6.5"/></svg>
+    <div class="titles">
+      <h2>PR mergen</h2>
+      <p class="does">Mergt den offenen Pull Request dieser Session; mehr nur, wenn die Session im Gespräch selbst danach gefragt hat.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-mergepr" id="copy-mergepr">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-mergepr">Merge den Pull Request, den wir in „<span class="slot">{Projekt}</span>“ gerade offen haben.
+
+1. Finde den PR dieser Session (der Branch, an dem wir arbeiten; gh pr view). Gibt es keinen offenen, halte an und sag es mir.
+2. Merge ihn, wenn seine Checks grün sind, er kein Entwurf ist und keine offenen Befunde hat. Bei einem eindeutigen Konflikt: löse ihn und lass die Checks neu laufen. Nimm die Merge-Art, die das Repository sonst verwendet (siehe die letzten Merges).
+3. Mehr als diesen PR mergst du nur, wenn du im Gespräch selbst gefragt hast, ob du etwas Weiteres mergen sollst (einen anderen PR, einen Folge-PR), und ich darauf nicht widersprochen habe; dieser Klick ist dann die Zustimmung dazu, aber nur für genau das, was du gefragt hast. Ist unklar, was gemeint war, oder ob ich zugestimmt habe, frag mich noch einmal, bevor du es tust.
+
+Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende sagst du mir in einem Satz, was gemergt ist.</pre>
+  <p class="note">Nur bei grünen Checks, nie ein Entwurf. Weitere Merges nur nach einer Frage der Session; bei Unklarheit fragt sie erneut.</p>
+</article>
   <p class="foot">Die Texte nennen Ziele und Grenzen, keine feste Gliederung. Was die Session daraus macht, hängt vom Gespräch ab.</p>
 </main>
 <script>

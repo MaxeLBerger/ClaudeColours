@@ -75,3 +75,23 @@ Bring die offenen PRs in „{Projekt}“ sinnvoll in den Hauptzweig und löse pa
 
 Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende gibst du mir eine kurze Liste: was gemerged ist, was gelöst wurde und was offen blieb.
 ```
+
+## PR mergen (`mergepr`)
+
+Mergt den offenen Pull Request dieser Session; mehr nur, wenn die Session im Gespräch selbst danach gefragt hat.
+
+Prüfen:
+- Gemergt wird nur bei grünen Checks und nie ein Entwurf.
+- Weitere Merges nur nach einer Frage der Session im Gespräch, und nur für genau das Gefragte; bei Unklarheit fragt sie erneut.
+- Kein Force-Push, keine Änderung an der Historie des Hauptzweigs.
+- Geht etwas nicht (kein PR, rot, Entscheidung nötig), hält die Session an und nennt den Grund.
+
+```text
+Merge den Pull Request, den wir in „{Projekt}“ gerade offen haben.
+
+1. Finde den PR dieser Session (der Branch, an dem wir arbeiten; gh pr view). Gibt es keinen offenen, halte an und sag es mir.
+2. Merge ihn, wenn seine Checks grün sind, er kein Entwurf ist und keine offenen Befunde hat. Bei einem eindeutigen Konflikt: löse ihn und lass die Checks neu laufen. Nimm die Merge-Art, die das Repository sonst verwendet (siehe die letzten Merges).
+3. Mehr als diesen PR mergst du nur, wenn du im Gespräch selbst gefragt hast, ob du etwas Weiteres mergen sollst (einen anderen PR, einen Folge-PR), und ich darauf nicht widersprochen habe; dieser Klick ist dann die Zustimmung dazu, aber nur für genau das, was du gefragt hast. Ist unklar, was gemeint war, oder ob ich zugestimmt habe, frag mich noch einmal, bevor du es tust.
+
+Grenzen: kein Force-Push, nichts an der Historie des Hauptzweigs ändern, keine Entwürfe mergen. Was rot ist, eine Entscheidung von mir braucht oder unklar bleibt, lässt du liegen und nennst es mir mit dem Grund. Am Ende sagst du mir in einem Satz, was gemergt ist.
+```
