@@ -1241,7 +1241,9 @@ export const register: Register = on => {
                 />
                 {badge}
               </Box>
-              <Box position="absolute" top={0} left={0}>
+              {/* As wide as the field and centered, so the Button's hover patch sits on the icon: its blanks
+                  are narrower than the field's cells, and left-aligned the patch slid off to one side. */}
+              <Box position="absolute" top={0} left={0} width={width} justifyContent="center">
                 {button}
               </Box>
             </>
