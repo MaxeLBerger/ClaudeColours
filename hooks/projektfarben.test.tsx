@@ -2620,6 +2620,19 @@ test('the e2e icon is wider than the square but fits its field, in its own propo
   expect(pruefen.height).toBeLessThanOrEqual(ICON_SVG_SIZE)
 })
 
+test('every icon, present and future, fits its field: a viewBox, and a drawing no wider than the field', async () => {
+  // The band draws each icon as wide as its field and as tall as its `height` (or `ICON_SVG_SIZE`), so the
+  // viewBox centers the glyph under the Button's hover patch. A new icon only has to satisfy this.
+  for (const [key, icon] of Object.entries(ICON_SVG) as [string, { source: string; height?: number }][]) {
+    const box = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(icon.source)
+    expect(box, key).not.toBeNull()
+    const height = icon.height ?? ICON_SVG_SIZE
+    const drawnWidth = (height * Number(box?.[1])) / Number(box?.[2])
+    expect(drawnWidth, key).toBeLessThanOrEqual(ICON_BOX * CELL_PX)
+    expect(height, key).toBeLessThanOrEqual(ICON_SVG_SIZE)
+  }
+})
+
 test('a compose file in the folder is a Docker stack, in its usual names', async () => {
   for (const name of ['docker-compose.yml', 'docker-compose.override.yml', 'compose.yaml', 'compose.dev.yml', 'Docker-Compose.YML']) {
     expect(erkenneDienste([name]).hasCompose).toBe(true)
