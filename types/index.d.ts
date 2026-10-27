@@ -41,6 +41,8 @@ export type ProjektfarbenView = {
   isHidden: boolean
   /** True where the folder holds a compose file: the band then shows the stack rebuild. */
   hasStack: boolean
+  /** Keys of the session actions whose prompt was sent a moment ago; a repeated press is not sent again. */
+  sent: string[]
 }
 
 // The contract must be self-contained, so these mirror `Uebersicht` in hooks/colors.ts: change them together.

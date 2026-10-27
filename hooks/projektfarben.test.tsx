@@ -2460,8 +2460,17 @@ test('with a Bramble build the name, PRs and Issues open their pages in the newe
 // The independent Opus opinion: the band's button sends the session a prompt of the person's own.
 
 /** A session in Beta whose submitted prompts are recorded and answered by `answer`; toasts are recorded too. */
+let sessionClock: ReturnType<typeof mock.clock> | null = null
+
+/** A sent action stays locked until the session's turn ends; the tests that press one repeatedly end one first. */
+async function afterCooldown($: TestEngine) {
+  await $.turn.complete(TURN)
+  await sessionClock?.settle()
+}
+
 async function meinungSession($: TestEngine, on: TestOn, answer: (text: string) => unknown = text => ({ text })) {
   const clock = mock.clock(on)
+  sessionClock = clock
   await clock.set(NOW)
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   mock.store(on)
@@ -2472,24 +2481,27 @@ async function meinungSession($: TestEngine, on: TestOn, answer: (text: string) 
   on('turn.complete', () => ({ text: '' }))
   const sent: { text: string; origin: unknown }[] = []
   const toasts: string[] = []
+  const progress: string[] = []
   on('prompt.submit', (_, e) => {
     sent.push({ text: e.text, origin: e.origin })
 
     return answer(e.text) as never
   })
   on('ui.toast', (_, e) => {
-    toasts.push(e.text)
+    // The progress toasts of a press are in `progress`; `toasts` holds what went wrong.
+    ;(/wird gesendet|gesendet, die|schon/.test(e.text) ? progress : toasts).push(e.text)
 
     return { value: undefined }
   })
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
 
-  return { sent, toasts }
+  return { sent, toasts, progress }
 }
 
 async function pressMeinung($: TestEngine, bodyColumns = 120) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'meinung' })
   await band.unmount()
 }
@@ -2520,6 +2532,36 @@ test('the opinion button submits the question as the person\'s own words, in a w
   expect(toasts).toEqual([])
 })
 
+test('a press is answered at once, and a repeated press does not send the prompt again', async ($, on) => {
+  const { sent, progress } = await meinungSession($, on)
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+
+  await Promise.all([band.press({ key: 'meinung' }), band.press({ key: 'meinung' })])
+  await band.press({ key: 'meinung' })
+  expect(sent).toHaveLength(1)
+  expect(progress).toContain('Opus-Meinung: wird gesendet …')
+  expect(progress).toContain('Opus-Meinung: gesendet, die Antwort kommt im Chat.')
+  expect(progress.filter(text => text.includes('schon'))).toHaveLength(2)
+
+  // Once the answer's turn has ended the button works again.
+  await afterCooldown($)
+  await band.press({ key: 'meinung' })
+  expect(sent).toHaveLength(2)
+  await band.unmount()
+})
+
+test('a refused press does not lock the button: it can be tried again at once', async ($, on) => {
+  let isRefused = true
+  const { sent } = await meinungSession($, on, text => (isRefused ? { drop: 'Stop-Hook' } : { text }))
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+
+  await band.press({ key: 'review' })
+  isRefused = false
+  await band.press({ key: 'review' })
+  expect(sent).toHaveLength(2)
+  await band.unmount()
+})
+
 test('a refused or failing submission says so in a toast', async ($, on) => {
   let mode: 'drop' | 'throw' = 'drop'
   const { toasts } = await meinungSession($, on, () => {
@@ -2542,6 +2584,7 @@ test('a refused or failing submission says so in a toast', async ($, on) => {
 
 async function pressReview($: TestEngine, bodyColumns = 120) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'review' })
   await band.unmount()
 }
@@ -2683,6 +2726,7 @@ test('beside a compose file the band offers the stack rebuild, before the check,
 
 async function pressHandoff($: TestEngine, bodyColumns = 100) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'handoff' })
   await band.unmount()
 }
@@ -2719,6 +2763,7 @@ test('the handoff button submits the prompt as the person\'s own words, in a wid
 
 async function pressMerge($: TestEngine, bodyColumns = 100) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'merge' })
   await band.unmount()
 }
@@ -2787,6 +2832,7 @@ test('the merge icon carries the number of open pull requests as raised digits, 
 
 async function pressKey($: TestEngine, key: string, bodyColumns = 100) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key })
   await band.unmount()
 }
