@@ -51,6 +51,7 @@ import {
   type Grund,
   DOCKER_BLUE,
   erkenneDienste,
+  CELL_PX,
   ICON_SVG,
   ICON_SVG_COLOR,
   ICON_BOX,
@@ -2662,6 +2663,19 @@ test('the e2e icon is wider than the square but fits its field, in its own propo
   expect(pruefen.height).toBeLessThanOrEqual(ICON_SVG_SIZE)
 })
 
+test('every icon, present and future, fits its field: a viewBox, and a drawing no wider than the field', async () => {
+  // The band draws each icon as wide as its field and as tall as its `height` (or `ICON_SVG_SIZE`), so the
+  // viewBox centers the glyph under the Button's hover patch. A new icon only has to satisfy this.
+  for (const [key, icon] of Object.entries(ICON_SVG) as [string, { source: string; height?: number }][]) {
+    const box = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(icon.source)
+    expect(box, key).not.toBeNull()
+    const height = icon.height ?? ICON_SVG_SIZE
+    const drawnWidth = (height * Number(box?.[1])) / Number(box?.[2])
+    expect(drawnWidth, key).toBeLessThanOrEqual(ICON_BOX * CELL_PX)
+    expect(height, key).toBeLessThanOrEqual(ICON_SVG_SIZE)
+  }
+})
+
 test('a compose file in the folder is a Docker stack, in its usual names', async () => {
   for (const name of ['docker-compose.yml', 'docker-compose.override.yml', 'compose.yaml', 'compose.dev.yml', 'Docker-Compose.YML']) {
     expect(erkenneDienste([name]).hasCompose).toBe(true)
@@ -2690,9 +2704,10 @@ test('on the desktop every action is drawn as Svg, centered in the row, with a B
   for (const bodyColumns of [100, 75, 64, 30]) {
     const { svgs, keys, fields } = await svgsAt(bodyColumns, 'desktop')
     expect(svgs.map(svg => svg.props.alt)).toEqual(icons.map(([, icon]) => icon.alt))
-    // Square at the family's size, bar the e2e, which is as wide as its field takes.
+    // Every image is as wide as its field and as tall as its drawing, so the viewBox centers the glyph in
+    // the field the Button's hover patch covers.
     expect(svgs.map(svg => [svg.props.width, svg.props.height])).toEqual(
-      icons.map(([, icon]) => ('width' in icon ? [icon.width, icon.height] : [ICON_SVG_SIZE, ICON_SVG_SIZE])),
+      icons.map(([, icon]) => [ICON_BOX * CELL_PX, 'height' in icon ? icon.height : ICON_SVG_SIZE]),
     )
     // The Buttons that take the press are still there, in the order of the icons.
     expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
@@ -2718,7 +2733,7 @@ test('beside a compose file the band offers the stack rebuild, before the check,
     expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
     expect(svgs.map(svg => svg.props.alt)).toEqual(Object.values(ICON_SVG).map(icon => icon.alt))
     const logo = svgs.find(svg => svg.props.alt === ICON_SVG.stack.alt)
-    expect(logo?.props).toMatchObject({ width: ICON_SVG.stack.width, height: ICON_SVG.stack.height })
+    expect(logo?.props).toMatchObject({ width: ICON_BOX * CELL_PX, height: ICON_SVG.stack.height })
   }
   // One more action takes more room than the seven.
   expect(bandBreite('icons', { ...ZIEL, hasStack: true })).toBeGreaterThan(bandBreite('icons', ZIEL))
