@@ -26,6 +26,7 @@ import {
   findSatz,
   ghNumbers,
   ghPrs,
+  CELL_PX,
   ICON_BOX,
   ICON_GAP,
   ICON_SVG,
@@ -1236,12 +1237,14 @@ export const register: Register = on => {
                 <Svg
                   source={def.svg.source}
                   alt={def.svg.alt}
-                  width={'width' in def.svg ? def.svg.width : ICON_SVG_SIZE}
+                  width={ICON_BOX * CELL_PX}
                   height={'height' in def.svg ? def.svg.height : ICON_SVG_SIZE}
                 />
                 {badge}
               </Box>
-              <Box position="absolute" top={0} left={0}>
+              {/* As wide as the field and centered, so the Button's hover patch sits on the icon: its blanks
+                  are narrower than the field's cells, and left-aligned the patch slid off to one side. */}
+              <Box position="absolute" top={0} left={0} width={width} justifyContent="center">
                 {button}
               </Box>
             </>
