@@ -636,6 +636,8 @@ export const ICON_SVG_OK = '#2ea35e'
 export const DOCKER_BLUE = '#2496ED'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
+/** CSS pixels one cell of the band is wide on the desktop (a field of `ICON_BOX` cells measures about 23 px). */
+export const CELL_PX = 7.75
 
 const svgIcon = (inner: string, viewBox = '0 0 24 24'): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`

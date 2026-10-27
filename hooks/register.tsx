@@ -26,6 +26,7 @@ import {
   findSatz,
   ghNumbers,
   ghPrs,
+  CELL_PX,
   ICON_BOX,
   ICON_GAP,
   ICON_SVG,
@@ -1236,7 +1237,7 @@ export const register: Register = on => {
                 <Svg
                   source={def.svg.source}
                   alt={def.svg.alt}
-                  width={'width' in def.svg ? def.svg.width : ICON_SVG_SIZE}
+                  width={ICON_BOX * CELL_PX}
                   height={'height' in def.svg ? def.svg.height : ICON_SVG_SIZE}
                 />
                 {badge}
