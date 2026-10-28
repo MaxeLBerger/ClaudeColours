@@ -160,6 +160,28 @@ export function meinungPrompt(projekt: string): string {
 }
 
 /**
+ * What the Fable button sends the session, as the person's own words: the one to ask when it matters.
+ * The opinion button stays the everyday second view (Opus); this one is pressed for what is important (a
+ * decision that is hard to undo, a plan much depends on, a review that has to hold, a question the work
+ * is stuck on). Built like `meinungPrompt`: the session decides what is meant and hands the subagent the
+ * matter itself and why it matters, never its own conclusion. The subagent goes to the bottom of it and
+ * changes nothing.
+ */
+export function fablePrompt(projekt: string): string {
+  return [
+    `Das hier ist wichtig, hol Fable dazu: zu dem, worum es in diesem Gespräch gerade geht, meiner letzten Frage, dem Plan, den wir haben, einer Entscheidung, die schwer rückgängig zu machen ist, oder dem Stand von „${projekt}“; als zweite Meinung, als gründliches Review der Änderungen oder als Antwort auf eine Frage, an der wir hängen. Du entscheidest, was gemeint ist.`,
+    [
+      'Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:',
+      '- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Sag ihm, warum es wichtig ist und was davon abhängt.',
+      '- Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.',
+      '- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.',
+      '- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.',
+    ].join('\n'),
+    'Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.',
+  ].join('\n\n')
+}
+
+/**
  * What the review button sends the session, as the person's own words: check the work, commit it, open
  * the pull request. Pressing the button is the go-ahead for those three steps, and for nothing beyond
  * them (no merge, no push to the main branch, no force). Like `meinungPrompt` it states goals and leaves
@@ -255,6 +277,18 @@ export function erkenneDienste(namen: readonly string[]): { hasCompose: boolean 
 
 /** What each prompt button does and what a review of it checks, for `promptsMarkdown`. */
 export const PROMPT_INFO = [
+  {
+    key: 'fable',
+    name: 'Fable fragen',
+    does: 'Holt Fable dazu, wenn es wichtig ist: eine zweite Meinung zu einer Entscheidung oder einem Plan, ein gründliches Review oder die Antwort auf eine Frage, an der die Arbeit hängt. Für den Alltag bleibt die Opus-Meinung.',
+    checks: [
+      'Wie bei der Opus-Meinung: der Subagent bekommt die Sache selbst und warum sie wichtig ist, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.',
+      'Das Modell ist der Alias `fable`.',
+      'Er ändert nichts; Fixes, Commit und PR bleiben beim Knopf Review + PR.',
+      'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
+    ],
+    text: fablePrompt,
+  },
   {
     key: 'meinung',
     name: 'Opus-Meinung',
@@ -628,12 +662,15 @@ export type BandInhalt = {
 // the written-out e2e has a width of its own), so they share height, weight and
 // color: text glyphs next to them sat lower, smaller and darker. An `Svg` is an image and does not take
 // the theme's text color, so the stroke is one mid gray that reads on the light and the dark theme alike.
-// Line icons on a 24 grid.
+// Line icons on a 24 grid. The golden teacher (Fable) is filled, like the logo, and stands out on purpose.
 export const ICON_SVG_COLOR = '#666c78'
 /** The green of the check on the merge icon: mid-tone, like the gray, so it reads on both themes. */
 export const ICON_SVG_OK = '#2ea35e'
 /** Docker's own blue, for its logo: an image takes no theme color, and this one reads on both themes. */
 export const DOCKER_BLUE = '#2496ED'
+/** The golden teacher's two golds: the light one fills the figure, the dark one is its outline and the cap. */
+export const GOLD = '#E3B341'
+export const GOLD_DARK = '#A8790F'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
 /** CSS pixels one cell of the band is wide on the desktop (a field of `ICON_BOX` cells measures about 23 px). */
@@ -643,6 +680,13 @@ const svgIcon = (inner: string, viewBox = '0 0 24 24'): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
 
 export const ICON_SVG = {
+  // A golden teacher, a figure in a mortarboard with its tassel: ask Fable when it matters. Filled in gold
+  // with a darker outline, so it reads on both themes and stands out from the gray family; the dark cap
+  // sets the head apart from the figure.
+  fable: {
+    alt: 'Fable fragen',
+    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${GOLD_DARK}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 22.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5Z" fill="${GOLD}"/><circle cx="12" cy="11.6" r="3.7" fill="${GOLD}"/><path d="M2.5 6.5 12 2.5l9.5 4-9.5 4Z" fill="${GOLD_DARK}"/><path d="M21.5 6.5v4.5"/><circle cx="21.5" cy="11.8" r="0.7" fill="${GOLD_DARK}"/></svg>`,
+  },
   // A doctoral cap with a spark: the independent second opinion.
   meinung: {
     alt: 'Opus-Meinung',
@@ -726,8 +770,8 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// The band's actions: opinion, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right.
-export const ACTION_COUNT = 7
+// The band's actions: Fable, opinion, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right.
+export const ACTION_COUNT = 8
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
 export const MERGE_EXTRA = 1
