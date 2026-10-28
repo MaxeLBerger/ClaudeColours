@@ -546,9 +546,6 @@ export type ContextLevel = 'ok' | 'warn' | 'full'
 const CONTEXT_WARN = 70
 const CONTEXT_FULL = 85
 
-/** The width of the gauge, in cells. */
-export const CONTEXT_CELLS = 8
-
 /** How full the context window is, 0 to 100, from `$.session.usage()`; null before the first answer. */
 export function contextPercent(usage: unknown): number | null {
   const context = (usage as { context?: unknown } | null)?.context
@@ -571,42 +568,80 @@ export function contextLevel(percent: number): ContextLevel {
   return percent >= CONTEXT_FULL ? 'full' : percent >= CONTEXT_WARN ? 'warn' : 'ok'
 }
 
-/** How many of the gauge's `width` cells are filled: in proportion to the percentage, at least one once there is any use. */
-export function contextFill(percent: number, width: number = CONTEXT_CELLS): number {
-  const cells = Math.round((percent / 100) * width)
+/** The tokens the last answer was given over and the model's window, from `$.session.usage()`; null before the first answer. */
+export function contextTokens(usage: unknown): { tokens: number; window: number } | null {
+  const context = (usage as { context?: unknown } | null)?.context
+  if (context === null || typeof context !== 'object') {
+    return null
+  }
+  const { tokens, window } = context as Record<string, unknown>
 
-  return Math.min(width, Math.max(percent > 0 ? 1 : 0, cells))
+  return typeof tokens === 'number' && typeof window === 'number' && Number.isFinite(tokens) && window > 0
+    ? { tokens, window }
+    : null
+}
+
+/** A token count as the band says it: 126k, 1M, 1.5M. */
+export function tokenLabel(count: number): string {
+  return count >= 1_000_000 ? `${Number((count / 1_000_000).toFixed(1))}M` : `${Math.round(count / 1000)}k`
+}
+
+/** What the gauge's hover card says: the figures where there are any, and what pressing it does. */
+export function kontextHint(figures: { tokens: number | null; window: number | null }, isCompacted = false): string {
+  const press = 'klicken zum Komprimieren (wie /compact)'
+  if (figures.tokens === null || figures.window === null) {
+    return isCompacted ? `Wird nach der nächsten Antwort neu gemessen · ${press}` : `Kontext ${press}`
+  }
+
+  return `Kontext ${tokenLabel(figures.tokens)} von ${tokenLabel(figures.window)} · ${press}`
+}
+
+/** The ring's arc in each level: the gray of the other icons, then amber, then red. An image takes no theme color. */
+const KONTEXT_RING: Record<ContextLevel, string> = { ok: '#666c78', warn: '#BA7517', full: '#E24B4A' }
+
+/** The gauge as an icon of the family: a ring on a 24 grid, filled clockwise from the top in proportion to `percent`. */
+export function kontextIcon(percent: number | null): { alt: string; source: string } {
+  const circumference = 2 * Math.PI * 9
+  const level = percent === null ? 'ok' : contextLevel(percent)
+  // Any use at all shows a dot of arc; the full ring needs no gap.
+  const arc = percent === null || percent <= 0 ? 0 : Math.min(circumference, Math.max(1.5, (percent / 100) * circumference))
+  const ring = (stroke: string, extra: string): string =>
+    `<circle cx="12" cy="12" r="9" stroke="${stroke}"${extra}/>`
+
+  return {
+    alt: 'Kontext komprimieren',
+    source: svgIcon(
+      `${ring(ICON_SVG_COLOR, ' stroke-opacity="0.3"')}${arc === 0 ? '' : ring(KONTEXT_RING[level], ` stroke-width="2.5" stroke-dasharray="${arc.toFixed(2)} ${circumference.toFixed(2)}" transform="rotate(-90 12 12)"`)}`,
+    ),
+  }
+}
+
+/** The cells the gauge's field takes: the ring's field, and the blank, the digits and "%" after it. */
+export function kontextZellen(digits: number, hasPercent: boolean): number {
+  return ICON_BOX + (hasPercent ? digits + 3 : 0)
 }
 
 /**
  * The band's layouts, from the roomiest down. The actions are icons in all of them (what one does is
- * the hover card's to say). The one-row layouts: `icons` has the gauge with its word and full bar,
- * `kompakt` drops the word and shortens the bar, `dicht` moves the items closer together, `minimal`
- * keeps only the percentage of the gauge. `zwei` is the last resort: two rows, name and gauge above,
- * counts and icons below.
+ * the hover card's to say), and the gauge is one of them: a ring that compacts the context when pressed.
+ * The one-row layouts: `icons` has the ring with its percentage, `dicht` moves the items closer together,
+ * `minimal` keeps only the ring. `zwei` is the last resort: two rows, name, counts and gauge above, the
+ * icons below.
  */
-export type BandStufe = 'icons' | 'kompakt' | 'dicht' | 'minimal' | 'zwei'
-
-/** The gauge's bar in the compact layouts; the roomier ones keep the full `CONTEXT_CELLS`. */
-export const COMPACT_CELLS = 4
+export type BandStufe = 'icons' | 'dicht' | 'minimal' | 'zwei'
 
 /** What a one-row layout draws. */
 export type BandForm = {
   /** The `columnGap` of its rows, in cells. */
   gap: number
-  /** The gauge's bar in cells; null: the percentage alone. */
-  bar: number | null
-  /** The word "Kontext" before the bar. */
-  hasWord: boolean
-  /** A blank node before the gauge, which sets the gauge apart by a wider gap. */
-  hasSpacer: boolean
+  /** The percentage beside the ring. */
+  hasPercent: boolean
 }
 
 export const BAND_FORMEN: Record<Exclude<BandStufe, 'zwei'>, BandForm> = {
-  icons: { gap: 2, bar: CONTEXT_CELLS, hasWord: true, hasSpacer: true },
-  kompakt: { gap: 2, bar: COMPACT_CELLS, hasWord: false, hasSpacer: true },
-  dicht: { gap: 1, bar: COMPACT_CELLS, hasWord: false, hasSpacer: false },
-  minimal: { gap: 1, bar: null, hasWord: false, hasSpacer: false },
+  icons: { gap: 2, hasPercent: true },
+  dicht: { gap: 1, hasPercent: true },
+  minimal: { gap: 1, hasPercent: false },
 }
 
 /** What the band's width depends on, in characters. */
@@ -617,7 +652,7 @@ export type BandInhalt = {
   prs: number
   /** The same after `Issues:`. */
   issues: number
-  /** The digits of the context percentage; null where there is no gauge. */
+  /** The characters of the gauge's figure (digits, or the dash after a compaction); null where there is no gauge. */
   percent: number | null
   /** True where the project has a Docker stack: one more action, the rebuild. */
   hasStack?: boolean
@@ -726,7 +761,8 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// The band's actions: opinion, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right.
+// The band's actions: opinion, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right
+// (the gauge, drawn beside them, is counted apart).
 export const ACTION_COUNT = 7
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
@@ -745,42 +781,36 @@ type Metrics = {
   gap: number
   gapTight: number
   iconGap: number
-  /** The blank node before the gauge. */
-  spacer: number
   /** How far the room a row really has reaches past `bodyColumns`. */
   slack: number
 }
 
 // Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
 // font, so a character takes less than a cell, the bold name a little more; the gap between the items
-// is about 22 px (`gap: 2`) or 15 px (`gap: 1`), and the blank
-// spacer before the gauge takes no room of its own. The gauge's bar is a run of blanks on a background:
-// exact cells. The band's padding is less than the engine's marks at its right end, hence the slack.
+// is about 22 px (`gap: 2`) or 15 px (`gap: 1`). The band's padding is less than the engine's marks at its right end, hence the slack.
 const DESKTOP: Metrics = {
   text: 0.83,
   name: 0.89,
   gap: 2.85,
   gapTight: 1.85,
   iconGap: 1.5,
-  spacer: 0,
   slack: 0.5,
 }
 
-// On the terminal a character is one cell and a gap is what `columnGap` says; the spacer is its four blanks.
+// On the terminal a character is one cell and a gap is what `columnGap` says.
 const TERMINAL: Metrics = {
   text: 1,
   name: 1,
   gap: 2,
   gapTight: 1,
   iconGap: ICON_GAP,
-  spacer: 4,
   slack: 0,
 }
 
 /**
  * The cells a layout takes in one row (`isMono`: on the terminal, not the desktop); `zwei` has no
  * one-row width and answers Infinity. The row has two parts, spread to its two ends: the project with
- * the counts and the gauge at the left, the actions at the right; the gap between them is the least it
+ * the counts at the left, the gauge and the settings at the right; the gap between them is the least it
  * keeps.
  */
 export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false): number {
@@ -790,9 +820,8 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
   const m = isMono ? TERMINAL : DESKTOP
   const form = BAND_FORMEN[stufe]
   const gapCells = form.gap === 1 ? m.gapTight : m.gap
-  // Left part: the project, the session actions, the counts. Right part: the gauge (with the blank spacer
-  // before it), the overview and the settings. Each node has a gap to the next; the two parts keep one
-  // gap between them.
+  // Left part: the project, the session actions, the counts. Right part: the gauge, the overview and the
+  // settings, one group of icon fields. Each node has a gap to the next; the two parts keep one gap between them.
   const total = ACTION_COUNT + (inhalt.hasStack === true ? 1 : 0)
   const group = (n: number, extra = 0): number => n * ICON_BOX + extra + (n - 1) * m.iconGap
   const left = [
@@ -801,16 +830,8 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
     (4 + inhalt.prs) * m.text,
     (7 + inhalt.issues) * m.text,
   ]
-  const right = [group(SETTING_COUNT)]
-  if (inhalt.percent !== null) {
-    // " 8 %" after a bar, "8 %" alone.
-    const percent = (inhalt.percent + (form.bar === null ? 2 : 3)) * m.text
-    right.unshift((form.hasWord ? 8 * m.text : 0) + (form.bar ?? 0) + percent)
-    // The blank spacer before the gauge is a node of its own, with a gap on each side.
-    if (form.hasSpacer) {
-      right.unshift(m.spacer)
-    }
-  }
+  const gauge = inhalt.percent === null ? 0 : kontextZellen(inhalt.percent, form.hasPercent) + m.iconGap
+  const right = [gauge + group(SETTING_COUNT)]
   const nodes = [...left, ...right]
 
   return nodes.reduce((sum, cells) => sum + cells, 0) + (left.length - 1 + right.length - 1 + 1) * gapCells
@@ -822,7 +843,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
 const HYSTERESIS_CELLS = 1
 
 /** The one-row layouts, the roomiest first. */
-export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['icons', 'kompakt', 'dicht', 'minimal']
+export const EINZEILER: readonly Exclude<BandStufe, 'zwei'>[] = ['icons', 'dicht', 'minimal']
 
 const STUFEN: readonly BandStufe[] = [...EINZEILER, 'zwei']
 
@@ -851,7 +872,7 @@ export function bandStufe(
 /** How many characters of the name fit the first row of `zwei`, beside the block and the gauge. */
 export function nameBudget(columns: number, inhalt: BandInhalt, isMono = false): number {
   const m = isMono ? TERMINAL : DESKTOP
-  const gauge = inhalt.percent === null ? 0 : m.gapTight + COMPACT_CELLS + (inhalt.percent + 3) * m.text
+  const gauge = inhalt.percent === null ? 0 : m.gapTight + kontextZellen(inhalt.percent, true)
 
   // The counts stand in the first row beside the name, a tight gap apart.
   const counts = 2 * m.gapTight + (4 + inhalt.prs + 7 + inhalt.issues) * m.text

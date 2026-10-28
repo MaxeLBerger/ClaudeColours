@@ -17,10 +17,9 @@ import {
   buildBereiche,
   buildUebersicht,
   BUNT,
-  COMPACT_CELLS,
-  contextFill,
   contextLevel,
   contextPercent,
+  contextTokens,
   farbeFor,
   findFarbe,
   findSatz,
@@ -33,6 +32,10 @@ import {
   MERGE_EXTRA,
   mergePrompt,
   ICON_SVG_SIZE,
+  kontextHint,
+  kontextIcon,
+  kontextZellen,
+  tokenLabel,
   raised,
   learnPicks,
   markSeen,
@@ -97,6 +100,9 @@ const EMPTY: ProjektfarbenView = {
   mark: null,
   hex: null,
   contextPercent: null,
+  contextTokens: null,
+  contextWindow: null,
+  isCompacted: false,
   openPrs: null,
   prsNote: null,
   prNumbers: [],
@@ -142,15 +148,14 @@ function statusFarbe(status: Status): 'error' | 'warning' | 'success' | 'suggest
 
 const panel = atom({ plugin: 'projektfarben', key: 'uebersicht' } as const, EMPTY_PANEL)
 
-// Theme keys, so the gauge follows the person's theme: a calm gray bar on a fainter track,
-// the warning and error colors from where the window is filling up.
+// Theme keys for the gauge's figure, so it follows the person's theme: calm gray, then the warning and
+// error colors from where the window is filling up. The ring itself is an image (`kontextIcon`).
 const CONTEXT_FILL = { ok: 'inactive', warn: 'warning', full: 'error' } as const
-const CONTEXT_TRACK = 'subtle'
 // The theme color of the raised "+x" behind a count: new pull requests or issues.
 const NEW_COLOR = 'suggestion'
 
-// The color block and the gauge are runs of these on a colored background: on the desktop plain
-// runs of spaces collapse, and empty Boxes sat a few pixels off the line of the text beside them.
+// The color block is a run of these on a colored background: on the desktop plain runs of spaces
+// collapse, and empty Boxes sat a few pixels off the line of the text beside them.
 const NBSP = String.fromCharCode(0xa0)
 
 const textOf = (content: readonly McpContentBlock[]): string =>
@@ -307,11 +312,14 @@ async function recolorAll($: Engine, onlyProject: string | null): Promise<number
 }
 
 /** How full the context window is: a local read of the figures the status line has, no model call. */
-async function readContext($: Engine): Promise<number | null> {
+async function readContext($: Engine): Promise<{ percent: number | null; tokens: number | null; window: number | null }> {
   try {
-    return contextPercent(await $.session.usage())
+    const usage = await $.session.usage()
+    const figures = contextTokens(usage)
+
+    return { percent: contextPercent(usage), tokens: figures?.tokens ?? null, window: figures?.window ?? null }
   } catch {
-    return null
+    return { percent: null, tokens: null, window: null }
   }
 }
 
@@ -333,14 +341,18 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
   const farbe =
     project === null ? null : farbeFor(project, await ensurePicks($, [project], satz), satz)
   const isHidden = (await $.store.get('bandAus')) === true
-  const percent = await readContext($)
+  const context = await readContext($)
   const hasStack = await readDienste($, cwd)
   await update($, view, v => ({
     ...v,
     project,
     mark: farbe?.mark ?? null,
     hex: farbe?.hex ?? null,
-    contextPercent: percent,
+    contextPercent: context.percent,
+    contextTokens: context.tokens,
+    contextWindow: context.window,
+    // The gauge shows a dash from a compaction until the next answer gives a figure again.
+    isCompacted: context.percent === null ? v.isCompacted : false,
     satz: satz.id,
     isHidden,
     hasStack,
@@ -844,10 +856,41 @@ const hilfe = (satz: Satz): string =>
     `Farben (${satz.label}): ${satz.farben.map(f => `${f.mark} ${f.name}`).join(', ')}`,
   ].join('\n')
 
+// True while a compaction runs: a second press must not start another one.
+let isCompacting = false
+
+// The engine's own compaction, the call `/compact` makes; it runs between turns and is refused during one.
+async function kontextKomprimieren($: Engine): Promise<void> {
+  if (isCompacting) {
+    $.ui.toast('Das Komprimieren läuft schon.')
+
+    return
+  }
+  isCompacting = true
+  try {
+    const result = await $.session.compact()
+    if (result.skip !== undefined) {
+      $.ui.toast(`Kontext nicht komprimiert: ${result.skip}`)
+    } else {
+      const { tokensBefore, tokensAfter } = result
+      $.ui.toast(
+        tokensBefore !== undefined && tokensAfter !== undefined
+          ? `Kontext komprimiert: ${tokenLabel(tokensBefore)} → ${tokenLabel(tokensAfter)} Tokens`
+          : 'Kontext komprimiert',
+      )
+      await update($, view, v => ({ ...v, isCompacted: true, contextPercent: null }))
+    }
+  } catch {
+    $.ui.toast('Der Kontext lässt sich erst komprimieren, wenn die laufende Antwort fertig ist.')
+  } finally {
+    isCompacting = false
+  }
+  await refreshView($, await $.session.cwd()).catch(() => undefined)
+}
+
 export const register: Register = on => {
   // What the band was last drawn in, for `/projektfarbe breite`; a plain variable, as drawing must not write state.
   let lastBand: { columns: number; stufe: BandStufe; inhalt: BandInhalt; isMono: boolean } | null = null
-
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'projektfarbe',
@@ -1052,7 +1095,9 @@ export const register: Register = on => {
     const tone =
       level === 'ok' ? { dimColor: true } : { color: CONTEXT_FILL[level], bold: level === 'full' }
     // Subagent views get no gauge: the number is the main session's.
-    const showsGauge = percent !== null && e.props.view.agentId === undefined
+    // After a compaction the figure is gone until the next answer: the ring stays, with a dash.
+    const showsGauge = (percent !== null || state.isCompacted) && e.props.view.agentId === undefined
+    const figure = percent === null ? '–' : String(percent)
     // How the band is laid out follows the cells its tree has (`bandStufe`); the counts are measured
     // by the text they will show.
     const countRest = (open: number | null, fresh: number): string =>
@@ -1061,7 +1106,7 @@ export const register: Register = on => {
       name: [...state.project].length,
       prs: countRest(openPrs, state.newPrs).length,
       issues: countRest(openIssues, state.newIssues).length,
-      percent: showsGauge ? String(percent).length : null,
+      percent: showsGauge ? figure.length : null,
       hasStack: state.hasStack,
     }
     // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
@@ -1114,33 +1159,23 @@ export const register: Register = on => {
         </Box>
       )
     }
-    // The gauge: the word, a bar of `bar` cells (none: the percentage alone) and the percentage.
-    const gauge = (bar: number | null, hasLabel: boolean) => {
-      const filled = percent === null || bar === null ? 0 : contextFill(percent, bar)
-
-      return (
-        <Text>
-          {hasLabel ? <Text dimColor>{`Kontext${NBSP}`}</Text> : null}
-          {bar === null || filled === 0 ? null : (
-            <Text mono backgroundColor={CONTEXT_FILL[level]}>
-              {NBSP.repeat(filled)}
-            </Text>
-          )}
-          {bar === null || filled === bar ? null : (
-            <Text mono backgroundColor={CONTEXT_TRACK}>
-              {NBSP.repeat(bar - filled)}
-            </Text>
-          )}
-          {/* The percent sign never breaks away from its number, however tight the row gets. */}
-          <Text {...tone}>{`${bar === null ? '' : ' '}${percent}${NBSP}%`}</Text>
-        </Text>
-      )
-    }
     // The actions in the band's order (✦ opinion, ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
     // ✓ check, ⇉ merge, then ☰ overview and ⚙ settings at the right edge), each in a field of one width so
     // they are evenly spaced.
     const mergeBadge = openPrs !== null && openPrs > 0 ? raised(prLabel(openPrs)) : ''
-    const defs = [
+    type Def = {
+      key: string
+      hint: string
+      icon: string
+      svg?: { alt: string; source: string; height?: number }
+      /** Text beside the icon, in the field; `tone` is its Text's props (dimmed where none). */
+      badge?: string
+      tone?: Record<string, unknown>
+      /** The field's width in cells; `ICON_BOX` where none. */
+      width?: number
+      press: () => void | Promise<void>
+    }
+    const defs: Def[] = [
       {
         key: 'meinung',
         hint: 'Opus-Meinung im Chat anfordern',
@@ -1183,6 +1218,7 @@ export const register: Register = on => {
         svg: ICON_SVG.merge,
         // The open pull requests as small raised digits at the icon: what it will merge.
         badge: mergeBadge,
+        width: ICON_BOX + MERGE_EXTRA,
         press: () => bitteSenden($, 'Merge und Issues wurden nicht gestartet', mergePrompt),
       },
       {
@@ -1217,15 +1253,33 @@ export const register: Register = on => {
     const Svg = e.surface !== 'terminal' && 'Svg' in elements ? elements.Svg : null
     // The actions come in two groups: the session actions stand left, before the counts; the overview and
     // the settings stand right, beside the gauge.
-    const RIGHT_KEYS = ['uebersicht', 'einstellungen']
-    const draw = (def: (typeof defs)[number]) => {
+    const RIGHT_KEYS = ['kontext', 'uebersicht', 'einstellungen']
+    // The gauge is an icon of the family: a ring that fills with the context, and the figure beside it.
+    // Pressing it compacts the context. On the terminal the glyph and the figure are the button's text.
+    const kontextDef = (hasPercent: boolean): Def => {
+      const label = hasPercent ? `${NBSP}${figure}${NBSP}%` : ''
+
+      return {
+        key: 'kontext',
+        hint: kontextHint({ tokens: state.contextTokens, window: state.contextWindow }, state.isCompacted),
+        icon: `◔${label}`,
+        svg: kontextIcon(percent),
+        // The percent sign never breaks away from its number, however tight the row gets.
+        badge: label,
+        tone,
+        width: kontextZellen(figure.length, hasPercent),
+        press: () => kontextKomprimieren($),
+      }
+    }
+    const draw = (def: Def) => {
       const isRight = RIGHT_KEYS.includes(def.key)
       const hasSvg = Svg !== null && def.svg !== undefined
-      const width = def.key === 'merge' ? ICON_BOX + MERGE_EXTRA : ICON_BOX
-      const badge = def.badge === undefined || def.badge === '' ? null : <Text dimColor>{def.badge}</Text>
+      const width = def.width ?? ICON_BOX
+      const badge =
+        def.badge === undefined || def.badge === '' ? null : <Text {...(def.tone ?? { dimColor: true })}>{def.badge}</Text>
       const button = (
         <Button key={def.key} plain onPress={def.press}>
-          <Text dimColor>{hasSvg ? NBSP.repeat(width) : def.icon}</Text>
+          {hasSvg ? <Text dimColor>{NBSP.repeat(width)}</Text> : <Text {...(def.tone ?? { dimColor: true })}>{def.icon}</Text>}
         </Button>
       )
 
@@ -1238,7 +1292,7 @@ export const register: Register = on => {
                   source={def.svg.source}
                   alt={def.svg.alt}
                   width={ICON_BOX * CELL_PX}
-                  height={'height' in def.svg ? def.svg.height : ICON_SVG_SIZE}
+                  height={def.svg.height ?? ICON_SVG_SIZE}
                 />
                 {badge}
               </Box>
@@ -1251,7 +1305,7 @@ export const register: Register = on => {
           ) : (
             <>
               {button}
-              {badge}
+              {def.key === 'kontext' ? null : badge}
             </>
           )}
           {/* What the icon does, as a card in the band's own row (a card is clipped to the band), shown while
@@ -1303,7 +1357,7 @@ export const register: Register = on => {
               {prs}
               {issues}
             </Box>
-            {!showsGauge ? null : gauge(COMPACT_CELLS, false)}
+            {!showsGauge ? null : draw(kontextDef(true))}
           </Box>
           <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
@@ -1326,10 +1380,9 @@ export const register: Register = on => {
           {prs}
           {issues}
         </Box>
-        <Box columnGap={form.gap}>
-          {!showsGauge || !form.hasSpacer ? null : <Text>{NBSP.repeat(4)}</Text>}
-          {!showsGauge ? null : gauge(form.bar, form.hasWord)}
-          <Box columnGap={ICON_GAP}>{settingActions}</Box>
+        <Box columnGap={ICON_GAP}>
+          {!showsGauge ? null : draw(kontextDef(form.hasPercent))}
+          {settingActions}
         </Box>
       </Box>
     )
