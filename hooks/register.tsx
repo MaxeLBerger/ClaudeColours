@@ -849,7 +849,7 @@ const CI_GRACE_MS = 3 * 60_000
 // A head whose runs still have not ended after this long (stuck in a queue) is no longer asked about.
 const CI_MAX_MS = 90 * 60_000
 // A turn's end asks gh again where the last answer is older than this: it may follow a re-run.
-const CI_TURN_MS = 10_000
+const CI_TURN_MS = 60_000
 const CI_GH_MS = 20_000
 // A baseline that could not be read is tried again after this long.
 const VORLAGE_RETRY_MS = 10 * 60_000
@@ -1119,7 +1119,8 @@ export const register: Register = on => {
 
   // After a push (by the session or one of its agents) the CI row looks at the new head at once.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const isPush = PUSHT.test(e.command)
+    // Nothing here may throw: a failing hook would stand in the way of the command itself.
+    const isPush = typeof e.command === 'string' && PUSHT.test(e.command)
     const result = await next(e)
     if (isPush) {
       void ciTick($, true).catch(() => undefined)
