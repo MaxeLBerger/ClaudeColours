@@ -71,23 +71,44 @@ main { max-width: 780px; margin: 0 auto; display: grid; gap: 20px; }
   
 <article class="card" id="meinung">
   <header class="head">
-    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#A8790F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 22.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5Z" fill="#E3B341"/><circle cx="12" cy="11.6" r="3.7" fill="#E3B341"/><path d="M2.5 6.5 12 2.5l9.5 4-9.5 4Z" fill="#A8790F"/><path d="M21.5 6.5v4.5"/><circle cx="21.5" cy="11.8" r="0.7" fill="#A8790F"/></svg>
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/></svg>
     <div class="titles">
-      <h2>Fable fragen</h2>
-      <p class="does">Fragt Fable: zweite Meinung, Review oder eine offene Frage.</p>
+      <h2>Opus-Meinung</h2>
+      <p class="does">Holt eine unabhängige zweite Meinung von Opus ein.</p>
     </div>
     <button class="copy" type="button" data-target="p-meinung" id="copy-meinung">Kopieren</button>
   </header>
-  <pre class="prompt" id="p-meinung">Frag Fable zu dem, worum es in diesem Gespräch gerade geht: eine unabhängige zweite Meinung zu meiner letzten Frage, zu dem Plan, den wir haben, oder zum Stand von „<span class="slot">{Projekt}</span>“, ein Review der Änderungen oder die Antwort auf eine Frage, die offen ist. Du entscheidest, was gemeint ist.
+  <pre class="prompt" id="p-meinung">Hol eine unabhängige zweite Meinung von Opus ein zu dem, worum es in diesem Gespräch gerade geht: meine letzte Frage, der Plan, den wir haben, oder der Stand von „<span class="slot">{Projekt}</span>“. Du entscheidest, was gemeint ist.
 
-Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:
-- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.
+Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model opus) und baue seinen Auftrag selbst zusammen:
+- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.
 - Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.
 - Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.
 - Er soll direkt sein, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und sagen, wo er anderer Meinung ist und warum. So lang wie nötig, ohne Füllstoff.
 
 Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.</pre>
-  <p class="note">Die Session entscheidet aus dem Gespräch, ob eine zweite Meinung (zur letzten Frage, zu einem Plan oder zum Stand des Projekts), ein Review oder eine offene Frage gemeint ist, und gibt dem Subagenten nur die Sache selbst mit. Er ändert nichts; Fixes, Commit und PR bleiben beim Knopf Review + PR.</p>
+  <p class="note">Die Session entscheidet aus dem Gespräch, ob die letzte Frage, ein Plan oder der Stand des Projekts gemeint ist, und gibt dem Subagenten nur die Sache selbst mit.</p>
+</article>
+
+<article class="card" id="fable">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#A8790F" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 22.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5Z" fill="#E3B341"/><circle cx="12" cy="11.6" r="3.7" fill="#E3B341"/><path d="M2.5 6.5 12 2.5l9.5 4-9.5 4Z" fill="#A8790F"/><path d="M21.5 6.5v4.5"/><circle cx="21.5" cy="11.8" r="0.7" fill="#A8790F"/></svg>
+    <div class="titles">
+      <h2>Fable fragen</h2>
+      <p class="does">Holt Fable dazu, wenn es wichtig ist.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-fable" id="copy-fable">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-fable">Das hier ist wichtig, hol Fable dazu: zu dem, worum es in diesem Gespräch gerade geht, meiner letzten Frage, dem Plan, den wir haben, einer Entscheidung, die schwer rückgängig zu machen ist, oder dem Stand von „<span class="slot">{Projekt}</span>“; als zweite Meinung, als gründliches Review der Änderungen oder als Antwort auf eine Frage, an der wir hängen. Du entscheidest, was gemeint ist.
+
+Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:
+- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Sag ihm, warum es wichtig ist und was davon abhängt.
+- Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.
+- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.
+- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.
+
+Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.</pre>
+  <p class="note">Der Knopf für das, was zählt: eine Entscheidung, die schwer rückgängig zu machen ist, ein Plan, an dem viel hängt, ein Review, das halten muss, eine Frage, an der die Arbeit hängt. Für den Alltag bleibt die Opus-Meinung. Fable ändert nichts.</p>
 </article>
 
 <article class="card" id="review">

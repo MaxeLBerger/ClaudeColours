@@ -37,6 +37,7 @@ import {
   learnPicks,
   markSeen,
   handoffPrompt,
+  fablePrompt,
   meinungPrompt,
   promptsMarkdown,
   pruefenPrompt,
@@ -729,7 +730,7 @@ async function openPanel($: Engine): Promise<boolean> {
 
 /**
  * Sends the session a prompt of the person's own (`asUser`), a turn of its own once the session is idle:
- * the band's session actions (asking Fable, review + commit + PR and the others) are such prompts, and the answer
+ * the band's two session actions (the Opus opinion, review + commit + PR) are such prompts, and the answer
  * is a chat turn the person sees and can reply to. A refused or failing submission is a toast.
  */
 async function bitteSenden($: Engine, failure: string, text: (projekt: string) => string): Promise<void> {
@@ -836,7 +837,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ✦ Fable fragen (goldener Lehrer), ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
+    '                         Symbole im Band: ✦ Opus-Meinung, ✧ Fable fragen (goldener Lehrer, wenn es wichtig ist), ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
     '/projektfarbe prompts    die Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
@@ -1136,17 +1137,24 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // The actions in the band's order (✦ ask Fable, ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
+    // The actions in the band's order (✦ opinion, ✧ Fable (the golden teacher), ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
     // ✓ check, ⇉ merge, then ☰ overview and ⚙ settings at the right edge), each in a field of one width so
     // they are evenly spaced.
     const mergeBadge = openPrs !== null && openPrs > 0 ? raised(prLabel(openPrs)) : ''
     const defs = [
       {
         key: 'meinung',
-        hint: 'Fable fragen: zweite Meinung, Review oder Frage',
+        hint: 'Opus-Meinung im Chat anfordern',
         icon: '✦',
         svg: ICON_SVG.meinung,
-        press: () => bitteSenden($, 'Fable wurde nicht gefragt', meinungPrompt),
+        press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
+      },
+      {
+        key: 'fable',
+        hint: 'Fable fragen, wenn es wichtig ist',
+        icon: '✧',
+        svg: ICON_SVG.fable,
+        press: () => bitteSenden($, 'Fable wurde nicht gefragt', fablePrompt),
       },
       {
         key: 'review',
