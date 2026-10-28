@@ -1179,6 +1179,496 @@ export function mergePrs(open: readonly GhPr[] | null, all: readonly GhPr[] | nu
   return [...byNumber.values()].sort((a, b) => b.number - a.number)
 }
 
+// The CI of the session's branch, the band's bottom row: the jobs of the pushed head, counted green, red,
+// running and waiting, and how far the running one is. GitHub gives no log of a running job, so the
+// percentage is read off the log of that job's last green run: the `[ NN%]` lines pytest prints, against
+// the seconds since their step started. Without such lines it is the share of the last green run's time.
+
+/** Where a job stands. */
+export type CiArt = 'gruen' | 'rot' | 'laeuft' | 'wartet' | 'abgebrochen' | 'uebersprungen'
+
+/** A job's place from GitHub's status and conclusion (GraphQL spells them in capitals, REST in small letters). */
+export function ciArt(status: string, conclusion: string | null): CiArt {
+  const s = status.toUpperCase()
+  if (s !== 'COMPLETED') {
+    return s === 'IN_PROGRESS' ? 'laeuft' : 'wartet'
+  }
+  const c = (conclusion ?? '').toUpperCase()
+  if (c === 'SUCCESS') {
+    return 'gruen'
+  }
+  if (CI_ROT.has(c)) {
+    return 'rot'
+  }
+  // Cancelled is no red CI: a newer push cancels the older run (see `CI_ROT`).
+  return c === 'CANCELLED' || c === 'STALE' ? 'abgebrochen' : 'uebersprungen'
+}
+
+/** A step of a job; times in ms, null before it started or ended. */
+export type CiSchritt = { name: string; isFertig: boolean; startedAt: number | null; completedAt: number | null }
+
+/** A job (a check run of GitHub Actions) of the head commit. */
+export type CiJob = {
+  name: string
+  art: CiArt
+  startedAt: number | null
+  completedAt: number | null
+  /** The workflow's id and the run's event: where the last green run of this job is looked up. */
+  workflowId: number | null
+  event: string
+  schritte: CiSchritt[]
+}
+
+/** What the head commit's CI is, from one GraphQL query (`CI_QUERY`). */
+export type CiCommit = {
+  /** The commit's pull request, an open one first. */
+  pr: { number: number; url: string } | null
+  /** The run to open: the one with a red job, else a running one, else one that ran a job. */
+  runUrl: string | null
+  jobs: CiJob[]
+  /** Workflow runs that started but list no job yet. */
+  wartendeLaeufe: number
+  /** True where the commit has a workflow run at all; without one the band shows no CI row. */
+  hasLaeufe: boolean
+  /** True when every run of the commit is done. */
+  isFertig: boolean
+}
+
+/**
+ * The query the band asks once per poll, for the pushed head (`$sha`). Only GitHub Actions' suites
+ * (app 15368): other apps leave suites on a commit that stay queued forever and would hold the row at
+ * "running". `LATEST` counts a re-run job once. It costs 3 points of the GraphQL budget.
+ */
+export const CI_QUERY = `query($owner: String!, $name: String!, $sha: GitObjectID!) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $sha) {
+      ... on Commit {
+        associatedPullRequests(first: 3) { nodes { number url state } }
+        checkSuites(first: 5, filterBy: { appId: 15368 }) {
+          nodes {
+            status
+            workflowRun { event url workflow { databaseId } }
+            checkRuns(first: 50, filterBy: { checkType: LATEST }) {
+              nodes {
+                name status conclusion startedAt completedAt
+                steps(first: 60) { nodes { name status startedAt completedAt } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`
+
+const rec = (value: unknown): Record<string, unknown> | null =>
+  value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null
+
+const nodesOf = (connection: unknown): Record<string, unknown>[] => {
+  const list = rec(connection)?.nodes
+
+  return Array.isArray(list) ? list.map(rec).filter((node): node is Record<string, unknown> => node !== null) : []
+}
+
+const zeitOf = (value: unknown): number | null => {
+  const ms = typeof value === 'string' && value !== '' ? Date.parse(value) : Number.NaN
+
+  return Number.isFinite(ms) ? ms : null
+}
+
+const textOf = (value: unknown): string => (typeof value === 'string' ? value : '')
+
+/** The head commit's CI in what `gh api graphql` printed for `CI_QUERY`; null when it is not that. */
+export function ciCommitOf(stdout: string): CiCommit | null {
+  let raw: unknown
+  try {
+    raw = JSON.parse(stdout)
+  } catch {
+    return null
+  }
+  const repository = rec(rec(rec(raw)?.data)?.repository)
+  if (repository === null) {
+    return null
+  }
+  const commit = rec(repository.object)
+  if (commit === null) {
+    // The commit is not on GitHub (yet): no CI.
+    return { pr: null, runUrl: null, jobs: [], wartendeLaeufe: 0, hasLaeufe: false, isFertig: true }
+  }
+  const prs = nodesOf(commit.associatedPullRequests).filter(pr => typeof pr.number === 'number')
+  const pr = prs.find(one => one.state === 'OPEN') ?? prs[0]
+  const jobs: CiJob[] = []
+  const urls: { url: string; arten: CiArt[] }[] = []
+  let wartendeLaeufe = 0
+  let hasLaeufe = false
+  let isFertig = true
+  for (const suite of nodesOf(commit.checkSuites)) {
+    const run = rec(suite.workflowRun)
+    if (run === null) {
+      continue
+    }
+    hasLaeufe = true
+    const isSuiteFertig = suite.status === 'COMPLETED'
+    isFertig &&= isSuiteFertig
+    const runs = nodesOf(suite.checkRuns)
+    if (runs.length === 0) {
+      wartendeLaeufe += isSuiteFertig ? 0 : 1
+      continue
+    }
+    const workflowId = rec(run.workflow)?.databaseId
+    const arten: CiArt[] = []
+    for (const job of runs) {
+      const art = ciArt(textOf(job.status), typeof job.conclusion === 'string' ? job.conclusion : null)
+      arten.push(art)
+      jobs.push({
+        name: textOf(job.name),
+        art,
+        startedAt: zeitOf(job.startedAt),
+        completedAt: zeitOf(job.completedAt),
+        workflowId: typeof workflowId === 'number' ? workflowId : null,
+        event: textOf(run.event),
+        schritte: nodesOf(job.steps).map(step => ({
+          name: textOf(step.name),
+          isFertig: step.status === 'COMPLETED',
+          startedAt: zeitOf(step.startedAt),
+          completedAt: zeitOf(step.completedAt),
+        })),
+      })
+    }
+    if (typeof run.url === 'string') {
+      urls.push({ url: run.url, arten })
+    }
+  }
+  const runUrl =
+    urls.find(u => u.arten.includes('rot')) ??
+    urls.find(u => u.arten.includes('laeuft')) ??
+    urls.find(u => u.arten.some(art => art !== 'uebersprungen')) ??
+    urls[0]
+
+  return {
+    pr: pr === undefined ? null : { number: pr.number as number, url: textOf(pr.url) },
+    runUrl: runUrl?.url ?? null,
+    jobs,
+    wartendeLaeufe,
+    hasLaeufe,
+    isFertig: isFertig && wartendeLaeufe === 0,
+  }
+}
+
+/** pytest's progress over a step: seconds since the step started → percent, rising. */
+export type CiKurve = { schritt: string; punkte: [number, number][] }
+
+/** What a running job is measured against: its last green run's length and, where pytest ran, its curve. */
+export type CiVorlage = { dauerSek: number; kurve: CiKurve | null }
+
+// A log line of pytest's progress: `2026-10-28T14:25:26.38Z ........ [ 35%]`.
+const FORTSCHRITT = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z) .*\[\s*(\d{1,3})%\]$/
+
+/**
+ * pytest's curve in a finished job's log: the step its first `[ NN%]` line falls in, and from each line
+ * of it the seconds since that step began and the percent. Null without such lines.
+ */
+export function ciKurve(log: string, schritte: readonly CiSchritt[]): CiKurve | null {
+  let schritt: CiSchritt | undefined
+  const punkte: [number, number][] = []
+  for (const line of log.split('\n')) {
+    const match = FORTSCHRITT.exec(line.trimEnd())
+    if (match === null) {
+      continue
+    }
+    const t = Date.parse(match[1] ?? '')
+    const prozent = Number(match[2])
+    // Step times are whole seconds: a line may stand up to a second past its step's end.
+    const isIn = (s: CiSchritt): boolean =>
+      s.startedAt !== null && s.completedAt !== null && s.startedAt <= t && t < s.completedAt + 1000
+    if (schritt === undefined) {
+      schritt = schritte.find(isIn)
+      if (schritt === undefined) {
+        return null
+      }
+    } else if (!isIn(schritt)) {
+      break
+    }
+    const letzter = punkte[punkte.length - 1]
+    if (letzter === undefined || prozent > letzter[1]) {
+      punkte.push([Math.max(0, (t - (schritt.startedAt as number)) / 1000), prozent])
+    }
+  }
+
+  return schritt === undefined || punkte.length < 2 ? null : { schritt: schritt.name, punkte }
+}
+
+/** The percent on the curve after `sek` seconds of its step, from 0 at its start, linear in between. */
+export function kurveBei(kurve: CiKurve, sek: number): number {
+  let [x0, y0] = [0, 0]
+  for (const [x, y] of kurve.punkte) {
+    if (sek <= x) {
+      return x === x0 ? y : y0 + ((y - y0) * (sek - x0)) / (x - x0)
+    }
+    ;[x0, y0] = [x, y]
+  }
+
+  return y0
+}
+
+/** The run ids in what `gh api …/actions/workflows/<id>/runs` printed; empty when it is not that. */
+export function ghLaeufe(stdout: string): number[] {
+  try {
+    const runs = rec(JSON.parse(stdout))?.workflow_runs
+
+    return Array.isArray(runs)
+      ? runs.map(run => rec(run)?.id).filter((id): id is number => typeof id === 'number')
+      : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * The green job of this name in what `gh api …/actions/runs/<id>/jobs` printed: its id, its length and
+ * its steps; null when the run has none.
+ */
+export function ghJobVorlage(
+  stdout: string,
+  name: string,
+): { jobId: number; dauerSek: number; schritte: CiSchritt[] } | null {
+  let raw: unknown
+  try {
+    raw = JSON.parse(stdout)
+  } catch {
+    return null
+  }
+  const jobs = rec(raw)?.jobs
+  if (!Array.isArray(jobs)) {
+    return null
+  }
+  for (const entry of jobs) {
+    const job = rec(entry)
+    if (job === null || job.name !== name || job.conclusion !== 'success' || typeof job.id !== 'number') {
+      continue
+    }
+    const start = zeitOf(job.started_at)
+    const ende = zeitOf(job.completed_at)
+    const steps = Array.isArray(job.steps) ? job.steps.map(rec) : []
+    if (start === null || ende === null || ende <= start || steps.length === 0) {
+      continue
+    }
+
+    return {
+      jobId: job.id,
+      dauerSek: (ende - start) / 1000,
+      schritte: steps
+        .filter((step): step is Record<string, unknown> => step !== null)
+        .map(step => ({
+          name: textOf(step.name),
+          isFertig: true,
+          startedAt: zeitOf(step.started_at),
+          completedAt: zeitOf(step.completed_at),
+        })),
+    }
+  }
+
+  return null
+}
+
+/** Where its baseline is kept: one per workflow, event and job name. */
+export const vorlageKey = (job: CiJob): string => `${job.workflowId ?? '?'}|${job.event}|${job.name}`
+
+/** How far a running job is and how long it still needs; what the percent was read from. */
+export type CiFortschritt = { prozent: number | null; restSek: number | null; quelle: 'log' | 'zeit' | null }
+
+/**
+ * A running job's progress against its baseline: pytest's percent while the step of the curve runs,
+ * else the share of the last green run's time; never 100 while it runs.
+ */
+export function jobFortschritt(job: CiJob, vorlage: CiVorlage | null, now: number): CiFortschritt {
+  if (job.art !== 'laeuft' || job.startedAt === null || vorlage === null || vorlage.dauerSek <= 0) {
+    return { prozent: null, restSek: null, quelle: null }
+  }
+  const sek = Math.max(0, (now - job.startedAt) / 1000)
+  const restSek = Math.max(0, Math.round(vorlage.dauerSek - sek))
+  const kurve = vorlage.kurve
+  const schritt =
+    kurve === null ? undefined : job.schritte.find(s => s.name === kurve.schritt && !s.isFertig && s.startedAt !== null)
+  if (kurve !== null && schritt !== undefined) {
+    const imSchritt = Math.max(0, (now - (schritt.startedAt as number)) / 1000)
+
+    return { prozent: Math.min(99, Math.floor(kurveBei(kurve, imSchritt))), restSek, quelle: 'log' }
+  }
+
+  return { prozent: Math.min(99, Math.floor((sek / vorlage.dauerSek) * 100)), restSek, quelle: 'zeit' }
+}
+
+/** A job's name without what its parentheses add: "Backend (pytest + ruff)" → "Backend". */
+export function ciKurzName(name: string): string {
+  const cut = name.indexOf(' (')
+
+  return cut > 0 ? name.slice(0, cut) : name
+}
+
+/** What the band's CI row shows, worked out when the CI is read, since drawing only reads. */
+export type CiAnzeige = {
+  gruen: number
+  rot: number
+  laeuft: number
+  wartet: number
+  abgebrochen: number
+  /** The red jobs' full names. */
+  rotNamen: string[]
+  /** The running job that needs longest. */
+  haupt: { name: string; prozent: number | null; quelle: CiFortschritt['quelle'] } | null
+  /** How long the slowest running job still needs; null where no baseline says. */
+  restSek: number | null
+  isFertig: boolean
+  /** Where the row leads: the pull request's checks, else the run. */
+  url: string | null
+}
+
+/** The row's data from the head's CI and the baselines; null where the head has no workflow run. */
+export function ciAnzeige(
+  commit: CiCommit,
+  vorlageOf: (job: CiJob) => CiVorlage | null,
+  now: number,
+): CiAnzeige | null {
+  if (!commit.hasLaeufe) {
+    return null
+  }
+  const zahl = (art: CiArt): number => commit.jobs.filter(job => job.art === art).length
+  let haupt: CiAnzeige['haupt'] = null
+  let restSek: number | null = null
+  for (const job of commit.jobs.filter(one => one.art === 'laeuft')) {
+    const fortschritt = jobFortschritt(job, vorlageOf(job), now)
+    if (haupt === null || (fortschritt.restSek ?? -1) > (restSek ?? -1)) {
+      haupt = { name: job.name, prozent: fortschritt.prozent, quelle: fortschritt.quelle }
+      restSek = fortschritt.restSek
+    }
+  }
+
+  return {
+    gruen: zahl('gruen'),
+    rot: zahl('rot'),
+    laeuft: zahl('laeuft'),
+    wartet: zahl('wartet') + commit.wartendeLaeufe,
+    abgebrochen: zahl('abgebrochen'),
+    rotNamen: commit.jobs.filter(job => job.art === 'rot').map(job => job.name),
+    haupt,
+    restSek,
+    isFertig: commit.isFertig,
+    url: commit.pr === null || commit.pr.url === '' ? commit.runUrl : `${commit.pr.url}/checks`,
+  }
+}
+
+/** The row's tone: red once a job failed, running while one runs or waits, else green. */
+export type CiTon = 'gruen' | 'rot' | 'laeuft' | 'leise'
+
+/** One part of the row: its key, its text (no break inside), its tone and what its hover says. */
+export type CiTeil = { key: string; text: string; ton: CiTon; hint: string | null }
+
+/** `voll` names the jobs; `kurz` keeps symbols and numbers. */
+export type CiForm = 'voll' | 'kurz'
+
+// A blank that does not break: a part of the row never splits over two lines.
+const NBSP_CI = String.fromCharCode(0xa0)
+const nb = (...parts: string[]): string => parts.join(NBSP_CI)
+
+/** "~3 Min", or "<1 Min" for the last minute. */
+export function restText(sek: number): string {
+  return sek < 60 ? nb('<1', 'Min') : nb(`~${Math.ceil(sek / 60)}`, 'Min')
+}
+
+/** The tone of the whole row, which the word "CI" takes. */
+export function ciTon(a: CiAnzeige): CiTon {
+  return a.rot > 0 ? 'rot' : a.laeuft + a.wartet > 0 || !a.isFertig ? 'laeuft' : 'gruen'
+}
+
+const QUELLE: Record<'log' | 'zeit', string> = {
+  log: 'Fortschritt laut Log des letzten grünen Laufs',
+  zeit: 'geschätzt aus der Dauer des letzten grünen Laufs',
+}
+
+/** The row's parts after the word "CI", in order: green, red, running, waiting, cancelled. */
+export function ciTeile(a: CiAnzeige, form: CiForm): CiTeil[] {
+  const isVoll = form === 'voll'
+  const teile: CiTeil[] = []
+  if (a.gruen > 0) {
+    const isAllesGruen = a.isFertig && a.rot === 0 && a.laeuft + a.wartet === 0
+    teile.push({
+      key: 'ci-gruen',
+      text: isAllesGruen && isVoll ? nb('✓', String(a.gruen), 'grün') : nb('✓', String(a.gruen)),
+      ton: 'gruen',
+      hint: null,
+    })
+  }
+  if (a.rot > 0) {
+    const namen = a.rotNamen.map(ciKurzName)
+    const mehr = namen.length > 2 ? `,${NBSP_CI}+${namen.length - 2}` : ''
+    teile.push({
+      key: 'ci-rot',
+      text: isVoll ? nb('✕', String(a.rot), `${namen.slice(0, 2).join(`,${NBSP_CI}`)}${mehr}`) : nb('✕', String(a.rot)),
+      ton: 'rot',
+      hint: `Rot: ${a.rotNamen.join(', ')}`,
+    })
+  }
+  if (a.laeuft > 0 && a.haupt !== null) {
+    const { haupt } = a
+    const stand = haupt.prozent === null ? 'läuft' : nb(String(haupt.prozent), '%')
+    const andere = a.laeuft > 1 ? [`+${a.laeuft - 1}`] : []
+    const rest = a.restSek === null || a.restSek === 0 ? [] : [isVoll ? nb('·', restText(a.restSek)) : restText(a.restSek)]
+    teile.push({
+      key: 'ci-laeuft',
+      text: isVoll
+        ? nb('◔', ciKurzName(haupt.name), stand, ...andere, ...rest)
+        : nb('◔', haupt.prozent === null ? String(a.laeuft) : stand, ...rest),
+      ton: 'laeuft',
+      hint: `${haupt.name}: ${haupt.quelle === null ? 'noch kein grüner Lauf zum Vergleich' : QUELLE[haupt.quelle]}`,
+    })
+  }
+  if (a.wartet > 0) {
+    teile.push({
+      key: 'ci-wartet',
+      text: isVoll ? nb('○', String(a.wartet), 'wartet') : nb('○', String(a.wartet)),
+      ton: 'leise',
+      hint: null,
+    })
+  }
+  if (a.abgebrochen > 0) {
+    teile.push({
+      key: 'ci-abgebrochen',
+      text: isVoll ? nb('⊘', String(a.abgebrochen), 'abgebrochen') : nb('⊘', String(a.abgebrochen)),
+      ton: 'leise',
+      hint: null,
+    })
+  }
+  if (teile.length === 0) {
+    // Runs that list no job yet, or only skipped ones.
+    teile.push({ key: 'ci-wartet', text: a.isFertig ? 'nichts gelaufen' : nb('○', 'startet'), ton: 'leise', hint: null })
+  }
+
+  return teile
+}
+
+/** The cells the row takes: the word "CI" and its parts, `columnGap` 2 apart. */
+export function ciBreite(teile: readonly CiTeil[], isMono = false): number {
+  const m = isMono ? TERMINAL : DESKTOP
+  const zeichen = teile.reduce((sum, teil) => sum + [...teil.text].length, 2)
+
+  return zeichen * m.text + teile.length * m.gap
+}
+
+/** The fuller form where it fits the band's width, else the short one. */
+export function ciForm(columns: number, a: CiAnzeige, isMono = false): CiForm {
+  const m = isMono ? TERMINAL : DESKTOP
+
+  return ciBreite(ciTeile(a, 'voll'), isMono) <= columns + m.slack ? 'voll' : 'kurz'
+}
+
+/** The row as plain text, for `/projektfarbe`. */
+export function ciText(a: CiAnzeige): string {
+  return `CI: ${ciTeile(a, 'voll')
+    .map(teil => teil.text.split(NBSP_CI).join(' '))
+    .join(' · ')}`
+}
+
 export type StatusArt =
   | 'laeuft'
   | 'abgebrochen'
