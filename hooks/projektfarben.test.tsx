@@ -1513,7 +1513,7 @@ test('the actions stand in this order: the session actions with merge last of th
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
     const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
     await ui.unmount()
-    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'fable', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['fable', 'meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
   }
 })
 
@@ -1523,7 +1523,7 @@ test('the session actions stand before the counts, the overview and settings aft
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 100 }, surface: 'desktop' })
   const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
   await ui.unmount()
-  expect(keys).toEqual(['meinung', 'fable', 'review', 'handoff', 'pruefen', 'merge', 'prs', 'issues', 'uebersicht', 'einstellungen'])
+  expect(keys).toEqual(['fable', 'meinung', 'review', 'handoff', 'pruefen', 'merge', 'prs', 'issues', 'uebersicht', 'einstellungen'])
 })
 
 test('each icon has a hover card saying what it does', async ($, on) => {
@@ -1540,8 +1540,8 @@ test('each icon has a hover card saying what it does', async ($, on) => {
   for (const bodyColumns of [100, 70, 56, 48, 42, 30]) {
     const cards = await cardsAt(bodyColumns)
     expect(cards.map(card => card.text)).toEqual([
-      'Opus-Meinung im Chat anfordern',
       'Fable fragen, wenn es wichtig ist',
+      'Opus-Meinung im Chat anfordern',
       'Review, Commit und Pull Request anfordern',
       'Übergabe für eine frische Session schreiben lassen',
       'Prüfen: Qualität, Tests und e2e mit Playwright',
@@ -2740,7 +2740,7 @@ test('on the desktop every action is drawn as Svg, centered in the row, with a B
       icons.map(([, icon]) => [ICON_BOX * CELL_PX, 'height' in icon ? icon.height : ICON_SVG_SIZE]),
     )
     // The Buttons that take the press are still there, in the order of the icons.
-    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'fable', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['fable', 'meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
     // Each field centers its icon in the row, so all stand on one line.
     expect(fields).toHaveLength(8)
     expect(fields.every(box => box.props.alignItems === 'center')).toBe(true)
@@ -2760,7 +2760,7 @@ test('beside a compose file the band offers the stack rebuild, before the check,
     const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
     const svgs = await ui.findAll({ type: 'Svg' })
     await ui.unmount()
-    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'fable', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['fable', 'meinung', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
     expect(svgs.map(svg => svg.props.alt)).toEqual(Object.values(ICON_SVG).map(icon => icon.alt))
     const logo = svgs.find(svg => svg.props.alt === ICON_SVG.stack.alt)
     expect(logo?.props).toMatchObject({ width: ICON_BOX * CELL_PX, height: ICON_SVG.stack.height })
@@ -2952,7 +2952,7 @@ test('the settings icon opens the color picker with the mode switch and the hide
 test('the prompts document shows what each button does, what to check, and the text itself', async () => {
   const doc = promptsMarkdown()
   expect(doc.startsWith('# Prompts hinter den Band-Knöpfen')).toBe(true)
-  expect(PROMPT_INFO.map(info => info.key)).toEqual(['meinung', 'fable', 'review', 'handoff', 'merge', 'pruefen', 'stack'])
+  expect(PROMPT_INFO.map(info => info.key)).toEqual(['fable', 'meinung', 'review', 'handoff', 'merge', 'pruefen', 'stack'])
   for (const info of PROMPT_INFO) {
     expect(doc).toContain(`## ${info.name} (\`${info.key}\`)`)
     expect(doc).toContain(info.does)

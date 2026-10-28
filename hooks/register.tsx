@@ -837,7 +837,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ✦ Opus-Meinung, ✧ Fable fragen (goldener Lehrer, wenn es wichtig ist), ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
+    '                         Symbole im Band: ✧ Fable fragen (goldener Lehrer, wenn es wichtig ist), ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
     '/projektfarbe prompts    die Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
@@ -1137,24 +1137,24 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // The actions in the band's order (✦ opinion, ✧ Fable (the golden teacher), ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
+    // The actions in the band's order (✧ Fable (the golden teacher), ✦ opinion, ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
     // ✓ check, ⇉ merge, then ☰ overview and ⚙ settings at the right edge), each in a field of one width so
     // they are evenly spaced.
     const mergeBadge = openPrs !== null && openPrs > 0 ? raised(prLabel(openPrs)) : ''
     const defs = [
-      {
-        key: 'meinung',
-        hint: 'Opus-Meinung im Chat anfordern',
-        icon: '✦',
-        svg: ICON_SVG.meinung,
-        press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
-      },
       {
         key: 'fable',
         hint: 'Fable fragen, wenn es wichtig ist',
         icon: '✧',
         svg: ICON_SVG.fable,
         press: () => bitteSenden($, 'Fable wurde nicht gefragt', fablePrompt),
+      },
+      {
+        key: 'meinung',
+        hint: 'Opus-Meinung im Chat anfordern',
+        icon: '✦',
+        svg: ICON_SVG.meinung,
+        press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
       },
       {
         key: 'review',

@@ -278,17 +278,6 @@ export function erkenneDienste(namen: readonly string[]): { hasCompose: boolean 
 /** What each prompt button does and what a review of it checks, for `promptsMarkdown`. */
 export const PROMPT_INFO = [
   {
-    key: 'meinung',
-    name: 'Opus-Meinung',
-    does: 'Holt eine unabhängige zweite Meinung von Opus ein: zur letzten Frage, zu einem Plan oder zum Stand des Projekts.',
-    checks: [
-      'Der Subagent bekommt die Sache selbst, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.',
-      'Das Modell ist der Alias `opus` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).',
-      'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
-    ],
-    text: meinungPrompt,
-  },
-  {
     key: 'fable',
     name: 'Fable fragen',
     does: 'Holt Fable dazu, wenn es wichtig ist: eine zweite Meinung zu einer Entscheidung oder einem Plan, ein gründliches Review oder die Antwort auf eine Frage, an der die Arbeit hängt. Für den Alltag bleibt die Opus-Meinung.',
@@ -299,6 +288,17 @@ export const PROMPT_INFO = [
       'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
     ],
     text: fablePrompt,
+  },
+  {
+    key: 'meinung',
+    name: 'Opus-Meinung',
+    does: 'Holt eine unabhängige zweite Meinung von Opus ein: zur letzten Frage, zu einem Plan oder zum Stand des Projekts.',
+    checks: [
+      'Der Subagent bekommt die Sache selbst, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.',
+      'Das Modell ist der Alias `opus` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).',
+      'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
+    ],
+    text: meinungPrompt,
   },
   {
     key: 'review',
@@ -680,19 +680,19 @@ const svgIcon = (inner: string, viewBox = '0 0 24 24'): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
 
 export const ICON_SVG = {
-  // A doctoral cap with a spark: the independent second opinion.
-  meinung: {
-    alt: 'Opus-Meinung',
-    source: svgIcon(
-      '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>',
-    ),
-  },
   // A golden teacher, a figure in a mortarboard with its tassel: ask Fable when it matters. Filled in gold
   // with a darker outline, so it reads on both themes and stands out from the gray family; the dark cap
   // sets the head apart from the figure.
   fable: {
     alt: 'Fable fragen',
     source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${GOLD_DARK}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 22.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5Z" fill="${GOLD}"/><circle cx="12" cy="11.6" r="3.7" fill="${GOLD}"/><path d="M2.5 6.5 12 2.5l9.5 4-9.5 4Z" fill="${GOLD_DARK}"/><path d="M21.5 6.5v4.5"/><circle cx="21.5" cy="11.8" r="0.7" fill="${GOLD_DARK}"/></svg>`,
+  },
+  // A doctoral cap with a spark: the independent second opinion.
+  meinung: {
+    alt: 'Opus-Meinung',
+    source: svgIcon(
+      '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>',
+    ),
   },
   // A pull request under a magnifying glass: review the work, then open it.
   review: {
@@ -770,7 +770,7 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// The band's actions: opinion, Fable, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right.
+// The band's actions: Fable, opinion, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right.
 export const ACTION_COUNT = 8
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
