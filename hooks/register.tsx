@@ -891,6 +891,7 @@ async function kontextKomprimieren($: Engine): Promise<void> {
 export const register: Register = on => {
   // What the band was last drawn in, for `/projektfarbe breite`; a plain variable, as drawing must not write state.
   let lastBand: { columns: number; stufe: BandStufe; inhalt: BandInhalt; isMono: boolean } | null = null
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'projektfarbe',
@@ -1094,8 +1095,8 @@ export const register: Register = on => {
     const level = percent === null ? 'ok' : contextLevel(percent)
     const tone =
       level === 'ok' ? { dimColor: true } : { color: CONTEXT_FILL[level], bold: level === 'full' }
-    // Subagent views get no gauge: the number is the main session's.
-    // After a compaction the figure is gone until the next answer: the ring stays, with a dash.
+    // Subagent views get no gauge: the number is the main session's. After a compaction the figure is
+    // gone until the next answer: the ring stays, with a dash.
     const showsGauge = (percent !== null || state.isCompacted) && e.props.view.agentId === undefined
     const figure = percent === null ? '–' : String(percent)
     // How the band is laid out follows the cells its tree has (`bandStufe`); the counts are measured

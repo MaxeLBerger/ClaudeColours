@@ -787,7 +787,8 @@ type Metrics = {
 
 // Measured on the desktop (the one-row band, in cells of 7.75 px): the text is set in a proportional
 // font, so a character takes less than a cell, the bold name a little more; the gap between the items
-// is about 22 px (`gap: 2`) or 15 px (`gap: 1`). The band's padding is less than the engine's marks at its right end, hence the slack.
+// is about 22 px (`gap: 2`) or 15 px (`gap: 1`). The band's padding is less than the engine's marks at its
+// right end, hence the slack.
 const DESKTOP: Metrics = {
   text: 0.83,
   name: 0.89,
