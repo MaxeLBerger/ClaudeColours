@@ -2,20 +2,21 @@
 
 Jeder Knopf schickt der Session den Text als eigene Nachricht (`$.prompt.submit` mit `asUser`). `{Projekt}` steht für den Projektnamen. Die Texte stehen in `hooks/colors.ts`; diese Ausgabe kommt von `/projektfarbe prompts`.
 
-## Opus-Meinung (`meinung`)
+## Fable fragen (`meinung`)
 
-Holt eine unabhängige zweite Meinung von Opus ein: zur letzten Frage, zu einem Plan oder zum Stand des Projekts.
+Fragt Fable: eine unabhängige zweite Meinung zur letzten Frage, zu einem Plan oder zum Stand des Projekts, ein Review der Änderungen oder eine offene Frage.
 
 Prüfen:
 - Der Subagent bekommt die Sache selbst, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.
-- Das Modell ist der Alias `opus` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).
+- Das Modell ist der Alias `fable` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).
+- Ein Review hier ändert nichts: Fixes, Commit und PR bleiben beim Knopf Review + PR.
 - Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.
 
 ```text
-Hol eine unabhängige zweite Meinung von Opus ein zu dem, worum es in diesem Gespräch gerade geht: meine letzte Frage, der Plan, den wir haben, oder der Stand von „{Projekt}“. Du entscheidest, was gemeint ist.
+Frag Fable zu dem, worum es in diesem Gespräch gerade geht: eine unabhängige zweite Meinung zu meiner letzten Frage, zu dem Plan, den wir haben, oder zum Stand von „{Projekt}“, ein Review der Änderungen oder die Antwort auf eine Frage, die offen ist. Du entscheidest, was gemeint ist.
 
-Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model opus) und baue seinen Auftrag selbst zusammen:
-- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.
+Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:
+- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.
 - Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.
 - Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.
 - Er soll direkt sein, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und sagen, wo er anderer Meinung ist und warum. So lang wie nötig, ohne Füllstoff.

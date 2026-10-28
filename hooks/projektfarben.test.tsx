@@ -50,6 +50,8 @@ import {
   type GhPr,
   type Grund,
   DOCKER_BLUE,
+  GOLD,
+  GOLD_DARK,
   erkenneDienste,
   CELL_PX,
   ICON_SVG,
@@ -1536,7 +1538,7 @@ test('each icon has a hover card saying what it does', async ($, on) => {
   for (const bodyColumns of [100, 70, 56, 48, 42, 30]) {
     const cards = await cardsAt(bodyColumns)
     expect(cards.map(card => card.text)).toEqual([
-      'Opus-Meinung im Chat anfordern',
+      'Fable fragen: zweite Meinung, Review oder Frage',
       'Review, Commit und Pull Request anfordern',
       'Übergabe für eine frische Session schreiben lassen',
       'Prüfen: Qualität, Tests und e2e mit Playwright',
@@ -2458,7 +2460,7 @@ test('with a Bramble build the name, PRs and Issues open their pages in the newe
   expect(gh.asked.some(argv => argv.includes('--web'))).toBe(false)
 })
 
-// The independent Opus opinion: the band's button sends the session a prompt of the person's own.
+// Asking Fable (second opinion, review, a question): the band's button sends the session a prompt of the person's own.
 
 /** A session in Beta whose submitted prompts are recorded and answered by `answer`; toasts are recorded too. */
 async function meinungSession($: TestEngine, on: TestOn, answer: (text: string) => unknown = text => ({ text })) {
@@ -2498,9 +2500,14 @@ async function pressMeinung($: TestEngine, bodyColumns = 120) {
 test('the question has the session build the task: the matter itself, no own conclusion, no bloat', async () => {
   const prompt = meinungPrompt('Beta')
   expect(prompt).toContain('„Beta“')
-  expect(prompt).toContain('subagent_type general-purpose, model opus')
-  // The session decides what is meant: the last question, a plan to rework or the state of the project.
-  expect(prompt).toContain('meine letzte Frage, der Plan, den wir haben, oder der Stand von „Beta“')
+  expect(prompt).toContain('subagent_type general-purpose, model fable')
+  expect(prompt).not.toMatch(/opus/i)
+  // The session decides what is meant: a second opinion on the last question, a plan or the state of the
+  // project, a review of the changes, or an open question.
+  expect(prompt).toContain('zu meiner letzten Frage, zu dem Plan, den wir haben, oder zum Stand von „Beta“')
+  expect(prompt).toContain('ein Review der Änderungen')
+  expect(prompt).toContain('die Antwort auf eine Frage, die offen ist')
+  expect(prompt).toContain('den Diff holt er sich selbst')
   expect(prompt).toContain('Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein')
   expect(prompt).toContain('nicht deine eigene Schlussfolgerung')
   expect(prompt).toContain('keinen Gesprächsverlauf')
@@ -2532,12 +2539,12 @@ test('a refused or failing submission says so in a toast', async ($, on) => {
   })
 
   await pressMeinung($)
-  expect(toasts).toEqual(['Die Opus-Meinung wurde nicht angefordert: Stop-Hook'])
+  expect(toasts).toEqual(['Fable wurde nicht gefragt: Stop-Hook'])
 
   mode = 'throw'
   await pressMeinung($)
   expect(toasts).toHaveLength(2)
-  expect(toasts[1]).toMatch(/^Die Opus-Meinung wurde nicht angefordert: /)
+  expect(toasts[1]).toMatch(/^Fable wurde nicht gefragt: /)
   expect(toasts[1]).not.toContain('second line')
 })
 
@@ -2578,7 +2585,7 @@ test('a refused review request says so in a toast', async ($, on) => {
   expect(toasts).toEqual(['Review und PR wurden nicht gestartet: Stop-Hook'])
 })
 
-test('the action icons are vector line icons of one family in one gray that reads on both themes, bar the Docker logo', async () => {
+test('the action icons are vector line icons of one family in one gray that reads on both themes, bar the Docker logo and the golden teacher', async () => {
   for (const [key, icon] of Object.entries(ICON_SVG)) {
     expect(icon.source.startsWith('<svg ')).toBe(true)
     expect(icon.source.endsWith('</svg>')).toBe(true)
@@ -2589,7 +2596,7 @@ test('the action icons are vector line icons of one family in one gray that read
     if (key !== 'stack' && key !== 'pruefen') {
       expect(icon.source).toContain('viewBox="0 0 24 24"')
     }
-    if (key !== 'stack') {
+    if (key !== 'stack' && key !== 'meinung') {
       expect(icon.source).toContain(`stroke="${ICON_SVG_COLOR}"`)
     }
   }
@@ -2597,6 +2604,28 @@ test('the action icons are vector line icons of one family in one gray that read
   const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(ICON_SVG_COLOR.slice(i, i + 2), 16))
   expect(Math.min(r, g, b)).toBeGreaterThan(90)
   expect(Math.max(r, g, b)).toBeLessThan(190)
+})
+
+test('the Fable button is a golden teacher: a figure and its cap in two golds that read on both themes', async () => {
+  const { meinung } = ICON_SVG
+  expect(meinung.alt).toBe('Fable fragen')
+  expect(meinung.source).toContain('viewBox="0 0 24 24"')
+  expect(meinung.source).toContain(`stroke="${GOLD_DARK}"`)
+  expect(meinung.source).toContain(`fill="${GOLD}"`)
+  expect(meinung.source).toContain(`fill="${GOLD_DARK}"`)
+  expect(meinung.source).not.toContain(ICON_SVG_COLOR)
+  // Gold, not gray: red above green above blue, and the fill lighter than the outline. Neither is near
+  // white or near black, since an image takes no theme color.
+  const rgb = (hex: string) => [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16))
+  for (const hex of [GOLD, GOLD_DARK]) {
+    const [r, g, b] = rgb(hex)
+    expect(r).toBeGreaterThan(g)
+    expect(g).toBeGreaterThan(b + 40)
+    expect(Math.max(r, g, b)).toBeLessThan(240)
+    expect(Math.min(r, g, b)).toBeLessThan(90)
+  }
+  const sum = (hex: string) => rgb(hex).reduce((a, b) => a + b, 0)
+  expect(sum(GOLD)).toBeGreaterThan(sum(GOLD_DARK))
 })
 
 test('the Docker logo is the original in its blue with a green rebuild arrow, drawn in its own proportions', async () => {

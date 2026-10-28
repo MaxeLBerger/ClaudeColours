@@ -139,18 +139,19 @@ export function projectOf(cwd: string): string | null {
 }
 
 /**
- * What the opinion button sends the session, as the person's own words (they would type the same). It
- * states goals, not a form: the session decides from the conversation what the opinion is about (the last
- * question, a plan to rework, the state of the project) and builds the subagent's task itself, handing
+ * What the Fable button sends the session, as the person's own words (they would type the same). It
+ * states goals, not a form: the session decides from the conversation what Fable is asked (a second
+ * opinion on the last question, a plan to rework or the state of the project, a review of the changes, an
+ * open question) and builds the subagent's task itself, handing
  * over the matter and only what it needs, never its own conclusion, so the view stays independent and
  * the subagent's context small. The subagent reads the rest of the repository itself.
  */
 export function meinungPrompt(projekt: string): string {
   return [
-    `Hol eine unabhängige zweite Meinung von Opus ein zu dem, worum es in diesem Gespräch gerade geht: meine letzte Frage, der Plan, den wir haben, oder der Stand von „${projekt}“. Du entscheidest, was gemeint ist.`,
+    `Frag Fable zu dem, worum es in diesem Gespräch gerade geht: eine unabhängige zweite Meinung zu meiner letzten Frage, zu dem Plan, den wir haben, oder zum Stand von „${projekt}“, ein Review der Änderungen oder die Antwort auf eine Frage, die offen ist. Du entscheidest, was gemeint ist.`,
     [
-      'Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model opus) und baue seinen Auftrag selbst zusammen:',
-      '- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.',
+      'Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:',
+      '- Gib ihm die Sache selbst mit, über die er urteilen soll: die Frage, den Plan im Wortlaut oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Wenn ich den Plan überarbeitet haben will, gehört der Plan hinein, mit der Bitte, ihn zu verbessern.',
       '- Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.',
       '- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.',
       '- Er soll direkt sein, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und sagen, wo er anderer Meinung ist und warum. So lang wie nötig, ohne Füllstoff.',
@@ -257,11 +258,12 @@ export function erkenneDienste(namen: readonly string[]): { hasCompose: boolean 
 export const PROMPT_INFO = [
   {
     key: 'meinung',
-    name: 'Opus-Meinung',
-    does: 'Holt eine unabhängige zweite Meinung von Opus ein: zur letzten Frage, zu einem Plan oder zum Stand des Projekts.',
+    name: 'Fable fragen',
+    does: 'Fragt Fable: eine unabhängige zweite Meinung zur letzten Frage, zu einem Plan oder zum Stand des Projekts, ein Review der Änderungen oder eine offene Frage.',
     checks: [
       'Der Subagent bekommt die Sache selbst, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.',
-      'Das Modell ist der Alias `opus` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).',
+      'Das Modell ist der Alias `fable` (eine volle Modell-ID wird vom Agent-Werkzeug abgelehnt).',
+      'Ein Review hier ändert nichts: Fixes, Commit und PR bleiben beim Knopf Review + PR.',
       'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
     ],
     text: meinungPrompt,
@@ -628,12 +630,15 @@ export type BandInhalt = {
 // the written-out e2e has a width of its own), so they share height, weight and
 // color: text glyphs next to them sat lower, smaller and darker. An `Svg` is an image and does not take
 // the theme's text color, so the stroke is one mid gray that reads on the light and the dark theme alike.
-// Line icons on a 24 grid.
+// Line icons on a 24 grid. The golden teacher (Fable) is filled, like the logo, and stands out on purpose.
 export const ICON_SVG_COLOR = '#666c78'
 /** The green of the check on the merge icon: mid-tone, like the gray, so it reads on both themes. */
 export const ICON_SVG_OK = '#2ea35e'
 /** Docker's own blue, for its logo: an image takes no theme color, and this one reads on both themes. */
 export const DOCKER_BLUE = '#2496ED'
+/** The golden teacher's two golds: the light one fills the figure, the dark one is its outline and the cap. */
+export const GOLD = '#E3B341'
+export const GOLD_DARK = '#A8790F'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
 /** CSS pixels one cell of the band is wide on the desktop (a field of `ICON_BOX` cells measures about 23 px). */
@@ -643,12 +648,12 @@ const svgIcon = (inner: string, viewBox = '0 0 24 24'): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
 
 export const ICON_SVG = {
-  // A doctoral cap with a spark: the independent second opinion.
+  // A golden teacher, a figure in a mortarboard with its tassel: ask Fable (second opinion, review, a
+  // question). Filled in gold with a darker outline, so it reads on both themes and stands out from the
+  // gray family; the dark cap sets the head apart from the figure.
   meinung: {
-    alt: 'Opus-Meinung',
-    source: svgIcon(
-      '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>',
-    ),
+    alt: 'Fable fragen',
+    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${GOLD_DARK}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 22.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5Z" fill="${GOLD}"/><circle cx="12" cy="11.6" r="3.7" fill="${GOLD}"/><path d="M2.5 6.5 12 2.5l9.5 4-9.5 4Z" fill="${GOLD_DARK}"/><path d="M21.5 6.5v4.5"/><circle cx="21.5" cy="11.8" r="0.7" fill="${GOLD_DARK}"/></svg>`,
   },
   // A pull request under a magnifying glass: review the work, then open it.
   review: {
