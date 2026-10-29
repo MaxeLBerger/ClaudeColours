@@ -12,6 +12,16 @@ import {
   buildBereiche,
   buildUebersicht,
   BUNT,
+  ciAnzeige,
+  ciArt,
+  ciCommitOf,
+  ciForm,
+  ciKurve,
+  ciTeile,
+  ciText,
+  ciTon,
+  jobFortschritt,
+  kurveBei,
   contextFill,
   contextLevel,
   contextPercent,
@@ -593,6 +603,9 @@ test('the spinner carries the project mark; hiding the band takes it away', asyn
   expect(await shown({ word: 'Sauteing', message: null })).toBe('Sauteing')
 })
 
+/** The CI row's own calls: the pushed head (`git rev-parse @{u}`) and `gh api`. Tests of other gh calls leave them out. */
+const isCiCall = (argv: readonly string[]): boolean => argv[0] === 'git' || (argv[0] === 'gh' && argv[1] === 'api')
+
 /** What `$.process.run` answers when `gh pr list` printed these pull requests. */
 const ghList = (numbers: number[]) => ({
   value: {
@@ -617,7 +630,7 @@ test('the band counts the open pull requests with gh, at most every five minutes
   on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
     // The repository's address is read once beside the counts; only the counts are timed here.
-    if (e.argv[1] !== 'repo') {
+    if (e.argv[1] !== 'repo' && !isCiCall(e.argv)) {
       asked.push([...e.argv])
     }
 
@@ -676,7 +689,9 @@ test("the project's color and name link to the repository, read once per folder"
   on('session.cwd', () => ({ value: self.cwd }))
   on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
-    asked.push([...e.argv])
+    if (!isCiCall(e.argv)) {
+      asked.push([...e.argv])
+    }
 
     return e.argv[1] === 'repo' ? ghUrl('https://github.com/me/beta') : ghList([1])
   })
@@ -1142,7 +1157,9 @@ function fakeGh(lists: { pr: number[]; issue: number[] | 'disabled' }) {
     asked,
     lists,
     hook: (_: unknown, e: { argv: readonly string[] }) => {
-      asked.push([...e.argv])
+      if (!isCiCall(e.argv)) {
+        asked.push([...e.argv])
+      }
       if (e.argv.includes('--web')) {
         return ghList([])
       }
@@ -1404,7 +1421,7 @@ test('the band lays itself out by its cells: icons, a short bar, closer together
   expect(narrow).toMatchObject({ isStacked: true, actions: ICON_FIELDS, hasWord: false, barCells: 4, name: ' Beta' })
 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
-    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: icons 88, kompakt 77, dicht 69, minimal 65 Zellen.',
+    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: icons 88, kompakt 77, dicht 69, minimal 65 Zellen. Keine CI-Zeile.',
   )
 })
 
@@ -2140,7 +2157,7 @@ async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?:
     return { value: undefined }
   })
   on('process.run', (_, e) => {
-    if (e.argv[0] === 'gh') {
+    if (e.argv[0] === 'gh' || isCiCall(e.argv)) {
       if (e.argv.some(arg => arg.includes('headRefName'))) {
         ghAsks += 1
       }
@@ -3008,4 +3025,364 @@ test('/projektfarbe prompts prints that document', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   expect((await $.command.run({ ...RUN, args: 'prompts' })).text).toBe(promptsMarkdown())
+})
+
+// The CI row: the pushed head's jobs, from one GraphQL query, and how far the running one is.
+
+const iso = (ms: number): string => new Date(ms).toISOString()
+
+/** A check suite of GitHub Actions as `CI_QUERY` answers it; `run` false: another app's suite. */
+const suite = (status: string, jobs: unknown[], run = true) => ({
+  status,
+  workflowRun: run
+    ? { event: 'pull_request', url: 'https://github.com/me/beta/actions/runs/9', workflow: { databaseId: 7 } }
+    : null,
+  checkRuns: { nodes: jobs },
+})
+
+/** A job (check run) with its steps. */
+const ciJob = (
+  name: string,
+  status: string,
+  conclusion: string | null,
+  startedAt: number | null,
+  steps: { name: string; status: string; startedAt: number | null }[] = [],
+) => ({
+  name,
+  status,
+  conclusion,
+  startedAt: startedAt === null ? null : iso(startedAt),
+  completedAt: status === 'COMPLETED' && startedAt !== null ? iso(startedAt + 60_000) : null,
+  steps: {
+    nodes: steps.map(step => ({ ...step, startedAt: step.startedAt === null ? null : iso(step.startedAt), completedAt: null })),
+  },
+})
+
+/** What `gh api graphql` prints for `CI_QUERY`. */
+const ciAnswer = (suites: unknown[], pr: { number: number; url: string; state: string } | null = null): string =>
+  JSON.stringify({
+    data: {
+      repository: {
+        object: { associatedPullRequests: { nodes: pr === null ? [] : [pr] }, checkSuites: { nodes: suites } },
+      },
+    },
+  })
+
+const T0 = Date.parse('2026-10-28T15:00:00Z')
+// When the CI sessions start: an hour after the baseline run.
+const CI_START = T0 + 60 * 60_000
+
+test('a job stands green, red, running, waiting, cancelled or skipped; cancelled is not red', () => {
+  expect(ciArt('COMPLETED', 'SUCCESS')).toBe('gruen')
+  expect(ciArt('completed', 'failure')).toBe('rot')
+  expect(ciArt('COMPLETED', 'TIMED_OUT')).toBe('rot')
+  expect(ciArt('COMPLETED', 'CANCELLED')).toBe('abgebrochen')
+  expect(ciArt('COMPLETED', 'SKIPPED')).toBe('uebersprungen')
+  expect(ciArt('IN_PROGRESS', null)).toBe('laeuft')
+  expect(ciArt('QUEUED', null)).toBe('wartet')
+  expect(ciArt('WAITING', null)).toBe('wartet')
+})
+
+test('the head\'s CI leaves out suites without a workflow run, and a run without jobs yet waits', () => {
+  const commit = ciCommitOf(
+    ciAnswer(
+      [
+        // Another app's suite: queued for ever, no run. It must not hold the row at "running".
+        suite('QUEUED', [], false),
+        suite('IN_PROGRESS', [
+          ciJob('Backend (pytest + ruff)', 'COMPLETED', 'FAILURE', T0),
+          ciJob('Checks', 'COMPLETED', 'SUCCESS', T0),
+          ciJob('Frontend', 'IN_PROGRESS', null, T0),
+          ciJob('Nightly', 'COMPLETED', 'SKIPPED', T0),
+        ]),
+        suite('QUEUED', []),
+      ],
+      { number: 331, url: 'https://github.com/me/beta/pull/331', state: 'OPEN' },
+    ),
+  )!
+  expect(commit.jobs.map(job => job.art)).toEqual(['rot', 'gruen', 'laeuft', 'uebersprungen'])
+  expect(commit).toMatchObject({ wartendeLaeufe: 1, hasLaeufe: true, isFertig: false, pr: { number: 331 } })
+  expect(commit.runUrl).toBe('https://github.com/me/beta/actions/runs/9')
+  expect(commit.jobs[0]).toMatchObject({ workflowId: 7, event: 'pull_request', startedAt: T0 })
+
+  // Only other apps' suites, or none: no CI. Not JSON or not this shape: null.
+  expect(ciCommitOf(ciAnswer([suite('QUEUED', [], false)]))).toMatchObject({ hasLaeufe: false })
+  expect(ciCommitOf('nope')).toBeNull()
+  expect(ciCommitOf('{"data":{}}')).toBeNull()
+  // A commit GitHub does not know (not pushed yet) has no CI either.
+  expect(ciCommitOf('{"data":{"repository":{"object":null}}}')).toMatchObject({ hasLaeufe: false, jobs: [] })
+})
+
+test('pytest\'s curve is read from a finished log, against the seconds since its step began', () => {
+  const step = (name: string, from: number, to: number) => ({
+    name,
+    isFertig: true,
+    startedAt: T0 + from * 1000,
+    completedAt: T0 + to * 1000,
+  })
+  const schritte = [step('Set up job', 0, 20), step('Run tests', 20, 380), step('Coverage', 380, 400)]
+  const line = (sek: number, text: string) => `${iso(T0 + sek * 1000).replace('.000Z', '.1234567Z')} ${text}\r`
+  const log = [
+    line(5, 'Run actions/checkout'),
+    line(60, '....................... [ 10%]'),
+    line(100, '....F.................. [ 10%]'),
+    line(220, '....................... [ 50%]'),
+    line(320, '..s.................... [ 90%]'),
+    line(379, '....................... [100%]'),
+    // A later step with its own percentages is not the curve.
+    line(390, 'coverage .............. [ 12%]'),
+  ].join('\n')
+
+  const kurve = ciKurve(log, schritte)!
+  expect(kurve.schritt).toBe('Run tests')
+  // Each percent once, at the first time it shows, in seconds since the step began.
+  expect(kurve.punkte.map(([sek, prozent]) => [Math.round(sek), prozent])).toEqual([
+    [40, 10],
+    [200, 50],
+    [300, 90],
+    [359, 100],
+  ])
+  // Linear in between, from 0 at the step's start; the last value past the end.
+  expect(Math.round(kurveBei(kurve, 20))).toBe(5)
+  expect(Math.round(kurveBei(kurve, 120))).toBe(30)
+  expect(kurveBei(kurve, 500)).toBe(100)
+
+  expect(ciKurve('no progress here', schritte)).toBeNull()
+})
+
+test('a running job\'s percent is pytest\'s while its step runs, else the share of the last green run\'s time', () => {
+  const vorlage = {
+    dauerSek: 400,
+    kurve: { schritt: 'Run tests', punkte: [[40, 10], [200, 50], [300, 90]] as [number, number][] },
+  }
+  const job = (stepRuns: boolean) => ({
+    name: 'Backend',
+    art: 'laeuft' as const,
+    startedAt: T0,
+    completedAt: null,
+    workflowId: 7,
+    event: 'pull_request',
+    schritte: [
+      { name: 'Set up job', isFertig: true, startedAt: T0, completedAt: T0 + 20_000 },
+      { name: 'Run tests', isFertig: !stepRuns, startedAt: stepRuns ? T0 + 20_000 : null, completedAt: null },
+    ],
+  })
+
+  // 100 s in: the step runs 80 s, 20 % on the curve; 300 s to go.
+  expect(jobFortschritt(job(true), vorlage, T0 + 100_000)).toEqual({ prozent: 20, restSek: 300, quelle: 'log' })
+  // Before the step: a quarter of the time.
+  expect(jobFortschritt(job(false), vorlage, T0 + 100_000)).toEqual({ prozent: 25, restSek: 300, quelle: 'zeit' })
+  // Past the baseline it stays below 100 while it runs.
+  expect(jobFortschritt(job(false), vorlage, T0 + 900_000)).toEqual({ prozent: 99, restSek: 0, quelle: 'zeit' })
+  // No baseline: no percent.
+  expect(jobFortschritt(job(true), null, T0)).toEqual({ prozent: null, restSek: null, quelle: null })
+})
+
+test('the CI row counts green, names the red, shows the slowest running job and fits its width', () => {
+  const commit = ciCommitOf(
+    ciAnswer(
+      [
+        suite('IN_PROGRESS', [
+          ciJob('Changes', 'COMPLETED', 'SUCCESS', T0),
+          ciJob('Checks (ratchets, gitleaks)', 'COMPLETED', 'SUCCESS', T0),
+          ciJob('Backend (pytest + ruff + persistence)', 'COMPLETED', 'FAILURE', T0),
+          ciJob('Frontend (domain checks)', 'IN_PROGRESS', null, T0),
+          ciJob('Diff coverage', 'QUEUED', null, null),
+        ]),
+      ],
+      { number: 331, url: 'https://github.com/me/beta/pull/331', state: 'OPEN' },
+    ),
+  )!
+  const anzeige = ciAnzeige(commit, () => ({ dauerSek: 300, kurve: null }), T0 + 213_000)!
+  expect(anzeige).toMatchObject({ gruen: 2, rot: 1, laeuft: 1, wartet: 1, restSek: 87, isFertig: false })
+  // The row leads to the pull request's checks.
+  expect(anzeige.url).toBe('https://github.com/me/beta/pull/331/checks')
+  const plain = (form: 'voll' | 'kurz') => ciTeile(anzeige, form).map(teil => teil.text)
+  expect(plain('voll')).toEqual([
+    `✓${NBSP}2`,
+    `✕${NBSP}1${NBSP}Backend`,
+    `◔${NBSP}Frontend${NBSP}71${NBSP}%${NBSP}·${NBSP}~2${NBSP}Min`,
+    `○${NBSP}1${NBSP}wartet`,
+  ])
+  expect(plain('kurz')).toEqual([`✓${NBSP}2`, `✕${NBSP}1`, `◔${NBSP}71${NBSP}%${NBSP}~2${NBSP}Min`, `○${NBSP}1`])
+  expect(ciTeile(anzeige, 'voll').map(teil => teil.ton)).toEqual(['gruen', 'rot', 'laeuft', 'leise'])
+  // The red part's card names the job in full; the running one says where its percent comes from.
+  expect(ciTeile(anzeige, 'voll')[1]?.hint).toBe('Rot: Backend (pytest + ruff + persistence)')
+  expect(ciTeile(anzeige, 'voll')[2]?.hint).toContain('geschätzt aus der Dauer des letzten grünen Laufs')
+  expect(ciTon(anzeige)).toBe('rot')
+  expect(ciText(anzeige)).toBe('CI: ✓ 2 · ✕ 1 Backend · ◔ Frontend 71 % · ~2 Min · ○ 1 wartet')
+
+  // Wide enough: the names; narrow: symbols and numbers.
+  expect(ciForm(80, anzeige)).toBe('voll')
+  expect(ciForm(30, anzeige)).toBe('kurz')
+  expect(ciForm(40, anzeige, true)).toBe('kurz')
+
+  // Done and green: the count says so, the row is green.
+  const gruen = ciAnzeige(
+    ciCommitOf(ciAnswer([suite('COMPLETED', [ciJob('A', 'COMPLETED', 'SUCCESS', T0), ciJob('B', 'COMPLETED', 'SUCCESS', T0)])]))!,
+    () => null,
+    T0,
+  )!
+  expect(ciTeile(gruen, 'voll').map(teil => teil.text)).toEqual([`✓${NBSP}2${NBSP}grün`])
+  expect(ciTon(gruen)).toBe('gruen')
+  // A head without workflow runs has no row.
+  expect(ciAnzeige(ciCommitOf(ciAnswer([]))!, () => null, T0)).toBeNull()
+})
+
+/** A desktop session of Beta whose pushed head is `sha`, with gh answering the CI from `ci()`. */
+async function ciSession(
+  $: Tested,
+  on: Parameters<typeof mock.store>[0],
+  ci: () => string,
+  head: () => string | null = () => 'a'.repeat(40),
+) {
+  const cwd = `${BETA}\\.claude\\worktrees\\a`
+  const self = { sessionId: 'local_b', title: 'Neu', cwd }
+  const clock = mock.clock(on, { now: CI_START })
+  mock.store(on)
+  const graphql: number[] = []
+  const ok = (stdout: string) => ({
+    value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  })
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', (_, e) => {
+    const argv = e.argv
+    if (argv[0] === 'git') {
+      const sha = head()
+
+      return sha === null ? ghFails('fatal: no upstream configured') : ok(`${sha}\n`)
+    }
+    if (argv[1] === 'api' && argv[2] === 'graphql') {
+      graphql.push(clock.now())
+
+      return ok(ci())
+    }
+    const path = argv.find(arg => arg.startsWith('repos/')) ?? ''
+    // The baseline: the workflow's last green run, its jobs, and the Backend job's log.
+    if (path.includes('/workflows/7/runs?status=success&event=pull_request')) {
+      return ok(JSON.stringify({ workflow_runs: [{ id: 5 }] }))
+    }
+    if (path.endsWith('/runs/5/jobs?per_page=100')) {
+      const step = (name: string, from: number, to: number) => ({
+        name,
+        status: 'completed',
+        started_at: iso(T0 + from * 1000),
+        completed_at: iso(T0 + to * 1000),
+      })
+
+      return ok(
+        JSON.stringify({
+          jobs: [
+            {
+              id: 77,
+              name: 'Backend',
+              conclusion: 'success',
+              started_at: iso(T0),
+              completed_at: iso(T0 + 400_000),
+              steps: [step('Set up job', 0, 20), step('Run tests', 20, 380), step('Report', 380, 400)],
+            },
+          ],
+        }),
+      )
+    }
+    if (path.endsWith('/jobs/77/logs')) {
+      const line = (sek: number, pct: number) => `${iso(T0 + sek * 1000)} ........ [${String(pct).padStart(3)}%]`
+
+      return ok([line(60, 10), line(220, 50), line(320, 90)].join('\n'))
+    }
+
+    return argv[0] === 'gh' && argv[1] !== 'api' ? ghList([]) : ghFails('not here')
+  })
+  await $.session.start({ cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+
+  return { clock, graphql }
+}
+
+/** The CI row's texts as the band draws them, blanks plain; empty without a row. */
+async function ciRowOf($: Tested, bodyColumns = 120): Promise<string[]> {
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  const row = await ui.find({ key: 'ci-zeile' })
+  // The word and the parts, which start with their symbol; the hover cards are left out.
+  const texts = row === undefined ? [] : await ui.findAll({ type: 'Text' })
+  const ci = await ui.find({ key: 'ci' })
+  await ui.unmount()
+  const parts = texts.map(text => text.text.split(NBSP).join(' ')).filter(text => /^[✓✕◔○⊘] /.test(text))
+
+  return row === undefined ? [] : [ci?.text ?? 'CI', ...parts]
+}
+
+test('the band\'s CI row shows the pushed head\'s jobs, with pytest\'s percent from the last green log', async ($, on) => {
+  let stand: 'laeuft' | 'fertig' = 'laeuft'
+  const now = CI_START
+  const answer = () =>
+    ciAnswer([
+      suite(stand === 'laeuft' ? 'IN_PROGRESS' : 'COMPLETED', [
+        ciJob('Checks', 'COMPLETED', 'SUCCESS', now - 200_000),
+        stand === 'laeuft'
+          ? ciJob('Backend', 'IN_PROGRESS', null, now - 100_000, [
+              { name: 'Set up job', status: 'COMPLETED', startedAt: now - 100_000 },
+              { name: 'Run tests', status: 'IN_PROGRESS', startedAt: now - 80_000 },
+            ])
+          : ciJob('Backend', 'COMPLETED', 'SUCCESS', now - 400_000),
+      ]),
+    ])
+  const { clock, graphql } = await ciSession($, on, () => answer())
+
+  // 80 s into the tests: 20 % on the last green run's curve, 300 s of its 400 to go.
+  expect(await ciRowOf($)).toEqual(['CI', '✓ 1', '◔ Backend 20 % · ~5 Min'])
+  const asked = graphql.length
+
+  // While it runs gh is asked every 30 s, and the row follows the clock in between.
+  await clock.advance(30_000)
+  await clock.settle()
+  expect(graphql.length).toBe(asked + 1)
+  expect((await ciRowOf($))[2]).toBe('◔ Backend 27 % · ~5 Min')
+
+  // Done: green, and no more questions.
+  stand = 'fertig'
+  await clock.advance(30_000)
+  await clock.settle()
+  expect(await ciRowOf($)).toEqual(['CI', '✓ 2 grün'])
+  const done = graphql.length
+  await clock.advance(10 * 60_000)
+  await clock.settle()
+  expect(graphql.length).toBe(done)
+  expect((await $.command.run({ ...RUN, args: '' })).text).toContain('CI: ✓ 2 grün')
+})
+
+test('without an upstream the band has no CI row and gh is not asked', async ($, on) => {
+  const { graphql } = await ciSession($, on, () => ciAnswer([]), () => null)
+  expect(graphql).toEqual([])
+  expect(await ciRowOf($)).toEqual([])
+  // The band itself is as it was: one row.
+  expect((await drawBand($, 100)).isStacked).toBe(false)
+})
+
+test('a head without runs is asked once; one pushed while the session watches waits a few minutes', async ($, on) => {
+  let sha = 'a'.repeat(40)
+  const { clock, graphql } = await ciSession($, on, () => ciAnswer([]), () => sha)
+  expect(graphql).toHaveLength(1)
+  await clock.advance(5 * 60_000)
+  await clock.settle()
+  expect(graphql).toHaveLength(1)
+
+  // A push: the new head's runs may take a while to show.
+  sha = 'b'.repeat(40)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(graphql).toHaveLength(2)
+  await clock.advance(2 * 60_000)
+  await clock.settle()
+  // Asked every 30 s while the runs may still come.
+  expect(graphql.length).toBeGreaterThan(3)
+  const asked = graphql.length
+  await clock.advance(10 * 60_000)
+  await clock.settle()
+  expect(graphql.length).toBeLessThanOrEqual(asked + 2)
+  expect(await ciRowOf($)).toEqual([])
 })
