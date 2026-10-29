@@ -662,37 +662,37 @@ export type BandInhalt = {
 // the written-out e2e has a width of its own), so they share height, weight and
 // color: text glyphs next to them sat lower, smaller and darker. An `Svg` is an image and does not take
 // the theme's text color, so the stroke is one mid gray that reads on the light and the dark theme alike.
-// Line icons on a 24 grid. The golden teacher (Fable) is filled, like the logo, and stands out on purpose.
+// Line icons on a 24 grid. The golden teacher (Fable) is the opinion's cap in gold and stands out on purpose.
 export const ICON_SVG_COLOR = '#666c78'
 /** The green of the check on the merge icon: mid-tone, like the gray, so it reads on both themes. */
 export const ICON_SVG_OK = '#2ea35e'
 /** Docker's own blue, for its logo: an image takes no theme color, and this one reads on both themes. */
 export const DOCKER_BLUE = '#2496ED'
-/** The golden teacher's two golds: the light one fills the figure, the dark one is its outline and the cap. */
-export const GOLD = '#E3B341'
-export const GOLD_DARK = '#A8790F'
+/** The golden teacher's stroke: a mid-tone gold, like the gray, so it reads on the light and the dark theme. */
+export const GOLD = '#C8961E'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
 /** CSS pixels one cell of the band is wide on the desktop (a field of `ICON_BOX` cells measures about 23 px). */
 export const CELL_PX = 7.75
 
-const svgIcon = (inner: string, viewBox = '0 0 24 24'): string =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="${ICON_SVG_COLOR}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
+const svgIcon = (inner: string, viewBox = '0 0 24 24', color = ICON_SVG_COLOR): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
+
+/** A doctoral cap with a spark, drawn for the opinion in gray and for the golden teacher in gold. */
+const CAP_ICON =
+  '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>'
 
 export const ICON_SVG = {
-  // A golden teacher, a figure in a mortarboard with its tassel: ask Fable when it matters. Filled in gold
-  // with a darker outline, so it reads on both themes and stands out from the gray family; the dark cap
-  // sets the head apart from the figure.
+  // The golden teacher: the opinion's cap in gold, ask Fable when it matters. The same drawing keeps it in
+  // the family; the gold sets it apart.
   fable: {
     alt: 'Fable fragen',
-    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${GOLD_DARK}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 22.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5Z" fill="${GOLD}"/><circle cx="12" cy="11.6" r="3.7" fill="${GOLD}"/><path d="M2.5 6.5 12 2.5l9.5 4-9.5 4Z" fill="${GOLD_DARK}"/><path d="M21.5 6.5v4.5"/><circle cx="21.5" cy="11.8" r="0.7" fill="${GOLD_DARK}"/></svg>`,
+    source: svgIcon(CAP_ICON, '0 0 24 24', GOLD),
   },
   // A doctoral cap with a spark: the independent second opinion.
   meinung: {
     alt: 'Opus-Meinung',
-    source: svgIcon(
-      '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>',
-    ),
+    source: svgIcon(CAP_ICON),
   },
   // A pull request under a magnifying glass: review the work, then open it.
   review: {
