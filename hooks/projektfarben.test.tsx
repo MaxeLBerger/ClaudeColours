@@ -52,7 +52,6 @@ import {
   DOCKER_BLUE,
   fablePrompt,
   GOLD,
-  GOLD_DARK,
   erkenneDienste,
   CELL_PX,
   ICON_SVG,
@@ -2650,26 +2649,18 @@ test('the action icons are vector line icons of one family in one gray that read
   expect(Math.max(r, g, b)).toBeLessThan(190)
 })
 
-test('the Fable button is a golden teacher: a figure and its cap in two golds that read on both themes', async () => {
-  const { fable } = ICON_SVG
+test('the Fable button is the golden teacher: the opinion icon drawn the same, in a gold that reads on both themes', async () => {
+  const { fable, meinung } = ICON_SVG
   expect(fable.alt).toBe('Fable fragen')
-  expect(fable.source).toContain('viewBox="0 0 24 24"')
-  expect(fable.source).toContain(`stroke="${GOLD_DARK}"`)
-  expect(fable.source).toContain(`fill="${GOLD}"`)
-  expect(fable.source).toContain(`fill="${GOLD_DARK}"`)
+  expect(fable.source).toBe(meinung.source.replace(`stroke="${ICON_SVG_COLOR}"`, `stroke="${GOLD}"`))
   expect(fable.source).not.toContain(ICON_SVG_COLOR)
-  // Gold, not gray: red above green above blue, and the fill lighter than the outline. Neither is near
-  // white or near black, since an image takes no theme color.
-  const rgb = (hex: string) => [1, 3, 5].map(i => Number.parseInt(hex.slice(i, i + 2), 16))
-  for (const hex of [GOLD, GOLD_DARK]) {
-    const [r, g, b] = rgb(hex)
-    expect(r).toBeGreaterThan(g)
-    expect(g).toBeGreaterThan(b + 40)
-    expect(Math.max(r, g, b)).toBeLessThan(240)
-    expect(Math.min(r, g, b)).toBeLessThan(90)
-  }
-  const sum = (hex: string) => rgb(hex).reduce((a, b) => a + b, 0)
-  expect(sum(GOLD)).toBeGreaterThan(sum(GOLD_DARK))
+  // Gold, not gray: red above green above blue, neither near white nor near black, since an image takes
+  // no theme color.
+  const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(GOLD.slice(i, i + 2), 16))
+  expect(r).toBeGreaterThan(g)
+  expect(g).toBeGreaterThan(b + 40)
+  expect(Math.max(r, g, b)).toBeLessThan(240)
+  expect(Math.min(r, g, b)).toBeLessThan(90)
 })
 
 test('the Docker logo is the original in its blue with a green rebuild arrow, drawn in its own proportions', async () => {
