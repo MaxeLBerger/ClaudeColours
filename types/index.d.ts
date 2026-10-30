@@ -41,8 +41,31 @@ export type ProjektfarbenView = {
   isHidden: boolean
   /** True where the folder holds a compose file: the band then shows the stack rebuild. */
   hasStack: boolean
+  /**
+   * The CI of the pushed head, the band's bottom row; null where it has no workflow run. A state kept
+   * from before this field existed (a reload keeps the session's state) lacks it: read it as null.
+   */
+  ci: ProjektfarbenCi | null
   /** Keys of the session actions whose prompt was sent a moment ago; a repeated press is not sent again. */
   sent: string[]
+}
+
+// The contract must be self-contained, so this mirrors `CiAnzeige` in hooks/colors.ts: change them together.
+export type ProjektfarbenCi = {
+  gruen: number
+  rot: number
+  laeuft: number
+  wartet: number
+  abgebrochen: number
+  /** The red jobs' full names. */
+  rotNamen: string[]
+  /** The running job that needs longest, its percent and what the percent was read from. */
+  haupt: { name: string; prozent: number | null; quelle: 'log' | 'zeit' | null } | null
+  /** How long the slowest running job still needs, in seconds; null where no baseline says. */
+  restSek: number | null
+  isFertig: boolean
+  /** Where the row leads: the pull request's checks, else the run. */
+  url: string | null
 }
 
 // The contract must be self-contained, so these mirror `Uebersicht` in hooks/colors.ts: change them together.

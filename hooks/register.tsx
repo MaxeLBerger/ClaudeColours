@@ -11,6 +11,16 @@ import {
   brambleRoot,
   brambleStart,
   bandStufe,
+  CI_QUERY,
+  ciAnzeige,
+  ciCommitOf,
+  ciForm,
+  ciKurve,
+  ciTeile,
+  ciText,
+  ghJobVorlage,
+  ghLaeufe,
+  vorlageKey,
   EINZEILER,
   erkenneDienste,
   bereichOf,
@@ -74,6 +84,11 @@ import {
   type BandStufe,
   type BereichId,
   type BereichZeile,
+  type CiCommit,
+  type CiJob,
+  type CiTon,
+  type CiForm,
+  type CiVorlage,
   type Farbe,
   type GhPr,
   type Grund,
@@ -112,6 +127,7 @@ const EMPTY: ProjektfarbenView = {
   isPicking: false,
   isHidden: false,
   hasStack: false,
+  ci: null,
   sent: [],
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
@@ -280,6 +296,7 @@ async function afterTurn($: Engine, grund: Grund): Promise<void> {
   const cwd = await $.session.cwd()
   await refreshView($, cwd)
   void refreshPrs($, cwd, false).catch(() => undefined)
+  void ciTick($, true).catch(() => undefined)
   void refreshPanel($).catch(() => undefined)
   if ((await recolorSelf($, false, await self)) === 'unnamed') {
     $.clock.after(RETRY_MS, () => {
@@ -457,7 +474,7 @@ async function openInBramble($: Engine, url: string): Promise<boolean> {
 }
 
 /** Opens the repository's page in Bramble, or, without it, where the system opens web addresses. */
-async function openRepo($: Engine, url: string): Promise<void> {
+async function openRepo($: Engine, url: string, was = 'Das Repository'): Promise<void> {
   if (await openInBramble($, url)) {
     return
   }
@@ -470,7 +487,7 @@ async function openRepo($: Engine, url: string): Promise<void> {
       // This system has no such opener: the next one is tried.
     }
   }
-  $.ui.toast(`Das Repository lässt sich nicht öffnen: ${url}`)
+  $.ui.toast(`${was} lässt sich nicht öffnen: ${url}`)
 }
 
 /**
@@ -850,10 +867,238 @@ async function switchSatz($: Engine, satz: Satz): Promise<string> {
 }
 
 /** At the session's start: learn the sidebar's colors once, draw the band, mark the title. */
+// The CI row: the checks of the pushed head (`@{u}`), read from outside through gh, so the runs
+// themselves do not change. Nothing is asked while nothing runs but the local head, once a minute.
+// While something runs every tick works the row out again from what was read (no request), and gh is
+// asked every `CI_POLL_MS`.
+const CI_TICK_MS = 10_000
+const CI_POLL_MS = 30_000
+const CI_HEAD_MS = 60_000
+// A head pushed while the session watches waits this long for its runs to show before it counts as one
+// without CI; a head already there when the session started is asked once.
+const CI_GRACE_MS = 3 * 60_000
+// A head whose runs still have not ended after this long (stuck in a queue) is no longer asked about.
+const CI_MAX_MS = 90 * 60_000
+// A turn's end asks gh again where the last answer is older than this: it may follow a re-run.
+const CI_TURN_MS = 60_000
+const CI_GH_MS = 20_000
+// A baseline that could not be read is tried again after this long.
+const VORLAGE_RETRY_MS = 10 * 60_000
+
+/** `warten`: a new head without runs yet; `laeuft`; `fertig`; `ohne`: no CI, or no longer asked about. */
+type CiPhase = 'warten' | 'laeuft' | 'fertig' | 'ohne'
+
+type CiLage = {
+  cwd: string
+  sha: string | null
+  commit: CiCommit | null
+  phase: CiPhase
+  /** True where the head changed while the session watched (a push): its runs may still come. */
+  isNeu: boolean
+  /** When this head was first seen, when gh was last asked and when the head was last read. */
+  seenAt: number
+  apiAt: number
+  headAt: number
+}
+
+let ciLage: CiLage | null = null
+let isCiBusy = false
+let ciTimer: { cancel: () => void } | null = null
+// The baselines of the running jobs (`vorlageKey`), read once per job name: the log of a finished run
+// does not change. gh's own cache (`--cache`) keeps them across sessions too.
+const vorlagen = new Map<string, { vorlage: CiVorlage | null; um: number } | 'laedt'>()
+
+const vorlageOf = (job: CiJob): CiVorlage | null => {
+  const entry = vorlagen.get(vorlageKey(job))
+
+  return entry === undefined || entry === 'laedt' ? null : entry.vorlage
+}
+
+/** The commit the branch's upstream points at, read locally; null without an upstream. */
+async function readHead($: Engine, cwd: string): Promise<string | null> {
+  try {
+    const { exitCode, stdout } = await $.process.run(['git', 'rev-parse', '@{u}'], { cwd, timeoutMs: 5_000 })
+    const sha = stdout.trim()
+
+    return exitCode === 0 && /^[0-9a-f]{40}$/.test(sha) ? sha : null
+  } catch {
+    return null
+  }
+}
+
+/** What `gh api` prints in the folder's repository; null when it fails. */
+async function ghApi($: Engine, cwd: string, args: readonly string[]): Promise<string | null> {
+  try {
+    const { exitCode, stdout } = await $.process.run(['gh', 'api', ...args], { cwd, timeoutMs: CI_GH_MS })
+
+    return exitCode === 0 ? stdout : null
+  } catch {
+    return null
+  }
+}
+
+/** The head's runs and jobs with their steps, in one GraphQL query; null when gh could not answer. */
+async function readCiCommit($: Engine, cwd: string, sha: string): Promise<CiCommit | null> {
+  const stdout = await ghApi($, cwd, [
+    'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-f', `sha=${sha}`, '-f', `query=${CI_QUERY}`,
+  ])
+
+  return stdout === null ? null : ciCommitOf(stdout)
+}
+
+/**
+ * A running job's baseline: the same job in one of its workflow's last green runs of the same event,
+ * its length and, from its log, pytest's curve. Null where there is none.
+ */
+async function readVorlage($: Engine, cwd: string, job: CiJob): Promise<CiVorlage | null> {
+  if (job.workflowId === null) {
+    return null
+  }
+  const event = job.event === '' ? '' : `&event=${encodeURIComponent(job.event)}`
+  const runs = ghLaeufe(
+    (await ghApi($, cwd, [
+      '--cache', '30m', `repos/{owner}/{repo}/actions/workflows/${job.workflowId}/runs?status=success${event}&per_page=5`,
+    ])) ?? '',
+  )
+  for (const id of runs) {
+    const jobs = await ghApi($, cwd, ['--cache', '24h', `repos/{owner}/{repo}/actions/runs/${id}/jobs?per_page=100`])
+    const found = jobs === null ? null : ghJobVorlage(jobs, job.name)
+    if (found === null) {
+      continue
+    }
+    const log = await ghApi($, cwd, ['--cache', '24h', `repos/{owner}/{repo}/actions/jobs/${found.jobId}/logs`])
+
+    return { dauerSek: found.dauerSek, kurve: log === null ? null : ciKurve(log, found.schritte) }
+  }
+
+  return null
+}
+
+/** Reads the baselines the running jobs still lack, one after another, and draws the row after each. */
+async function loadVorlagen($: Engine, cwd: string, commit: CiCommit): Promise<void> {
+  const now = await $.clock.now()
+  for (const job of commit.jobs.filter(one => one.art === 'laeuft')) {
+    const key = vorlageKey(job)
+    const entry = vorlagen.get(key)
+    if (entry === 'laedt' || (entry !== undefined && (entry.vorlage !== null || now - entry.um < VORLAGE_RETRY_MS))) {
+      continue
+    }
+    vorlagen.set(key, 'laedt')
+    const vorlage = await readVorlage($, cwd, job).catch(() => null)
+    vorlagen.set(key, { vorlage, um: await $.clock.now() })
+    await showCi($)
+  }
+}
+
+/** Works the row out from what was read and puts it in the band's state where it changed. */
+async function showCi($: Engine): Promise<void> {
+  const now = await $.clock.now()
+  const anzeige = ciLage?.commit == null ? null : ciAnzeige(ciLage.commit, vorlageOf, now)
+  const state = await read($, view)
+  if (JSON.stringify(anzeige) !== JSON.stringify(state.ci ?? null)) {
+    await update($, view, v => ({ ...v, ci: anzeige }))
+  }
+}
+
+/** One look at the CI; `isForced` (a turn's end, a push) reads the head at once. Never two at a time. */
+async function ciTick($: Engine, isForced: boolean): Promise<void> {
+  if (isCiBusy) {
+    return
+  }
+  isCiBusy = true
+  try {
+    await ciStep($, isForced)
+  } finally {
+    isCiBusy = false
+  }
+}
+
+async function ciStep($: Engine, isForced: boolean): Promise<void> {
+  const state = await read($, view)
+  // A hidden band is drawn nowhere: nothing to read for it.
+  if (state.isHidden || state.project === null) {
+    return
+  }
+  const now = await $.clock.now()
+  const cwd = await $.session.cwd()
+  let lage = ciLage !== null && ciLage.cwd === cwd ? ciLage : null
+  const isActive = lage !== null && (lage.phase === 'warten' || lage.phase === 'laeuft')
+  const isPollDue = lage !== null && now - lage.apiAt >= CI_POLL_MS
+  if (lage === null || isForced || (isActive && isPollDue) || now - lage.headAt >= CI_HEAD_MS) {
+    const sha = await readHead($, cwd)
+    lage =
+      lage === null || sha !== lage.sha
+        ? {
+            cwd,
+            sha,
+            commit: null,
+            phase: sha === null ? 'ohne' : 'warten',
+            isNeu: lage !== null,
+            seenAt: now,
+            apiAt: 0,
+            headAt: now,
+          }
+        : { ...lage, headAt: now }
+    ciLage = lage
+  }
+  const isAsking =
+    lage.sha !== null &&
+    (lage.phase === 'warten' || lage.phase === 'laeuft'
+      ? now - lage.apiAt >= CI_POLL_MS || lage.apiAt === 0
+      : isForced && lage.phase === 'fertig' && now - lage.apiAt >= CI_TURN_MS)
+  if (isAsking && lage.sha !== null) {
+    const commit = await readCiCommit($, cwd, lage.sha)
+    const isGrace = now - lage.seenAt < CI_GRACE_MS
+    if (commit === null) {
+      // gh could not answer: the last good reading stays, and it is asked again within the grace.
+      lage = { ...lage, apiAt: now, phase: lage.commit !== null || isGrace ? lage.phase : 'ohne' }
+    } else {
+      const phase: CiPhase = !commit.hasLaeufe
+        ? lage.isNeu && isGrace
+          ? 'warten'
+          : 'ohne'
+        : commit.isFertig
+          ? 'fertig'
+          : 'laeuft'
+      lage = { ...lage, commit, phase, apiAt: now }
+    }
+  }
+  // Stuck in a queue: the row keeps what it showed, gh is no longer asked.
+  if (lage.phase === 'laeuft' && now - lage.seenAt > CI_MAX_MS) {
+    lage = { ...lage, phase: 'ohne' }
+  }
+  ciLage = lage
+  if (lage.phase === 'laeuft' && lage.commit !== null) {
+    void loadVorlagen($, cwd, lage.commit).catch(() => undefined)
+  }
+  await showCi($)
+}
+
+/** Starts the CI's ticks for this session (again after a reload: its timers end with the module). */
+function startCi($: Engine): void {
+  ciTimer?.cancel()
+  ciTimer = $.clock.every(CI_TICK_MS, () => {
+    void ciTick($, false).catch(() => undefined)
+  })
+  void ciTick($, true).catch(() => undefined)
+}
+
+// The theme color of each tone of the CI row; the quiet parts are dimmed instead.
+const CI_FARBE: Record<CiTon, 'success' | 'error' | 'warning' | undefined> = {
+  gruen: 'success',
+  rot: 'error',
+  laeuft: 'warning',
+  leise: undefined,
+}
+
+// A push or a new pull request starts new runs: the row looks at once instead of within the minute.
+const PUSHT = /\bgit\b[^\n|;&]*\bpush\b|\bgh\s+pr\s+create\b/
+
 async function startUp($: Engine, cwd: string): Promise<void> {
   await learnOnce($).catch(() => undefined)
   await refreshView($, cwd)
   void refreshPrs($, cwd, true).catch(() => undefined)
+  startCi($)
   await recolorSelf($, false)
 }
 
@@ -878,6 +1123,8 @@ const hilfe = (satz: Satz): string =>
 export const register: Register = on => {
   // What the band was last drawn in, for `/projektfarbe breite`; a plain variable, as drawing must not write state.
   let lastBand: { columns: number; stufe: BandStufe; inhalt: BandInhalt; isMono: boolean } | null = null
+  // The form the CI row was last drawn in; null when there was none.
+  let lastCi: CiForm | null = null
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -899,6 +1146,18 @@ export const register: Register = on => {
     }
 
     return next(e)
+  })
+
+  // After a push (by the session or one of its agents) the CI row looks at the new head at once.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    // Nothing here may throw: a failing hook would stand in the way of the command itself.
+    const isPush = typeof e.command === 'string' && PUSHT.test(e.command)
+    const result = await next(e)
+    if (isPush) {
+      void ciTick($, true).catch(() => undefined)
+    }
+
+    return result
   })
 
   on('command.run', { command: 'projektfarbe' }, async ($, e) => {
@@ -927,7 +1186,9 @@ export const register: Register = on => {
             ? ''
             : `\nIssue-Zahl nicht verfügbar: ${state.issuesNote}`
 
-      return { text: `${head}${prs}${issues}\n\n${hilfe(satz)}` }
+      const ci = state.ci == null ? '' : `\n${ciText(state.ci)}`
+
+      return { text: `${head}${prs}${issues}${ci}\n\n${hilfe(satz)}` }
     }
     if (arg === 'alle') {
       const renamed = await recolorAll($, null)
@@ -977,7 +1238,7 @@ export const register: Register = on => {
         text:
           lastBand === null
             ? 'Das Band wurde in dieser Session noch nicht gezeichnet.'
-            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${EINZEILER.map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt, lastBand!.isMono))}`).join(', ')} Zellen.`,
+            : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${EINZEILER.map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt, lastBand!.isMono))}`).join(', ')} Zellen.${lastCi === null ? ' Keine CI-Zeile.' : ` CI-Zeile: ${lastCi === 'voll' ? 'mit Jobnamen' : 'nur Symbole und Zahlen'}.`}`,
       }
     }
     if (arg === 'prompts') {
@@ -1329,6 +1590,47 @@ export const register: Register = on => {
       )
     const prs = count('pr', 'PRs:', openPrs, state.newPrs)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
+    const ci = state.ci ?? null
+    // The CI row: the word "CI" (a Button that opens the pull request's checks, else the run, where it
+    // has an address; dimmed like "PRs:", since the desktop drops a Button's colors) and the parts in
+    // their tones. One row that never wraps, its parts joined by non-breaking blanks. A part with more
+    // to say carries a card in its own place, shown while the pointer is over it.
+    const ciUrl = ci?.url ?? null
+    const ciRow =
+      ci === null ? null : (
+        <Box key="ci-zeile" columnGap={2} flexWrap="nowrap" overflow="hidden">
+          {ciUrl === null ? (
+            <Text dimColor>CI</Text>
+          ) : (
+            <Button key="ci" plain dimColor onPress={() => openRepo($, ciUrl, 'Die CI')}>
+              CI
+            </Button>
+          )}
+          {ciTeile(ci, ciForm(columns, ci, isMono)).map(teil => (
+            <Box key={`${teil.key}-feld`}>
+              <Text color={CI_FARBE[teil.ton]} dimColor={teil.ton === 'leise'}>
+                {teil.text}
+              </Text>
+              {teil.hint === null ? null : (
+                <Box
+                  position="absolute"
+                  top={0}
+                  left={0}
+                  display="none"
+                  hover={{ display: 'flex' }}
+                  backgroundColor="subtle"
+                  paddingX={1}
+                >
+                  <Text>{teil.hint}</Text>
+                </Box>
+              )}
+            </Box>
+          ))}
+        </Box>
+      )
+    if (isMain) {
+      lastCi = ci === null ? null : ciForm(columns, ci, isMono)
+    }
 
     // Too narrow for one row: two rows. Name, counts and a short gauge above; below the session actions at
     // the left and the overview and settings at the right, indented to stand under the name.
@@ -1347,6 +1649,7 @@ export const register: Register = on => {
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
             <Box columnGap={ICON_GAP}>{settingActions}</Box>
           </Box>
+          {ciRow}
         </Box>
       )
     }
@@ -1356,7 +1659,7 @@ export const register: Register = on => {
     // surface draws the old tree in the new width until the hook answers, and a wrap then made the band
     // jump to two rows and back; what does not fit is cut off at the right for that moment. The narrower
     // layouts move the items closer together.
-    return (
+    const row = (
       <Box columnGap={form.gap} flexWrap="nowrap" overflow="hidden" justifyContent="space-between">
         <Box columnGap={form.gap}>
           {project}
@@ -1369,6 +1672,17 @@ export const register: Register = on => {
           {!showsGauge ? null : gauge(form.bar, form.hasWord)}
           <Box columnGap={ICON_GAP}>{settingActions}</Box>
         </Box>
+      </Box>
+    )
+
+    // The CI row stands below the band where the pushed head has runs. It follows what the head has,
+    // not the width, so a resize never adds or takes it away.
+    return ciRow === null ? (
+      row
+    ) : (
+      <Box flexDirection="column">
+        {row}
+        {ciRow}
       </Box>
     )
   })
