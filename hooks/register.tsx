@@ -112,6 +112,7 @@ const EMPTY: ProjektfarbenView = {
   isPicking: false,
   isHidden: false,
   hasStack: false,
+  sent: [],
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 
@@ -269,6 +270,8 @@ async function recordStand($: Engine, sessionId: string, grund: Grund): Promise<
  * in another session, and the title gets its mark.
  */
 async function afterTurn($: Engine, grund: Grund): Promise<void> {
+  // The answer to a sent action has come: its button works again.
+  void update($, view, v => (v.sent.length === 0 ? v : { ...v, sent: [] })).catch(() => undefined)
   // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
   const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
   void self
@@ -733,17 +736,44 @@ async function openPanel($: Engine): Promise<boolean> {
  * the band's two session actions (the Opus opinion, review + commit + PR) are such prompts, and the answer
  * is a chat turn the person sees and can reply to. A refused or failing submission is a toast.
  */
-async function bitteSenden($: Engine, failure: string, text: (projekt: string) => string): Promise<void> {
+async function bitteSenden(
+  $: Engine,
+  action: { key: string; label: string; failure: string },
+  text: (projekt: string) => string,
+): Promise<void> {
+  // The press must be answered at once and a second press must not send the prompt again (each one costs
+  // tokens): the key is taken before anything is awaited, and kept until the session's next turn ends (the answer is that turn).
+  if (sending.has(action.key)) {
+    $.ui.toast(`${action.label}: wird schon gesendet.`)
+
+    return
+  }
+  sending.add(action.key)
   try {
+    if ((await read($, view)).sent.includes(action.key)) {
+      $.ui.toast(`${action.label}: schon angefordert, die Antwort kommt im Chat.`)
+
+      return
+    }
+    $.ui.toast(`${action.label}: wird gesendet …`)
     const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
     const sent = await $.prompt.submit({ text: text(projekt), asUser: true })
     if (sent.drop !== undefined) {
-      $.ui.toast(`${failure}: ${sent.drop}`)
+      $.ui.toast(`${action.failure}: ${sent.drop}`)
+
+      return
     }
+    await update($, view, v => ({ ...v, sent: [...v.sent, action.key] }))
+    $.ui.toast(`${action.label}: gesendet, die Antwort kommt im Chat.`)
   } catch (error) {
-    $.ui.toast(`${failure}: ${firstLine(String(error))}`)
+    $.ui.toast(`${action.failure}: ${firstLine(String(error))}`)
+  } finally {
+    sending.delete(action.key)
   }
 }
+
+/** The actions being sent right now; taken before anything is awaited, so a double click gets only one through. */
+const sending = new Set<string>()
 
 // What opens a `claude://` address, tried in turn until one starts: Windows, macOS, Linux.
 const OPENERS: readonly (readonly string[])[] = [['rundll32', 'url.dll,FileProtocolHandler'], ['open'], ['xdg-open']]
@@ -1147,42 +1177,42 @@ export const register: Register = on => {
         hint: 'Fable fragen, wenn es wichtig ist',
         icon: '✧',
         svg: ICON_SVG.fable,
-        press: () => bitteSenden($, 'Fable wurde nicht gefragt', fablePrompt),
+        press: () => bitteSenden($, { key: 'fable', label: 'Fable', failure: 'Fable wurde nicht gefragt' }, fablePrompt),
       },
       {
         key: 'meinung',
         hint: 'Opus-Meinung im Chat anfordern',
         icon: '✦',
         svg: ICON_SVG.meinung,
-        press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
+        press: () => bitteSenden($, { key: 'meinung', label: 'Opus-Meinung', failure: 'Die Opus-Meinung wurde nicht angefordert' }, meinungPrompt),
       },
       {
         key: 'review',
         hint: 'Review, Commit und Pull Request anfordern',
         icon: '↑',
         svg: ICON_SVG.review,
-        press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
+        press: () => bitteSenden($, { key: 'review', label: 'Review + PR', failure: 'Review und PR wurden nicht gestartet' }, reviewPrompt),
       },
       {
         key: 'handoff',
         hint: 'Übergabe für eine frische Session schreiben lassen',
         icon: '✉',
         svg: ICON_SVG.handoff,
-        press: () => bitteSenden($, 'Die Übergabe wurde nicht angefordert', handoffPrompt),
+        press: () => bitteSenden($, { key: 'handoff', label: 'Übergabe', failure: 'Die Übergabe wurde nicht angefordert' }, handoffPrompt),
       },
       {
         key: 'stack',
         hint: 'Docker-Stack auf diesen Stand neu bauen',
         icon: '▣',
         svg: ICON_SVG.stack,
-        press: () => bitteSenden($, 'Der Stack wurde nicht neu gebaut', stackPrompt),
+        press: () => bitteSenden($, { key: 'stack', label: 'Stack neu bauen', failure: 'Der Stack wurde nicht neu gebaut' }, stackPrompt),
       },
       {
         key: 'pruefen',
         hint: 'Prüfen: Qualität, Tests und e2e mit Playwright',
         icon: '✓',
         svg: ICON_SVG.pruefen,
-        press: () => bitteSenden($, 'Die Prüfung wurde nicht gestartet', pruefenPrompt),
+        press: () => bitteSenden($, { key: 'pruefen', label: 'Prüfung', failure: 'Die Prüfung wurde nicht gestartet' }, pruefenPrompt),
       },
       {
         key: 'merge',
@@ -1191,7 +1221,7 @@ export const register: Register = on => {
         svg: ICON_SVG.merge,
         // The open pull requests as small raised digits at the icon: what it will merge.
         badge: mergeBadge,
-        press: () => bitteSenden($, 'Merge und Issues wurden nicht gestartet', mergePrompt),
+        press: () => bitteSenden($, { key: 'merge', label: 'Merge', failure: 'Merge und Issues wurden nicht gestartet' }, mergePrompt),
       },
       {
         key: 'uebersicht',
