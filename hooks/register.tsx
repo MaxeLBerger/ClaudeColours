@@ -16,7 +16,9 @@ import {
   ciCommitOf,
   ciForm,
   ciKurve,
+  ciHatInfo,
   ciTeile,
+  ciTon,
   ciText,
   ghJobVorlage,
   ghLaeufe,
@@ -40,6 +42,7 @@ import {
   ICON_BOX,
   ICON_GAP,
   ICON_SVG,
+  CI_PILL_CHARS,
   MERGE_EXTRA,
   mergePrompt,
   ICON_SVG_SIZE,
@@ -1325,6 +1328,7 @@ export const register: Register = on => {
       issues: countRest(openIssues, state.newIssues).length,
       percent: showsGauge ? String(percent).length : null,
       hasStack: state.hasStack,
+      hasCi: state.ci != null,
     }
     // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
     const columns = Number.isFinite(e.props.bodyColumns) ? e.props.bodyColumns : 120
@@ -1561,21 +1565,36 @@ export const register: Register = on => {
     const prs = count('pr', 'PRs:', openPrs, state.newPrs)
     const issues = count('issue', 'Issues:', openIssues, state.newIssues)
     const ci = state.ci ?? null
-    // The CI row: the word "CI" (a Button that opens the pull request's checks, else the run, where it
-    // has an address; dimmed like "PRs:", since the desktop drops a Button's colors) and the parts in
-    // their tones. One row that never wraps, its parts joined by non-breaking blanks. A part with more
-    // to say carries a card in its own place, shown while the pointer is over it.
+    // The pill: the word "CI" in the row's tone (a Button that opens the pull request's checks, else the
+    // run, where it has an address; a Button drops its colors on the desktop, so it lies over the pill as
+    // blanks, like the icons' Buttons). Where the CI has more to say than a plain green, the pill is
+    // tinted, and its parts stand in a row of their own below.
     const ciUrl = ci?.url ?? null
-    const ciRow =
+    const ciPill =
       ci === null ? null : (
-        <Box key="ci-zeile" columnGap={2} flexWrap="nowrap" overflow="hidden">
-          {ciUrl === null ? (
-            <Text dimColor>CI</Text>
-          ) : (
-            <Button key="ci" plain dimColor onPress={() => openRepo($, ciUrl, 'Die CI')}>
-              CI
-            </Button>
+        <Box key="ci-pille" width={CI_PILL_CHARS} justifyContent="center" alignItems="center">
+          <Text
+            bold
+            color={CI_FARBE[ciTon(ci)]}
+            {...(ciHatInfo(ci) ? { backgroundColor: 'subtle' as const } : {})}
+          >
+            {`${NBSP}CI${NBSP}`}
+          </Text>
+          {ciUrl === null ? null : (
+            <Box position="absolute" top={0} left={0}>
+              <Button key="ci" plain onPress={() => openRepo($, ciUrl, 'Die CI')}>
+                <Text dimColor>{NBSP.repeat(CI_PILL_CHARS)}</Text>
+              </Button>
+            </Box>
           )}
+        </Box>
+      )
+    // The parts, centered under the band, in their tones. One row that never wraps, its parts joined by
+    // non-breaking blanks. A part with more to say carries a card in its own place, shown while the pointer
+    // is over it.
+    const ciRow =
+      ci === null || !ciHatInfo(ci) ? null : (
+        <Box key="ci-zeile" columnGap={2} flexWrap="nowrap" overflow="hidden" justifyContent="center">
           {ciTeile(ci, ciForm(columns, ci, isMono)).map(teil => (
             <Box key={`${teil.key}-feld`}>
               <Text color={CI_FARBE[teil.ton]} dimColor={teil.ton === 'leise'}>
@@ -1613,7 +1632,10 @@ export const register: Register = on => {
               {prs}
               {issues}
             </Box>
-            {!showsGauge ? null : gauge(COMPACT_CELLS, false)}
+            <Box columnGap={1}>
+              {ciPill}
+              {!showsGauge ? null : gauge(COMPACT_CELLS, false)}
+            </Box>
           </Box>
           <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
@@ -1638,6 +1660,7 @@ export const register: Register = on => {
           {issues}
         </Box>
         <Box columnGap={form.gap}>
+          {ciPill}
           {!showsGauge || !form.hasSpacer ? null : <Text>{NBSP.repeat(4)}</Text>}
           {!showsGauge ? null : gauge(form.bar, form.hasWord)}
           <Box columnGap={ICON_GAP}>{settingActions}</Box>
@@ -1645,7 +1668,7 @@ export const register: Register = on => {
       </Box>
     )
 
-    // The CI row stands below the band where the pushed head has runs. It follows what the head has,
+    // The CI row stands below the band where the CI has something to say. It follows what the head has,
     // not the width, so a resize never adds or takes it away.
     return ciRow === null ? (
       row

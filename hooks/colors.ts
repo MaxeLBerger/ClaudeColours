@@ -655,6 +655,8 @@ export type BandInhalt = {
   percent: number | null
   /** True where the project has a Docker stack: one more action, the rebuild. */
   hasStack?: boolean
+  /** True where the pushed head has CI runs: the pill "CI" stands in the row, beside the gauge. */
+  hasCi?: boolean
 }
 
 // The band's actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
@@ -775,6 +777,8 @@ export const ACTION_COUNT = 8
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
 export const MERGE_EXTRA = 1
+// The CI pill: the word "CI" with a blank on each side, drawn as one field.
+export const CI_PILL_CHARS = 4
 // The overview and the settings stand at the right edge, beside the gauge; the other actions stand left.
 export const SETTING_COUNT = 2
 // The shortest a name is cut to before the band lets the row run over instead.
@@ -854,6 +858,9 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
     if (form.hasSpacer) {
       right.unshift(m.spacer)
     }
+  }
+  if (inhalt.hasCi === true) {
+    right.unshift(CI_PILL_CHARS * m.text)
   }
   const nodes = [...left, ...right]
 
@@ -1618,6 +1625,11 @@ const nb = (...parts: string[]): string => parts.join(NBSP_CI)
 /** "~3 Min", or "<1 Min" for the last minute. */
 export function restText(sek: number): string {
   return sek < 60 ? nb('<1', 'Min') : nb(`~${Math.ceil(sek / 60)}`, 'Min')
+}
+
+/** True where the CI has something to say beyond a plain green: then its parts get a row of their own. */
+export function ciHatInfo(a: CiAnzeige): boolean {
+  return ciTon(a) !== 'gruen'
 }
 
 /** The tone of the whole row, which the word "CI" takes. */

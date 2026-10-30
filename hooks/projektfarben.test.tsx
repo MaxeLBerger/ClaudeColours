@@ -5,6 +5,7 @@ import {
   archiveReason,
   assignFarben,
   bandBreite,
+  ciHatInfo,
   bandStufe,
   brambleKandidaten,
   brambleRoot,
@@ -3256,17 +3257,17 @@ async function ciSession(
   return { clock, graphql }
 }
 
-/** The CI row's texts as the band draws them, blanks plain; empty without a row. */
+/** The CI pill and the row of parts under it as the band draws them, blanks plain; empty without CI. */
 async function ciRowOf($: Tested, bodyColumns = 120): Promise<string[]> {
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  const pill = await ui.find({ key: 'ci-pille' })
   const row = await ui.find({ key: 'ci-zeile' })
-  // The word and the parts, which start with their symbol; the hover cards are left out.
+  // The parts start with their symbol; the hover cards are left out.
   const texts = row === undefined ? [] : await ui.findAll({ type: 'Text' })
-  const ci = await ui.find({ key: 'ci' })
   await ui.unmount()
   const parts = texts.map(text => text.text.split(NBSP).join(' ')).filter(text => /^[✓✕◔○⊘] /.test(text))
 
-  return row === undefined ? [] : [ci?.text ?? 'CI', ...parts]
+  return pill === undefined ? [] : ['CI', ...parts]
 }
 
 test('the band\'s CI row shows the pushed head\'s jobs, with pytest\'s percent from the last green log', async ($, on) => {
@@ -3300,7 +3301,8 @@ test('the band\'s CI row shows the pushed head\'s jobs, with pytest\'s percent f
   stand = 'fertig'
   await clock.advance(30_000)
   await clock.settle()
-  expect(await ciRowOf($)).toEqual(['CI', '✓ 2 grün'])
+  // Plain green has nothing more to say: the pill alone, no row of parts.
+  expect(await ciRowOf($)).toEqual(['CI'])
   const done = graphql.length
   await clock.advance(10 * 60_000)
   await clock.settle()
@@ -3338,4 +3340,13 @@ test('a head without runs is asked once; one pushed while the session watches wa
   await clock.settle()
   expect(graphql.length).toBeLessThanOrEqual(asked + 2)
   expect(await ciRowOf($)).toEqual([])
+})
+
+test('the CI pill takes room in the one-row band, and only a CI with something to say gets a row of parts', () => {
+  const inhalt = { name: 8, prs: 3, issues: 3, percent: 2 }
+  expect(bandBreite('icons', { ...inhalt, hasCi: true })).toBeGreaterThan(bandBreite('icons', inhalt))
+  const ci = { gruen: 2, rot: 0, laeuft: 0, wartet: 0, abgebrochen: 0, rotNamen: [], haupt: null, restSek: null, isFertig: true, url: null }
+  expect(ciHatInfo(ci)).toBe(false)
+  expect(ciHatInfo({ ...ci, gruen: 1, wartet: 1 })).toBe(true)
+  expect(ciHatInfo({ ...ci, rot: 1, rotNamen: ['Backend'] })).toBe(true)
 })
