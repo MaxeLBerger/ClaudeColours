@@ -47,6 +47,7 @@ import {
   learnPicks,
   markSeen,
   handoffPrompt,
+  fablePrompt,
   meinungPrompt,
   promptsMarkdown,
   pruefenPrompt,
@@ -127,6 +128,7 @@ const EMPTY: ProjektfarbenView = {
   isHidden: false,
   hasStack: false,
   ci: null,
+  sent: [],
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 
@@ -284,6 +286,8 @@ async function recordStand($: Engine, sessionId: string, grund: Grund): Promise<
  * in another session, and the title gets its mark.
  */
 async function afterTurn($: Engine, grund: Grund): Promise<void> {
+  // The answer to a sent action has come: its button works again.
+  void update($, view, v => (v.sent.length === 0 ? v : { ...v, sent: [] })).catch(() => undefined)
   // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
   const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
   void self
@@ -749,17 +753,44 @@ async function openPanel($: Engine): Promise<boolean> {
  * the band's two session actions (the Opus opinion, review + commit + PR) are such prompts, and the answer
  * is a chat turn the person sees and can reply to. A refused or failing submission is a toast.
  */
-async function bitteSenden($: Engine, failure: string, text: (projekt: string) => string): Promise<void> {
+async function bitteSenden(
+  $: Engine,
+  action: { key: string; label: string; failure: string },
+  text: (projekt: string) => string,
+): Promise<void> {
+  // The press must be answered at once and a second press must not send the prompt again (each one costs
+  // tokens): the key is taken before anything is awaited, and kept until the session's next turn ends (the answer is that turn).
+  if (sending.has(action.key)) {
+    $.ui.toast(`${action.label}: wird schon gesendet.`)
+
+    return
+  }
+  sending.add(action.key)
   try {
+    if ((await read($, view)).sent.includes(action.key)) {
+      $.ui.toast(`${action.label}: schon angefordert, die Antwort kommt im Chat.`)
+
+      return
+    }
+    $.ui.toast(`${action.label}: wird gesendet …`)
     const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
     const sent = await $.prompt.submit({ text: text(projekt), asUser: true })
     if (sent.drop !== undefined) {
-      $.ui.toast(`${failure}: ${sent.drop}`)
+      $.ui.toast(`${action.failure}: ${sent.drop}`)
+
+      return
     }
+    await update($, view, v => ({ ...v, sent: [...v.sent, action.key] }))
+    $.ui.toast(`${action.label}: gesendet, die Antwort kommt im Chat.`)
   } catch (error) {
-    $.ui.toast(`${failure}: ${firstLine(String(error))}`)
+    $.ui.toast(`${action.failure}: ${firstLine(String(error))}`)
+  } finally {
+    sending.delete(action.key)
   }
 }
+
+/** The actions being sent right now; taken before anything is awaited, so a double click gets only one through. */
+const sending = new Set<string>()
 
 // What opens a `claude://` address, tried in turn until one starts: Windows, macOS, Linux.
 const OPENERS: readonly (readonly string[])[] = [['rundll32', 'url.dll,FileProtocolHandler'], ['open'], ['xdg-open']]
@@ -1081,7 +1112,7 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
+    '                         Symbole im Band: ✧ Fable fragen (goldener Lehrer, wenn es wichtig ist), ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
     '/projektfarbe prompts    die Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
@@ -1397,45 +1428,52 @@ export const register: Register = on => {
         </Text>
       )
     }
-    // The actions in the band's order (✦ opinion, ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
+    // The actions in the band's order (✧ Fable (the golden teacher), ✦ opinion, ↑ review + PR, ✉ handoff, ▣ stack where a compose file lies,
     // ✓ check, ⇉ merge, then ☰ overview and ⚙ settings at the right edge), each in a field of one width so
     // they are evenly spaced.
     const mergeBadge = openPrs !== null && openPrs > 0 ? raised(prLabel(openPrs)) : ''
     const defs = [
       {
+        key: 'fable',
+        hint: 'Fable fragen, wenn es wichtig ist',
+        icon: '✧',
+        svg: ICON_SVG.fable,
+        press: () => bitteSenden($, { key: 'fable', label: 'Fable', failure: 'Fable wurde nicht gefragt' }, fablePrompt),
+      },
+      {
         key: 'meinung',
         hint: 'Opus-Meinung im Chat anfordern',
         icon: '✦',
         svg: ICON_SVG.meinung,
-        press: () => bitteSenden($, 'Die Opus-Meinung wurde nicht angefordert', meinungPrompt),
+        press: () => bitteSenden($, { key: 'meinung', label: 'Opus-Meinung', failure: 'Die Opus-Meinung wurde nicht angefordert' }, meinungPrompt),
       },
       {
         key: 'review',
         hint: 'Review, Commit und Pull Request anfordern',
         icon: '↑',
         svg: ICON_SVG.review,
-        press: () => bitteSenden($, 'Review und PR wurden nicht gestartet', reviewPrompt),
+        press: () => bitteSenden($, { key: 'review', label: 'Review + PR', failure: 'Review und PR wurden nicht gestartet' }, reviewPrompt),
       },
       {
         key: 'handoff',
         hint: 'Übergabe für eine frische Session schreiben lassen',
         icon: '✉',
         svg: ICON_SVG.handoff,
-        press: () => bitteSenden($, 'Die Übergabe wurde nicht angefordert', handoffPrompt),
+        press: () => bitteSenden($, { key: 'handoff', label: 'Übergabe', failure: 'Die Übergabe wurde nicht angefordert' }, handoffPrompt),
       },
       {
         key: 'stack',
         hint: 'Docker-Stack auf diesen Stand neu bauen',
         icon: '▣',
         svg: ICON_SVG.stack,
-        press: () => bitteSenden($, 'Der Stack wurde nicht neu gebaut', stackPrompt),
+        press: () => bitteSenden($, { key: 'stack', label: 'Stack neu bauen', failure: 'Der Stack wurde nicht neu gebaut' }, stackPrompt),
       },
       {
         key: 'pruefen',
         hint: 'Prüfen: Qualität, Tests und e2e mit Playwright',
         icon: '✓',
         svg: ICON_SVG.pruefen,
-        press: () => bitteSenden($, 'Die Prüfung wurde nicht gestartet', pruefenPrompt),
+        press: () => bitteSenden($, { key: 'pruefen', label: 'Prüfung', failure: 'Die Prüfung wurde nicht gestartet' }, pruefenPrompt),
       },
       {
         key: 'merge',
@@ -1444,7 +1482,7 @@ export const register: Register = on => {
         svg: ICON_SVG.merge,
         // The open pull requests as small raised digits at the icon: what it will merge.
         badge: mergeBadge,
-        press: () => bitteSenden($, 'Merge und Issues wurden nicht gestartet', mergePrompt),
+        press: () => bitteSenden($, { key: 'merge', label: 'Merge', failure: 'Merge und Issues wurden nicht gestartet' }, mergePrompt),
       },
       {
         key: 'uebersicht',

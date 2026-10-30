@@ -46,6 +46,8 @@ export type ProjektfarbenView = {
    * from before this field existed (a reload keeps the session's state) lacks it: read it as null.
    */
   ci: ProjektfarbenCi | null
+  /** Keys of the session actions whose prompt was sent a moment ago; a repeated press is not sent again. */
+  sent: string[]
 }
 
 // The contract must be self-contained, so this mirrors `CiAnzeige` in hooks/colors.ts: change them together.
