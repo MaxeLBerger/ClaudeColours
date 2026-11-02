@@ -12,6 +12,16 @@ import {
   buildBereiche,
   buildUebersicht,
   BUNT,
+  ciAnzeige,
+  ciArt,
+  ciCommitOf,
+  ciForm,
+  ciKurve,
+  ciTeile,
+  ciText,
+  ciTon,
+  jobFortschritt,
+  kurveBei,
   contextLevel,
   contextPercent,
   contextTokens,
@@ -54,6 +64,8 @@ import {
   type GhPr,
   type Grund,
   DOCKER_BLUE,
+  fablePrompt,
+  GOLD,
   erkenneDienste,
   CELL_PX,
   ICON_SVG,
@@ -103,9 +115,9 @@ const BLANK = NBSP.repeat(3)
 // The merge field is a cell wider: its icon carries the number of open pull requests.
 const BLANK_MERGE = NBSP.repeat(4)
 // The keys of the band's actions, in the order the band draws them (the stack only beside a compose file).
-const ACTION_KEYS = ['meinung', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen']
+const ACTION_KEYS = ['meinung', 'fable', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen']
 // The seven fields drawBand reads, in its own order: overview, settings, opinion, review, handoff, check, merge.
-const ICON_FIELDS = [BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK_MERGE]
+const ICON_FIELDS = [BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK, BLANK_MERGE]
 
 const TURN = { answer: '', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as const
 
@@ -218,12 +230,12 @@ const ZIEL = { name: 18, prs: 2, issues: 2, percent: 1 } as const
 
 test('the band picks the roomiest layout that fits its cells, and none is roomier when there is less room', async () => {
   expect(bandStufe(140, ZIEL)).toBe('icons')
-  expect(bandStufe(81, ZIEL)).toBe('icons')
-  expect(bandStufe(80, ZIEL)).toBe('dicht')
-  expect(bandStufe(77, ZIEL)).toBe('dicht')
-  expect(bandStufe(76, ZIEL)).toBe('minimal')
-  expect(bandStufe(73, ZIEL)).toBe('minimal')
-  expect(bandStufe(72, ZIEL)).toBe('zwei')
+  expect(bandStufe(85, ZIEL)).toBe('icons')
+  expect(bandStufe(84, ZIEL)).toBe('dicht')
+  expect(bandStufe(81, ZIEL)).toBe('dicht')
+  expect(bandStufe(80, ZIEL)).toBe('minimal')
+  expect(bandStufe(77, ZIEL)).toBe('minimal')
+  expect(bandStufe(76, ZIEL)).toBe('zwei')
   expect(bandStufe(50, ZIEL)).toBe('zwei')
 
   const order = ['zwei', 'minimal', 'dicht', 'icons']
@@ -231,9 +243,9 @@ test('the band picks the roomiest layout that fits its cells, and none is roomie
   expect(steps).toEqual([...steps].sort((a, b) => a - b))
 
   // A longer name or more digits need more room; a missing gauge needs less.
-  expect(bandStufe(85, ZIEL)).toBe('icons')
-  expect(bandStufe(85, { ...ZIEL, name: 28 })).not.toBe('icons')
-  expect(bandStufe(85, { ...ZIEL, prs: 6, issues: 6 })).not.toBe('icons')
+  expect(bandStufe(90, ZIEL)).toBe('icons')
+  expect(bandStufe(90, { ...ZIEL, name: 28 })).not.toBe('icons')
+  expect(bandStufe(90, { ...ZIEL, prs: 6, issues: 6 })).not.toBe('icons')
   expect(bandBreite('icons', { ...ZIEL, percent: null })).toBeLessThan(bandBreite('icons', ZIEL))
   expect(bandBreite('zwei', ZIEL)).toBe(Number.POSITIVE_INFINITY)
   // Each layout takes less room than the one before it.
@@ -248,7 +260,7 @@ test('the layouts switch where the metrics of the desktop screenshots put them',
   // with the ring and its percentage from 76 cells, closer together from 72, only the ring from 68. The
   // margin stays one cell: a row a little too tight broke the gauge in two.
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
-  expect([120, 76, 72, 70, 60, 34].map(columns => bandStufe(columns, claude))).toEqual([
+  expect([120, 81, 77, 73, 60, 34].map(columns => bandStufe(columns, claude))).toEqual([
     'icons',
     'icons',
     'dicht',
@@ -257,7 +269,7 @@ test('the layouts switch where the metrics of the desktop screenshots put them',
     'zwei',
   ])
   // The edges: one cell less and the roomier layout does not fit.
-  expect([76, 75, 72, 71, 68, 67].map(columns => bandStufe(columns, claude))).toEqual([
+  expect([81, 80, 77, 76, 73, 72].map(columns => bandStufe(columns, claude))).toEqual([
     'icons',
     'dicht',
     'dicht',
@@ -270,18 +282,18 @@ test('the layouts switch where the metrics of the desktop screenshots put them',
 test('the band stays in its layout until the room for a roomier one is clear', async () => {
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
   // At 72 cells the closer row fits ...
-  expect(bandStufe(72, claude)).toBe('dicht')
+  expect(bandStufe(77, claude)).toBe('dicht')
   // ... but a band that was in a tighter layout stays there until it has a cell to spare, and so on up.
-  expect(bandStufe(72, claude, 'minimal')).toBe('minimal')
-  expect(bandStufe(73, claude, 'minimal')).toBe('dicht')
-  expect(bandStufe(68, claude)).toBe('minimal')
-  expect(bandStufe(68, claude, 'zwei')).toBe('zwei')
-  expect(bandStufe(69, claude, 'zwei')).toBe('minimal')
-  expect(bandStufe(76, claude)).toBe('icons')
-  expect(bandStufe(76, claude, 'dicht')).toBe('dicht')
-  expect(bandStufe(77, claude, 'dicht')).toBe('icons')
+  expect(bandStufe(77, claude, 'minimal')).toBe('minimal')
+  expect(bandStufe(78, claude, 'minimal')).toBe('dicht')
+  expect(bandStufe(73, claude)).toBe('minimal')
+  expect(bandStufe(73, claude, 'zwei')).toBe('zwei')
+  expect(bandStufe(74, claude, 'zwei')).toBe('minimal')
+  expect(bandStufe(81, claude)).toBe('icons')
+  expect(bandStufe(81, claude, 'dicht')).toBe('dicht')
+  expect(bandStufe(82, claude, 'dicht')).toBe('icons')
   // Getting less room is never held back: the old layout would not fit.
-  expect(bandStufe(70, claude, 'icons')).toBe('minimal')
+  expect(bandStufe(74, claude, 'icons')).toBe('minimal')
   expect(bandStufe(30, claude, 'icons')).toBe('zwei')
 })
 
@@ -462,6 +474,31 @@ test("a subagent's turn reads nothing; the band follows a color picked elsewhere
   expect(texts.some(text => text.props.backgroundColor === '#a855f7')).toBe(true)
   await ui.unmount()
   expect(self.title).toBe('🟪 Neu')
+})
+
+test('a survey keeps the band: its tree is drawn below the project, not in its place', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\.claude\worktrees\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  // Stands for the engine's survey.
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>Soll ich committen?</Text>
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true }, surface: 'desktop' })
+  const texts = await ui.findAll({ type: 'Text' })
+  const at = (re: RegExp) => texts.findIndex(text => re.test(text.text))
+  expect(at(/Beta/)).toBeGreaterThanOrEqual(0)
+  expect(at(/Soll ich committen/)).toBeGreaterThan(at(/Beta/))
+  await ui.unmount()
 })
 
 test('the band shows the project in its color and hides on request', async ($, on) => {
@@ -665,6 +702,9 @@ test('the spinner carries the project mark; hiding the band takes it away', asyn
   expect(await shown({ word: 'Sauteing', message: null })).toBe('Sauteing')
 })
 
+/** The CI row's own calls: the pushed head (`git rev-parse @{u}`) and `gh api`. Tests of other gh calls leave them out. */
+const isCiCall = (argv: readonly string[]): boolean => argv[0] === 'git' || (argv[0] === 'gh' && argv[1] === 'api')
+
 /** What `$.process.run` answers when `gh pr list` printed these pull requests. */
 const ghList = (numbers: number[]) => ({
   value: {
@@ -689,7 +729,7 @@ test('the band counts the open pull requests with gh, at most every five minutes
   on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
     // The repository's address is read once beside the counts; only the counts are timed here.
-    if (e.argv[1] !== 'repo') {
+    if (e.argv[1] !== 'repo' && !isCiCall(e.argv)) {
       asked.push([...e.argv])
     }
 
@@ -748,7 +788,9 @@ test("the project's color and name link to the repository, read once per folder"
   on('session.cwd', () => ({ value: self.cwd }))
   on('turn.complete', () => ({ text: '' }))
   on('process.run', (_, e) => {
-    asked.push([...e.argv])
+    if (!isCiCall(e.argv)) {
+      asked.push([...e.argv])
+    }
 
     return e.argv[1] === 'repo' ? ghUrl('https://github.com/me/beta') : ghList([1])
   })
@@ -1214,7 +1256,9 @@ function fakeGh(lists: { pr: number[]; issue: number[] | 'disabled' }) {
     asked,
     lists,
     hook: (_: unknown, e: { argv: readonly string[] }) => {
-      asked.push([...e.argv])
+      if (!isCiCall(e.argv)) {
+        asked.push([...e.argv])
+      }
       if (e.argv.includes('--web')) {
         return ghList([])
       }
@@ -1435,6 +1479,7 @@ async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'te
       (await ui.find({ key: 'uebersicht' }))?.text,
       (await ui.find({ key: 'einstellungen' }))?.text,
       (await ui.find({ key: 'meinung' }))?.text,
+      (await ui.find({ key: 'fable' }))?.text,
       (await ui.find({ key: 'review' }))?.text,
       (await ui.find({ key: 'handoff' }))?.text,
       (await ui.find({ key: 'pruefen' }))?.text,
@@ -1458,11 +1503,11 @@ test('the band lays itself out by its cells: icons, closer together, only the ri
   expect(wide).toMatchObject({ isStacked: false, actions: ICON_FIELDS, hasPercent: true })
 
   // The items closer together, the same gauge.
-  const dense = await drawBand($, 66)
+  const dense = await drawBand($, 70)
   expect(dense).toMatchObject({ isStacked: false, actions: ICON_FIELDS, hasPercent: true })
 
   // Only the ring is left, in the same row.
-  const minimal = await drawBand($, 62)
+  const minimal = await drawBand($, 66)
   expect(minimal).toMatchObject({ isStacked: false, actions: ICON_FIELDS, hasPercent: false })
 
   // Two rows: the gauge stays above, with the name.
@@ -1470,14 +1515,14 @@ test('the band lays itself out by its cells: icons, closer together, only the ri
   expect(narrow).toMatchObject({ isStacked: true, actions: ICON_FIELDS, hasPercent: true, name: ' Beta' })
 
   expect((await $.command.run({ ...RUN, args: 'breite' })).text).toBe(
-    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: icons 68, dicht 64, minimal 60 Zellen.',
+    'Das Band hat 30 Zellen und ist im Layout „zwei“ gezeichnet (Name: 4 Zeichen). In einer Zeile braucht es: icons 73, dicht 69, minimal 65 Zellen. Keine CI-Zeile.',
   )
 })
 
 test('the one-row layouts never wrap, so a stale tree in a narrower window does not jump to two rows', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  for (const bodyColumns of [100, 75, 62]) {
+  for (const bodyColumns of [100, 80, 66]) {
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
     const root = await ui.find({ type: 'Box' })
     await ui.unmount()
@@ -1504,10 +1549,10 @@ test('the one-row band spreads to its ends: the actions flush right, and the per
 test('the band keeps its layout over a narrow stretch while the window is dragged wider', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  // Beta's smallest one-row layout needs about 60 cells: it fits at 60, but the band came from two rows.
+  // Beta's smallest one-row layout needs about 65 cells: it fits at 65, but the band came from two rows.
   expect((await drawBand($, 30)).isStacked).toBe(true)
-  expect((await drawBand($, 60)).isStacked).toBe(true)
-  expect((await drawBand($, 62)).isStacked).toBe(false)
+  expect((await drawBand($, 65)).isStacked).toBe(true)
+  expect((await drawBand($, 66)).isStacked).toBe(false)
   // Narrowing again is not held back.
   expect((await drawBand($, 30)).isStacked).toBe(true)
 })
@@ -1578,7 +1623,7 @@ test('the actions stand in this order: the session actions with merge last of th
     const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
     const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
     await ui.unmount()
-    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['fable', 'meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
   }
 })
 
@@ -1588,7 +1633,7 @@ test('the session actions stand before the counts, the gauge, the overview and s
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 100 }, surface: 'desktop' })
   const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
   await ui.unmount()
-  expect(keys).toEqual(['meinung', 'review', 'handoff', 'pruefen', 'merge', 'prs', 'issues', 'kontext', 'uebersicht', 'einstellungen'])
+  expect(keys).toEqual(['fable', 'meinung', 'review', 'handoff', 'pruefen', 'merge', 'prs', 'issues', 'kontext', 'uebersicht', 'einstellungen'])
 })
 
 test('each icon has a hover card saying what it does', async ($, on) => {
@@ -1606,6 +1651,7 @@ test('each icon has a hover card saying what it does', async ($, on) => {
     const cards = await cardsAt(bodyColumns)
     const kontext = 'Kontext klicken zum Komprimieren (wie /compact)'
     const sessions = [
+      'Fable fragen, wenn es wichtig ist',
       'Opus-Meinung im Chat anfordern',
       'Review, Commit und Pull Request anfordern',
       'Übergabe für eine frische Session schreiben lassen',
@@ -1636,7 +1682,7 @@ test('each icon has a hover card saying what it does', async ($, on) => {
 test('on the terminal a character is a whole cell: the layouts switch by its own metrics', async () => {
   const claude = { name: 13, prs: 2, issues: 2, percent: 1 }
   expect(bandBreite('icons', claude, true)).not.toBe(bandBreite('icons', claude))
-  expect([74, 73, 70, 69, 66, 65].map(columns => bandStufe(columns, claude, null, true))).toEqual([
+  expect([78, 77, 74, 73, 70, 69].map(columns => bandStufe(columns, claude, null, true))).toEqual([
     'icons',
     'dicht',
     'dicht',
@@ -1645,21 +1691,21 @@ test('on the terminal a character is a whole cell: the layouts switch by its own
     'zwei',
   ])
   // 75 columns fit the roomy layout on the terminal (gaps are what `columnGap` says) but not on the desktop.
-  expect(bandStufe(75, claude)).toBe('dicht')
-  expect(bandStufe(75, claude, null, true)).toBe('icons')
+  expect(bandStufe(79, claude)).toBe('dicht')
+  expect(bandStufe(79, claude, null, true)).toBe('icons')
   expect(nameBudget(40, claude, true)).toBeGreaterThan(0)
 })
 
 test('the band on the terminal switches layouts by whole cells, and keeps its text glyphs', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  // Beta needs 61 columns for the percentage beside the glyph on the terminal; at 60 only the glyph is left.
+  // Beta needs 65 columns for the percentage beside the glyph on the terminal; at 64 only the glyph is left.
   // The terminal has no Svg: its icons stay text glyphs, and the gauge is one button of glyph and figure.
-  const roomy = await drawBand($, 61, 'terminal')
+  const roomy = await drawBand($, 65, 'terminal')
   expect(roomy.hasPercent).toBe(true)
   expect(roomy.gauge).toBe(`◔${NBSP}8${NBSP}%`)
-  expect(roomy.actions).toEqual(['☰', '⚙', '✦', '↑', '✉', '✓', '⇉'])
-  const tight = await drawBand($, 60, 'terminal')
+  expect(roomy.actions).toEqual(['☰', '⚙', '✦', '✧', '↑', '✉', '✓', '⇉'])
+  const tight = await drawBand($, 64, 'terminal')
   expect(tight.hasPercent).toBe(false)
   expect(tight.gauge).toBe('◔')
 })
@@ -2215,7 +2261,7 @@ async function openedPanel($: TestEngine, on: TestOn, options: { refuseArchive?:
     return { value: undefined }
   })
   on('process.run', (_, e) => {
-    if (e.argv[0] === 'gh') {
+    if (e.argv[0] === 'gh' || isCiCall(e.argv)) {
       if (e.argv.some(arg => arg.includes('headRefName'))) {
         ghAsks += 1
       }
@@ -2540,8 +2586,17 @@ test('with a Bramble build the name, PRs and Issues open their pages in the newe
 // The independent Opus opinion: the band's button sends the session a prompt of the person's own.
 
 /** A session in Beta whose submitted prompts are recorded and answered by `answer`; toasts are recorded too. */
+let sessionClock: ReturnType<typeof mock.clock> | null = null
+
+/** A sent action stays locked until the session's turn ends; the tests that press one repeatedly end one first. */
+async function afterCooldown($: TestEngine) {
+  await $.turn.complete(TURN)
+  await sessionClock?.settle()
+}
+
 async function meinungSession($: TestEngine, on: TestOn, answer: (text: string) => unknown = text => ({ text })) {
   const clock = mock.clock(on)
+  sessionClock = clock
   await clock.set(NOW)
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   mock.store(on)
@@ -2552,24 +2607,27 @@ async function meinungSession($: TestEngine, on: TestOn, answer: (text: string) 
   on('turn.complete', () => ({ text: '' }))
   const sent: { text: string; origin: unknown }[] = []
   const toasts: string[] = []
+  const progress: string[] = []
   on('prompt.submit', (_, e) => {
     sent.push({ text: e.text, origin: e.origin })
 
     return answer(e.text) as never
   })
   on('ui.toast', (_, e) => {
-    toasts.push(e.text)
+    // The progress toasts of a press are in `progress`; `toasts` holds what went wrong.
+    ;(/wird gesendet|gesendet, die|schon/.test(e.text) ? progress : toasts).push(e.text)
 
     return { value: undefined }
   })
   await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
   await clock.settle()
 
-  return { sent, toasts }
+  return { sent, toasts, progress }
 }
 
 async function pressMeinung($: TestEngine, bodyColumns = 120) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'meinung' })
   await band.unmount()
 }
@@ -2600,6 +2658,36 @@ test('the opinion button submits the question as the person\'s own words, in a w
   expect(toasts).toEqual([])
 })
 
+test('a press is answered at once, and a repeated press does not send the prompt again', async ($, on) => {
+  const { sent, progress } = await meinungSession($, on)
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+
+  await Promise.all([band.press({ key: 'meinung' }), band.press({ key: 'meinung' })])
+  await band.press({ key: 'meinung' })
+  expect(sent).toHaveLength(1)
+  expect(progress).toContain('Opus-Meinung: wird gesendet …')
+  expect(progress).toContain('Opus-Meinung: gesendet, die Antwort kommt im Chat.')
+  expect(progress.filter(text => text.includes('schon'))).toHaveLength(2)
+
+  // Once the answer's turn has ended the button works again.
+  await afterCooldown($)
+  await band.press({ key: 'meinung' })
+  expect(sent).toHaveLength(2)
+  await band.unmount()
+})
+
+test('a refused press does not lock the button: it can be tried again at once', async ($, on) => {
+  let isRefused = true
+  const { sent } = await meinungSession($, on, text => (isRefused ? { drop: 'Stop-Hook' } : { text }))
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+
+  await band.press({ key: 'review' })
+  isRefused = false
+  await band.press({ key: 'review' })
+  expect(sent).toHaveLength(2)
+  await band.unmount()
+})
+
 test('a refused or failing submission says so in a toast', async ($, on) => {
   let mode: 'drop' | 'throw' = 'drop'
   const { toasts } = await meinungSession($, on, () => {
@@ -2620,8 +2708,56 @@ test('a refused or failing submission says so in a toast', async ($, on) => {
   expect(toasts[1]).not.toContain('second line')
 })
 
+// Fable, for when it matters: a button of its own beside the Opus opinion, which stays as it is.
+
+async function pressFable($: TestEngine, bodyColumns = 120) {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
+  await band.press({ key: 'fable' })
+  await band.unmount()
+}
+
+test('the Fable prompt is for what matters: the matter and why it matters, no own conclusion, nothing changed', async () => {
+  const prompt = fablePrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  expect(prompt).toContain('Das hier ist wichtig, hol Fable dazu')
+  expect(prompt).toContain('subagent_type general-purpose, model fable')
+  expect(prompt).not.toMatch(/opus/i)
+  // A second opinion, a thorough review or a question the work is stuck on; the session decides which.
+  expect(prompt).toContain('einer Entscheidung, die schwer rückgängig zu machen ist')
+  expect(prompt).toContain('gründliches Review der Änderungen')
+  expect(prompt).toContain('eine Frage, an der wir hängen')
+  expect(prompt).toContain('Du entscheidest, was gemeint ist')
+  expect(prompt).toContain('den Diff holt er sich selbst')
+  expect(prompt).toContain('warum es wichtig ist und was davon abhängt')
+  expect(prompt).toContain('nicht deine eigene Schlussfolgerung')
+  expect(prompt).toContain('keinen Gesprächsverlauf')
+  expect(prompt).toContain('Er ändert nichts')
+  expect(prompt).toContain('der Sache auf den Grund gehen')
+  expect(prompt).toContain('unverändert wieder')
+  expect(prompt).not.toMatch(/Höchstens|\d+ Zeilen|zusätzlich lesen|Nächstes ansteht/)
+  // The Opus opinion stays the everyday button.
+  expect(meinungPrompt('Beta')).toContain('model opus')
+})
+
+test('the Fable button submits its prompt as the person\'s own words, and a refusal is a toast', async ($, on) => {
+  let isRefused = false
+  const { sent, toasts } = await meinungSession($, on, text => (isRefused ? { drop: 'Stop-Hook' } : { text }))
+
+  await pressFable($, 120)
+  await pressFable($, 70)
+  expect(sent.map(prompt => prompt.text)).toEqual([fablePrompt('Beta'), fablePrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
+
+  isRefused = true
+  await pressFable($)
+  expect(toasts).toEqual(['Fable wurde nicht gefragt: Stop-Hook'])
+})
+
 async function pressReview($: TestEngine, bodyColumns = 120) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'review' })
   await band.unmount()
 }
@@ -2657,7 +2793,7 @@ test('a refused review request says so in a toast', async ($, on) => {
   expect(toasts).toEqual(['Review und PR wurden nicht gestartet: Stop-Hook'])
 })
 
-test('the action icons are vector line icons of one family in one gray that reads on both themes, bar the Docker logo', async () => {
+test('the action icons are vector line icons of one family in one gray that reads on both themes, bar the Docker logo and the golden teacher', async () => {
   for (const [key, icon] of Object.entries(ICON_SVG)) {
     expect(icon.source.startsWith('<svg ')).toBe(true)
     expect(icon.source.endsWith('</svg>')).toBe(true)
@@ -2668,7 +2804,7 @@ test('the action icons are vector line icons of one family in one gray that read
     if (key !== 'stack' && key !== 'pruefen') {
       expect(icon.source).toContain('viewBox="0 0 24 24"')
     }
-    if (key !== 'stack') {
+    if (key !== 'stack' && key !== 'fable') {
       expect(icon.source).toContain(`stroke="${ICON_SVG_COLOR}"`)
     }
   }
@@ -2676,6 +2812,20 @@ test('the action icons are vector line icons of one family in one gray that read
   const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(ICON_SVG_COLOR.slice(i, i + 2), 16))
   expect(Math.min(r, g, b)).toBeGreaterThan(90)
   expect(Math.max(r, g, b)).toBeLessThan(190)
+})
+
+test('the Fable button is the golden teacher: the opinion icon drawn the same, in a gold that reads on both themes', async () => {
+  const { fable, meinung } = ICON_SVG
+  expect(fable.alt).toBe('Fable fragen')
+  expect(fable.source).toBe(meinung.source.replace(`stroke="${ICON_SVG_COLOR}"`, `stroke="${GOLD}"`))
+  expect(fable.source).not.toContain(ICON_SVG_COLOR)
+  // Gold, not gray: red above green above blue, neither near white nor near black, since an image takes
+  // no theme color.
+  const [r, g, b] = [1, 3, 5].map(i => Number.parseInt(GOLD.slice(i, i + 2), 16))
+  expect(r).toBeGreaterThan(g)
+  expect(g).toBeGreaterThan(b + 40)
+  expect(Math.max(r, g, b)).toBeLessThan(240)
+  expect(Math.min(r, g, b)).toBeLessThan(90)
 })
 
 test('the Docker logo is the original in its blue with a green rebuild arrow, drawn in its own proportions', async () => {
@@ -2735,27 +2885,27 @@ test('on the desktop every action is drawn as Svg, centered in the row, with a B
     return { svgs, keys, fields }
   }
 
-  // No compose file here, so no stack: the other seven, in the band's order.
+  // No compose file here, so no stack: the other eight, in the band's order.
   const icons = Object.entries(ICON_SVG).filter(([key]) => key !== 'stack')
-  for (const bodyColumns of [100, 75, 64, 30]) {
+  for (const bodyColumns of [100, 80, 73, 64, 30]) {
     const { svgs, keys, fields } = await svgsAt(bodyColumns, 'desktop')
     // The gauge's ring stands before the overview and the settings; in the two-row band it leads the first row.
     const ring = kontextIcon(8).alt
     const alts = icons.map(([, icon]) => icon.alt)
-    const wanted = bodyColumns < 60 ? [ring, ...alts] : [...alts.slice(0, -2), ring, ...alts.slice(-2)]
+    const wanted = bodyColumns < 73 ? [ring, ...alts] : [...alts.slice(0, -2), ring, ...alts.slice(-2)]
     expect(svgs.map(svg => svg.props.alt)).toEqual(wanted)
     // Every image is as wide as its field and as tall as its drawing, so the viewBox centers the glyph in
     // the field the Button's hover patch covers.
     const sizes = icons.map(([, icon]) => [ICON_BOX * CELL_PX, 'height' in icon ? icon.height : ICON_SVG_SIZE])
     const ringSize = [ICON_BOX * CELL_PX, ICON_SVG_SIZE]
     expect(svgs.map(svg => [svg.props.width, svg.props.height])).toEqual(
-      bodyColumns < 60 ? [ringSize, ...sizes] : [...sizes.slice(0, -2), ringSize, ...sizes.slice(-2)],
+      bodyColumns < 73 ? [ringSize, ...sizes] : [...sizes.slice(0, -2), ringSize, ...sizes.slice(-2)],
     )
     // The Buttons that take the press are still there, in the order of the icons.
-    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['fable', 'meinung', 'review', 'handoff', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
     expect(keys).toContain('kontext')
     // Each field centers its icon in the row, so all stand on one line.
-    expect(fields).toHaveLength(8)
+    expect(fields).toHaveLength(9)
     expect(fields.every(box => box.props.alignItems === 'center')).toBe(true)
   }
   expect((await svgsAt(75, 'terminal')).svgs).toEqual([])
@@ -2773,7 +2923,7 @@ test('beside a compose file the band offers the stack rebuild, before the check,
     const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
     const svgs = await ui.findAll({ type: 'Svg' })
     await ui.unmount()
-    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['meinung', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
+    expect(keys.filter(key => ACTION_KEYS.includes(key))).toEqual(['fable', 'meinung', 'review', 'handoff', 'stack', 'pruefen', 'merge', 'uebersicht', 'einstellungen'])
     const alts = Object.values(ICON_SVG).map(icon => icon.alt)
     const ring = kontextIcon(8).alt
     expect(svgs.map(svg => svg.props.alt)).toEqual(
@@ -2782,12 +2932,13 @@ test('beside a compose file the band offers the stack rebuild, before the check,
     const logo = svgs.find(svg => svg.props.alt === ICON_SVG.stack.alt)
     expect(logo?.props).toMatchObject({ width: ICON_BOX * CELL_PX, height: ICON_SVG.stack.height })
   }
-  // One more action takes more room than the seven.
+  // One more action takes more room than the eight.
   expect(bandBreite('icons', { ...ZIEL, hasStack: true })).toBeGreaterThan(bandBreite('icons', ZIEL))
 })
 
 async function pressHandoff($: TestEngine, bodyColumns = 100) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'handoff' })
   await band.unmount()
 }
@@ -2824,6 +2975,7 @@ test('the handoff button submits the prompt as the person\'s own words, in a wid
 
 async function pressMerge($: TestEngine, bodyColumns = 100) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key: 'merge' })
   await band.unmount()
 }
@@ -2892,6 +3044,7 @@ test('the merge icon carries the number of open pull requests as raised digits, 
 
 async function pressKey($: TestEngine, key: string, bodyColumns = 100) {
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  await afterCooldown($)
   await band.press({ key })
   await band.unmount()
 }
@@ -2969,7 +3122,7 @@ test('the settings icon opens the color picker with the mode switch and the hide
 test('the prompts document shows what each button does, what to check, and the text itself', async () => {
   const doc = promptsMarkdown()
   expect(doc.startsWith('# Prompts hinter den Band-Knöpfen')).toBe(true)
-  expect(PROMPT_INFO.map(info => info.key)).toEqual(['meinung', 'review', 'handoff', 'merge', 'pruefen', 'stack'])
+  expect(PROMPT_INFO.map(info => info.key)).toEqual(['fable', 'meinung', 'review', 'handoff', 'merge', 'pruefen', 'stack'])
   for (const info of PROMPT_INFO) {
     expect(doc).toContain(`## ${info.name} (\`${info.key}\`)`)
     expect(doc).toContain(info.does)
@@ -2987,4 +3140,364 @@ test('/projektfarbe prompts prints that document', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   expect((await $.command.run({ ...RUN, args: 'prompts' })).text).toBe(promptsMarkdown())
+})
+
+// The CI row: the pushed head's jobs, from one GraphQL query, and how far the running one is.
+
+const iso = (ms: number): string => new Date(ms).toISOString()
+
+/** A check suite of GitHub Actions as `CI_QUERY` answers it; `run` false: another app's suite. */
+const suite = (status: string, jobs: unknown[], run = true) => ({
+  status,
+  workflowRun: run
+    ? { event: 'pull_request', url: 'https://github.com/me/beta/actions/runs/9', workflow: { databaseId: 7 } }
+    : null,
+  checkRuns: { nodes: jobs },
+})
+
+/** A job (check run) with its steps. */
+const ciJob = (
+  name: string,
+  status: string,
+  conclusion: string | null,
+  startedAt: number | null,
+  steps: { name: string; status: string; startedAt: number | null }[] = [],
+) => ({
+  name,
+  status,
+  conclusion,
+  startedAt: startedAt === null ? null : iso(startedAt),
+  completedAt: status === 'COMPLETED' && startedAt !== null ? iso(startedAt + 60_000) : null,
+  steps: {
+    nodes: steps.map(step => ({ ...step, startedAt: step.startedAt === null ? null : iso(step.startedAt), completedAt: null })),
+  },
+})
+
+/** What `gh api graphql` prints for `CI_QUERY`. */
+const ciAnswer = (suites: unknown[], pr: { number: number; url: string; state: string } | null = null): string =>
+  JSON.stringify({
+    data: {
+      repository: {
+        object: { associatedPullRequests: { nodes: pr === null ? [] : [pr] }, checkSuites: { nodes: suites } },
+      },
+    },
+  })
+
+const T0 = Date.parse('2026-10-28T15:00:00Z')
+// When the CI sessions start: an hour after the baseline run.
+const CI_START = T0 + 60 * 60_000
+
+test('a job stands green, red, running, waiting, cancelled or skipped; cancelled is not red', () => {
+  expect(ciArt('COMPLETED', 'SUCCESS')).toBe('gruen')
+  expect(ciArt('completed', 'failure')).toBe('rot')
+  expect(ciArt('COMPLETED', 'TIMED_OUT')).toBe('rot')
+  expect(ciArt('COMPLETED', 'CANCELLED')).toBe('abgebrochen')
+  expect(ciArt('COMPLETED', 'SKIPPED')).toBe('uebersprungen')
+  expect(ciArt('IN_PROGRESS', null)).toBe('laeuft')
+  expect(ciArt('QUEUED', null)).toBe('wartet')
+  expect(ciArt('WAITING', null)).toBe('wartet')
+})
+
+test('the head\'s CI leaves out suites without a workflow run, and a run without jobs yet waits', () => {
+  const commit = ciCommitOf(
+    ciAnswer(
+      [
+        // Another app's suite: queued for ever, no run. It must not hold the row at "running".
+        suite('QUEUED', [], false),
+        suite('IN_PROGRESS', [
+          ciJob('Backend (pytest + ruff)', 'COMPLETED', 'FAILURE', T0),
+          ciJob('Checks', 'COMPLETED', 'SUCCESS', T0),
+          ciJob('Frontend', 'IN_PROGRESS', null, T0),
+          ciJob('Nightly', 'COMPLETED', 'SKIPPED', T0),
+        ]),
+        suite('QUEUED', []),
+      ],
+      { number: 331, url: 'https://github.com/me/beta/pull/331', state: 'OPEN' },
+    ),
+  )!
+  expect(commit.jobs.map(job => job.art)).toEqual(['rot', 'gruen', 'laeuft', 'uebersprungen'])
+  expect(commit).toMatchObject({ wartendeLaeufe: 1, hasLaeufe: true, isFertig: false, pr: { number: 331 } })
+  expect(commit.runUrl).toBe('https://github.com/me/beta/actions/runs/9')
+  expect(commit.jobs[0]).toMatchObject({ workflowId: 7, event: 'pull_request', startedAt: T0 })
+
+  // Only other apps' suites, or none: no CI. Not JSON or not this shape: null.
+  expect(ciCommitOf(ciAnswer([suite('QUEUED', [], false)]))).toMatchObject({ hasLaeufe: false })
+  expect(ciCommitOf('nope')).toBeNull()
+  expect(ciCommitOf('{"data":{}}')).toBeNull()
+  // A commit GitHub does not know (not pushed yet) has no CI either.
+  expect(ciCommitOf('{"data":{"repository":{"object":null}}}')).toMatchObject({ hasLaeufe: false, jobs: [] })
+})
+
+test('pytest\'s curve is read from a finished log, against the seconds since its step began', () => {
+  const step = (name: string, from: number, to: number) => ({
+    name,
+    isFertig: true,
+    startedAt: T0 + from * 1000,
+    completedAt: T0 + to * 1000,
+  })
+  const schritte = [step('Set up job', 0, 20), step('Run tests', 20, 380), step('Coverage', 380, 400)]
+  const line = (sek: number, text: string) => `${iso(T0 + sek * 1000).replace('.000Z', '.1234567Z')} ${text}\r`
+  const log = [
+    line(5, 'Run actions/checkout'),
+    line(60, '....................... [ 10%]'),
+    line(100, '....F.................. [ 10%]'),
+    line(220, '....................... [ 50%]'),
+    line(320, '..s.................... [ 90%]'),
+    line(379, '....................... [100%]'),
+    // A later step with its own percentages is not the curve.
+    line(390, 'coverage .............. [ 12%]'),
+  ].join('\n')
+
+  const kurve = ciKurve(log, schritte)!
+  expect(kurve.schritt).toBe('Run tests')
+  // Each percent once, at the first time it shows, in seconds since the step began.
+  expect(kurve.punkte.map(([sek, prozent]) => [Math.round(sek), prozent])).toEqual([
+    [40, 10],
+    [200, 50],
+    [300, 90],
+    [359, 100],
+  ])
+  // Linear in between, from 0 at the step's start; the last value past the end.
+  expect(Math.round(kurveBei(kurve, 20))).toBe(5)
+  expect(Math.round(kurveBei(kurve, 120))).toBe(30)
+  expect(kurveBei(kurve, 500)).toBe(100)
+
+  expect(ciKurve('no progress here', schritte)).toBeNull()
+})
+
+test('a running job\'s percent is pytest\'s while its step runs, else the share of the last green run\'s time', () => {
+  const vorlage = {
+    dauerSek: 400,
+    kurve: { schritt: 'Run tests', punkte: [[40, 10], [200, 50], [300, 90]] as [number, number][] },
+  }
+  const job = (stepRuns: boolean) => ({
+    name: 'Backend',
+    art: 'laeuft' as const,
+    startedAt: T0,
+    completedAt: null,
+    workflowId: 7,
+    event: 'pull_request',
+    schritte: [
+      { name: 'Set up job', isFertig: true, startedAt: T0, completedAt: T0 + 20_000 },
+      { name: 'Run tests', isFertig: !stepRuns, startedAt: stepRuns ? T0 + 20_000 : null, completedAt: null },
+    ],
+  })
+
+  // 100 s in: the step runs 80 s, 20 % on the curve; 300 s to go.
+  expect(jobFortschritt(job(true), vorlage, T0 + 100_000)).toEqual({ prozent: 20, restSek: 300, quelle: 'log' })
+  // Before the step: a quarter of the time.
+  expect(jobFortschritt(job(false), vorlage, T0 + 100_000)).toEqual({ prozent: 25, restSek: 300, quelle: 'zeit' })
+  // Past the baseline it stays below 100 while it runs.
+  expect(jobFortschritt(job(false), vorlage, T0 + 900_000)).toEqual({ prozent: 99, restSek: 0, quelle: 'zeit' })
+  // No baseline: no percent.
+  expect(jobFortschritt(job(true), null, T0)).toEqual({ prozent: null, restSek: null, quelle: null })
+})
+
+test('the CI row counts green, names the red, shows the slowest running job and fits its width', () => {
+  const commit = ciCommitOf(
+    ciAnswer(
+      [
+        suite('IN_PROGRESS', [
+          ciJob('Changes', 'COMPLETED', 'SUCCESS', T0),
+          ciJob('Checks (ratchets, gitleaks)', 'COMPLETED', 'SUCCESS', T0),
+          ciJob('Backend (pytest + ruff + persistence)', 'COMPLETED', 'FAILURE', T0),
+          ciJob('Frontend (domain checks)', 'IN_PROGRESS', null, T0),
+          ciJob('Diff coverage', 'QUEUED', null, null),
+        ]),
+      ],
+      { number: 331, url: 'https://github.com/me/beta/pull/331', state: 'OPEN' },
+    ),
+  )!
+  const anzeige = ciAnzeige(commit, () => ({ dauerSek: 300, kurve: null }), T0 + 213_000)!
+  expect(anzeige).toMatchObject({ gruen: 2, rot: 1, laeuft: 1, wartet: 1, restSek: 87, isFertig: false })
+  // The row leads to the pull request's checks.
+  expect(anzeige.url).toBe('https://github.com/me/beta/pull/331/checks')
+  const plain = (form: 'voll' | 'kurz') => ciTeile(anzeige, form).map(teil => teil.text)
+  expect(plain('voll')).toEqual([
+    `✓${NBSP}2`,
+    `✕${NBSP}1${NBSP}Backend`,
+    `◔${NBSP}Frontend${NBSP}71${NBSP}%${NBSP}·${NBSP}~2${NBSP}Min`,
+    `○${NBSP}1${NBSP}wartet`,
+  ])
+  expect(plain('kurz')).toEqual([`✓${NBSP}2`, `✕${NBSP}1`, `◔${NBSP}71${NBSP}%${NBSP}~2${NBSP}Min`, `○${NBSP}1`])
+  expect(ciTeile(anzeige, 'voll').map(teil => teil.ton)).toEqual(['gruen', 'rot', 'laeuft', 'leise'])
+  // The red part's card names the job in full; the running one says where its percent comes from.
+  expect(ciTeile(anzeige, 'voll')[1]?.hint).toBe('Rot: Backend (pytest + ruff + persistence)')
+  expect(ciTeile(anzeige, 'voll')[2]?.hint).toContain('geschätzt aus der Dauer des letzten grünen Laufs')
+  expect(ciTon(anzeige)).toBe('rot')
+  expect(ciText(anzeige)).toBe('CI: ✓ 2 · ✕ 1 Backend · ◔ Frontend 71 % · ~2 Min · ○ 1 wartet')
+
+  // Wide enough: the names; narrow: symbols and numbers.
+  expect(ciForm(80, anzeige)).toBe('voll')
+  expect(ciForm(30, anzeige)).toBe('kurz')
+  expect(ciForm(40, anzeige, true)).toBe('kurz')
+
+  // Done and green: the count says so, the row is green.
+  const gruen = ciAnzeige(
+    ciCommitOf(ciAnswer([suite('COMPLETED', [ciJob('A', 'COMPLETED', 'SUCCESS', T0), ciJob('B', 'COMPLETED', 'SUCCESS', T0)])]))!,
+    () => null,
+    T0,
+  )!
+  expect(ciTeile(gruen, 'voll').map(teil => teil.text)).toEqual([`✓${NBSP}2${NBSP}grün`])
+  expect(ciTon(gruen)).toBe('gruen')
+  // A head without workflow runs has no row.
+  expect(ciAnzeige(ciCommitOf(ciAnswer([]))!, () => null, T0)).toBeNull()
+})
+
+/** A desktop session of Beta whose pushed head is `sha`, with gh answering the CI from `ci()`. */
+async function ciSession(
+  $: Tested,
+  on: Parameters<typeof mock.store>[0],
+  ci: () => string,
+  head: () => string | null = () => 'a'.repeat(40),
+) {
+  const cwd = `${BETA}\\.claude\\worktrees\\a`
+  const self = { sessionId: 'local_b', title: 'Neu', cwd }
+  const clock = mock.clock(on, { now: CI_START })
+  mock.store(on)
+  const graphql: number[] = []
+  const ok = (stdout: string) => ({
+    value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  })
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('session.cwd', () => ({ value: cwd }))
+  on('turn.complete', () => ({ text: '' }))
+  on('process.run', (_, e) => {
+    const argv = e.argv
+    if (argv[0] === 'git') {
+      const sha = head()
+
+      return sha === null ? ghFails('fatal: no upstream configured') : ok(`${sha}\n`)
+    }
+    if (argv[1] === 'api' && argv[2] === 'graphql') {
+      graphql.push(clock.now())
+
+      return ok(ci())
+    }
+    const path = argv.find(arg => arg.startsWith('repos/')) ?? ''
+    // The baseline: the workflow's last green run, its jobs, and the Backend job's log.
+    if (path.includes('/workflows/7/runs?status=success&event=pull_request')) {
+      return ok(JSON.stringify({ workflow_runs: [{ id: 5 }] }))
+    }
+    if (path.endsWith('/runs/5/jobs?per_page=100')) {
+      const step = (name: string, from: number, to: number) => ({
+        name,
+        status: 'completed',
+        started_at: iso(T0 + from * 1000),
+        completed_at: iso(T0 + to * 1000),
+      })
+
+      return ok(
+        JSON.stringify({
+          jobs: [
+            {
+              id: 77,
+              name: 'Backend',
+              conclusion: 'success',
+              started_at: iso(T0),
+              completed_at: iso(T0 + 400_000),
+              steps: [step('Set up job', 0, 20), step('Run tests', 20, 380), step('Report', 380, 400)],
+            },
+          ],
+        }),
+      )
+    }
+    if (path.endsWith('/jobs/77/logs')) {
+      const line = (sek: number, pct: number) => `${iso(T0 + sek * 1000)} ........ [${String(pct).padStart(3)}%]`
+
+      return ok([line(60, 10), line(220, 50), line(320, 90)].join('\n'))
+    }
+
+    return argv[0] === 'gh' && argv[1] !== 'api' ? ghList([]) : ghFails('not here')
+  })
+  await $.session.start({ cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+
+  return { clock, graphql }
+}
+
+/** The CI row's texts as the band draws them, blanks plain; empty without a row. */
+async function ciRowOf($: Tested, bodyColumns = 120): Promise<string[]> {
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  const row = await ui.find({ key: 'ci-zeile' })
+  // The word and the parts, which start with their symbol; the hover cards are left out.
+  const texts = row === undefined ? [] : await ui.findAll({ type: 'Text' })
+  const ci = await ui.find({ key: 'ci' })
+  await ui.unmount()
+  const parts = texts.map(text => text.text.split(NBSP).join(' ')).filter(text => /^[✓✕◔○⊘] /.test(text))
+
+  return row === undefined ? [] : [ci?.text ?? 'CI', ...parts]
+}
+
+test('the band\'s CI row shows the pushed head\'s jobs, with pytest\'s percent from the last green log', async ($, on) => {
+  let stand: 'laeuft' | 'fertig' = 'laeuft'
+  const now = CI_START
+  const answer = () =>
+    ciAnswer([
+      suite(stand === 'laeuft' ? 'IN_PROGRESS' : 'COMPLETED', [
+        ciJob('Checks', 'COMPLETED', 'SUCCESS', now - 200_000),
+        stand === 'laeuft'
+          ? ciJob('Backend', 'IN_PROGRESS', null, now - 100_000, [
+              { name: 'Set up job', status: 'COMPLETED', startedAt: now - 100_000 },
+              { name: 'Run tests', status: 'IN_PROGRESS', startedAt: now - 80_000 },
+            ])
+          : ciJob('Backend', 'COMPLETED', 'SUCCESS', now - 400_000),
+      ]),
+    ])
+  const { clock, graphql } = await ciSession($, on, () => answer())
+
+  // 80 s into the tests: 20 % on the last green run's curve, 300 s of its 400 to go.
+  expect(await ciRowOf($)).toEqual(['CI', '✓ 1', '◔ Backend 20 % · ~5 Min'])
+  const asked = graphql.length
+
+  // While it runs gh is asked every 30 s, and the row follows the clock in between.
+  await clock.advance(30_000)
+  await clock.settle()
+  expect(graphql.length).toBe(asked + 1)
+  expect((await ciRowOf($))[2]).toBe('◔ Backend 27 % · ~5 Min')
+
+  // Done: green, and no more questions.
+  stand = 'fertig'
+  await clock.advance(30_000)
+  await clock.settle()
+  expect(await ciRowOf($)).toEqual(['CI', '✓ 2 grün'])
+  const done = graphql.length
+  await clock.advance(10 * 60_000)
+  await clock.settle()
+  expect(graphql.length).toBe(done)
+  expect((await $.command.run({ ...RUN, args: '' })).text).toContain('CI: ✓ 2 grün')
+})
+
+test('without an upstream the band has no CI row and gh is not asked', async ($, on) => {
+  const { graphql } = await ciSession($, on, () => ciAnswer([]), () => null)
+  expect(graphql).toEqual([])
+  expect(await ciRowOf($)).toEqual([])
+  // The band itself is as it was: one row.
+  expect((await drawBand($, 100)).isStacked).toBe(false)
+})
+
+test('a head without runs is asked once; one pushed while the session watches waits a few minutes', async ($, on) => {
+  let sha = 'a'.repeat(40)
+  const { clock, graphql } = await ciSession($, on, () => ciAnswer([]), () => sha)
+  expect(graphql).toHaveLength(1)
+  await clock.advance(5 * 60_000)
+  await clock.settle()
+  expect(graphql).toHaveLength(1)
+
+  // A push: the new head's runs may take a while to show.
+  sha = 'b'.repeat(40)
+  await $.turn.complete(TURN)
+  await clock.settle()
+  expect(graphql).toHaveLength(2)
+  await clock.advance(2 * 60_000)
+  await clock.settle()
+  // Asked every 30 s while the runs may still come.
+  expect(graphql.length).toBeGreaterThan(3)
+  const asked = graphql.length
+  await clock.advance(10 * 60_000)
+  await clock.settle()
+  expect(graphql.length).toBeLessThanOrEqual(asked + 2)
+  expect(await ciRowOf($)).toEqual([])
 })
