@@ -1270,18 +1270,27 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) {
-      return next(e)
-    }
+    // A survey (a question the model asks) holds the band's slot: the engine's tree for it is
+    // drawn below the band instead of in its place, so the project stays in view where it matters.
+    const survey = e.props.hasSurvey ? await next(e) : null
     const state = await read($, view)
     const { hex, contextPercent: percent } = state
     // A count that could not be read shows as a dimmed "?", not 0 (which would read as "none open"),
     // so the band keeps one shape; /projektfarbe says why it could not be read.
     const { openPrs, openIssues } = state
     if (state.isHidden || state.project === null || state.mark === null || hex === null) {
-      return next(e)
+      return survey ?? next(e)
     }
     const { Box, Button, Link, Text } = $.ui.resolve(e)
+    const above = <T,>(band: T) =>
+      survey === null ? (
+        band
+      ) : (
+        <Box flexDirection="column">
+          {band}
+          {survey}
+        </Box>
+      )
     const satz = satzOf(state.satz)
     const isCalm = satz !== BUNT
     const pick = async (farbe: Farbe): Promise<void> => {
@@ -1296,7 +1305,7 @@ export const register: Register = on => {
     }
 
     if (state.isPicking) {
-      return (
+      return above(
         <Box flexDirection="column">
           <Text dimColor>Farbe für {state.project}:</Text>
           <Box flexWrap="wrap" columnGap={1}>
@@ -1635,7 +1644,7 @@ export const register: Register = on => {
     // Too narrow for one row: two rows. Name, counts and a short gauge above; below the session actions at
     // the left and the overview and settings at the right, indented to stand under the name.
     if (form === null) {
-      return (
+      return above(
         <Box flexDirection="column">
           <Box columnGap={1} justifyContent="space-between">
             <Box columnGap={1}>
@@ -1677,13 +1686,15 @@ export const register: Register = on => {
 
     // The CI row stands below the band where the pushed head has runs. It follows what the head has,
     // not the width, so a resize never adds or takes it away.
-    return ciRow === null ? (
-      row
-    ) : (
-      <Box flexDirection="column">
-        {row}
-        {ciRow}
-      </Box>
+    return above(
+      ciRow === null ? (
+        row
+      ) : (
+        <Box flexDirection="column">
+          {row}
+          {ciRow}
+        </Box>
+      ),
     )
   })
 

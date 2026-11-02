@@ -463,6 +463,31 @@ test("a subagent's turn reads nothing; the band follows a color picked elsewhere
   expect(self.title).toBe('🟪 Neu')
 })
 
+test('a survey keeps the band: its tree is drawn below the project, not in its place', async ($, on) => {
+  const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\.claude\worktrees\a` }
+  const clock = mock.clock(on)
+  mock.store(on)
+  on('mcp.call', fakeDesktop(self, []).hook)
+  on('command.register', () => ({ value: { command: 'projektfarbe' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  // Stands for the engine's survey.
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>Soll ich committen?</Text>
+  })
+
+  await $.session.start({ cwd: self.cwd, surface: 'desktop', isInteractive: true })
+  await clock.settle()
+
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true }, surface: 'desktop' })
+  const texts = await ui.findAll({ type: 'Text' })
+  const at = (re: RegExp) => texts.findIndex(text => re.test(text.text))
+  expect(at(/Beta/)).toBeGreaterThanOrEqual(0)
+  expect(at(/Soll ich committen/)).toBeGreaterThan(at(/Beta/))
+  await ui.unmount()
+})
+
 test('the band shows the project in its color and hides on request', async ($, on) => {
   const self = { sessionId: 'local_b', title: 'Neu', cwd: `${BETA}\\.claude\\worktrees\\a` }
   const clock = mock.clock(on)
