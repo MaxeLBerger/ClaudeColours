@@ -3523,47 +3523,78 @@ test('a yes/no question at the end of an answer is found; open questions, choice
   expect(frageOf('')).toBeNull()
 })
 
-/** The Yes/No buttons of a band drawn after a turn that ended with `answer`. */
-async function frageBand($: TestEngine, answer: string, reason: 'answer' | 'aborted' = 'answer') {
-  await $.turn.complete({ ...TURN, answer, reason, isAborted: reason === 'aborted' })
-  await sessionClock?.settle()
-  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+/** Stands for the engine's own drawing of a chat message, which the mod puts the buttons under. */
+function engineMessage(on: TestOn) {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
 
-  return { band, has: async (key: string) => (await band.find({ key })) !== undefined && (await band.find({ key })) !== null }
+    return <Text>engine</Text>
+  })
 }
 
-test('a closing yes/no question gets Yes and No buttons that send the answer as the person\'s words', async ($, on) => {
+/** The chat's message block `text`, drawn after the session's turn ended with `answer`. */
+async function frageChat(
+  $: TestEngine,
+  on: TestOn,
+  answer: string,
+  text = answer,
+  reason: 'answer' | 'aborted' = 'answer',
+) {
+  await $.turn.complete({ ...TURN, answer, reason, isAborted: reason === 'aborted' })
+  await sessionClock?.settle()
+  const mounted = await $.ui.mount({
+    plugin: 'projektfarben',
+    component: 'AssistantMessage',
+    props: { text, isFirstOfReply: true },
+    surface: 'desktop',
+  })
+  const has = async (key: string) => Boolean(await mounted.find({ key }))
+  const texts = (await mounted.findAll({ type: 'Text' })).map(one => one.text)
+
+  return { mounted, has, texts }
+}
+
+test('a closing yes/no question gets Yes and No buttons under the message that send the answer as the persons own words', async ($, on) => {
+  engineMessage(on)
   const { sent } = await meinungSession($, on)
-  const { band, has } = await frageBand($, 'Fertig.\n\nSoll ich den PR öffnen?')
+  const question = 'Fertig.\n\nSoll ich den PR öffnen?'
+  const { mounted, has, texts } = await frageChat($, on, question)
   expect(await has('antwort-ja')).toBe(true)
   expect(await has('antwort-nein')).toBe(true)
+  // The engine's own drawing of the message stays.
+  expect(texts).toContain('engine')
 
-  await band.press({ key: 'antwort-nein' })
+  await mounted.press({ key: 'antwort-nein' })
   await sessionClock?.settle()
   expect(sent.map(one => one.text)).toEqual(['Nein'])
   expect(sent[0].origin).toMatchObject({ asUser: true })
   // The person has answered: the buttons are gone.
-  await band.unmount()
-  const again = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
-  expect(await again.find({ key: 'antwort-ja' })).toBeFalsy()
-  await again.unmount()
+  await mounted.unmount()
+  const again = await frageChat($, on, 'nichts', question)
+  expect(await again.has('antwort-ja')).toBe(false)
+  await again.mounted.unmount()
 })
 
-test('no question row without a question, after an aborted turn, or once the person has written something', async ($, on) => {
+test('no buttons without a question, after an aborted turn, under another block, or once the person has written something', async ($, on) => {
+  engineMessage(on)
   await meinungSession($, on)
-  const plain = await frageBand($, 'Fertig, nichts offen.')
+  const plain = await frageChat($, on, 'Fertig, nichts offen.')
   expect(await plain.has('antwort-ja')).toBe(false)
-  await plain.band.unmount()
+  await plain.mounted.unmount()
 
-  const aborted = await frageBand($, 'Soll ich weitermachen?', 'aborted')
+  const aborted = await frageChat($, on, 'Soll ich weitermachen?', undefined, 'aborted')
   expect(await aborted.has('antwort-ja')).toBe(false)
-  await aborted.band.unmount()
+  await aborted.mounted.unmount()
 
-  const asked = await frageBand($, 'Soll ich weitermachen?')
+  // The question stands under the block that holds it, not under an earlier one of the reply.
+  const other = await frageChat($, on, 'Soll ich weitermachen?', 'Ich habe das geprüft.')
+  expect(await other.has('antwort-ja')).toBe(false)
+  await other.mounted.unmount()
+  const asked = await frageChat($, on, 'Soll ich weitermachen?')
   expect(await asked.has('antwort-ja')).toBe(true)
   await $.prompt.submit({ text: 'lieber nicht', asUser: true })
-  await asked.band.unmount()
-  const after = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
-  expect(await after.find({ key: 'antwort-nein' })).toBeFalsy()
-  await after.unmount()
+  await asked.mounted.unmount()
+  const after = await frageChat($, on, 'nichts', 'Soll ich weitermachen?')
+  expect(await after.has('antwort-nein')).toBe(false)
+  await after.mounted.unmount()
 })

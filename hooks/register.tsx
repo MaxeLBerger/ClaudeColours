@@ -1199,6 +1199,36 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Yes and No under the message that ends with a yes/no question, in the chat itself: the block whose
+  // question is the one `afterTurn` stored. A press sends the answer as the person's own words (the same
+  // send as the band's actions, so a double click is one) and takes the buttons away.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    const message = await next(e)
+    const frage = (await read($, view)).frage ?? null
+    if (frage === null || e.props.isSummary === true || frageOf(e.props.text) !== frage) {
+      return message
+    }
+    const { Box, Button, Markdown } = $.ui.resolve(e)
+    const antwort = (key: string, label: string) => (
+      <Button
+        key={key}
+        onPress={() => bitteSenden($, { key, label, failure: 'Die Antwort wurde nicht gesendet', isAnswer: true }, () => label)}
+      >
+        {label}
+      </Button>
+    )
+
+    return (
+      <Box flexDirection="column">
+        {message ?? <Markdown text={e.props.text} />}
+        <Box key="frage-zeile" marginTop={1} columnGap={2}>
+          {antwort('antwort-ja', 'Ja')}
+          {antwort('antwort-nein', 'Nein')}
+        </Box>
+      </Box>
+    )
+  })
+
   // The person has answered (with a button or in the prompt): the question's buttons have done their job.
   on('prompt.submit', async ($, e, next) => {
     if (((await read($, view)).frage ?? null) !== null) {
@@ -1711,28 +1741,6 @@ export const register: Register = on => {
     if (isMain) {
       lastCi = ci === null ? null : ciForm(columns, ci, isMono)
     }
-    // The question row: when the session's last answer ends with a yes/no question, Yes and No send
-    // the answer as the person's own words (the same send as the actions, so a double click is one).
-    // The buttons stand first, so a long question cut off at the right never takes them away.
-    const frage = isMain ? (state.frage ?? null) : null
-    const antwort = (key: string, label: string) => (
-      <Button
-        key={key}
-        plain
-        onPress={() => bitteSenden($, { key, label, failure: 'Die Antwort wurde nicht gesendet', isAnswer: true }, () => label)}
-      >
-        {label}
-      </Button>
-    )
-    const frageRow =
-      frage === null ? null : (
-        <Box key="frage-zeile" columnGap={2} flexWrap="nowrap" overflow="hidden">
-          {antwort('antwort-ja', 'Ja')}
-          {antwort('antwort-nein', 'Nein')}
-          <Text dimColor>{shortName(frage, Math.max(20, columns - 16))}</Text>
-        </Box>
-      )
-
     // Too narrow for one row: two rows. Name, counts and a short gauge above; below the session actions at
     // the left and the overview and settings at the right, indented to stand under the name.
     if (form === null) {
@@ -1750,7 +1758,6 @@ export const register: Register = on => {
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
             <Box columnGap={ICON_GAP}>{settingActions}</Box>
           </Box>
-          {frageRow}
           {ciRow}
         </Box>
       )
@@ -1776,15 +1783,14 @@ export const register: Register = on => {
       </Box>
     )
 
-    // The question row, then the CI row, stand below the band where there is a question or the pushed
-    // head has runs. They follow what the session has, not the width, so a resize never adds or takes them away.
+    // The CI row stands below the band where the pushed head has runs. It follows what the head has,
+    // not the width, so a resize never adds or takes it away.
     return above(
-      ciRow === null && frageRow === null ? (
+      ciRow === null ? (
         row
       ) : (
         <Box flexDirection="column">
           {row}
-          {frageRow}
           {ciRow}
         </Box>
       ),
