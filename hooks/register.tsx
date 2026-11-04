@@ -1205,6 +1205,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const message = await next(e)
     const frage = (await read($, view)).frage ?? null
+    $.ui.toast(`DBG AM keys=${Object.keys(e.props).join(',')} msg=${message === null || message === undefined ? String(message) : typeof message} frage=${frage === null ? 'null' : 'set'} match=${typeof e.props.text === 'string' ? String(frageOf(e.props.text) === frage) : typeof e.props.text}`)
     if (frage === null || e.props.isSummary === true || frageOf(e.props.text) !== frage) {
       return message
     }
