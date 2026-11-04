@@ -13,6 +13,8 @@ Nicht gebaut werden: Merge-Zug, Halten und Live schalten (gestrichen). Die Ein-W
 
 ## Phase 1: Repair-Menü im Band
 
+> Nach der Vorschau geändert: Das Menü ersetzte das Band und wirkte nicht passend. Der Schraubenschlüssel öffnet stattdessen eine kleine Leiste unter dem Band (`repair-leiste`); das Band bleibt sichtbar. Wo unten „Menü“ steht, ist diese Leiste gemeint.
+
 Ein Knopf (Schraubenschlüssel) öffnet eine kleine Auswahl mit drei Einträgen. Jeder Eintrag schickt einen Prompt; die Session startet daraufhin eine **neue Session** im eigenen Worktree (`start_session`, `user_asked`, `fresh`). Der Klick ist die Freigabe für genau die Stufen 1 und 2 unten.
 
 ### Der gemeinsame Ablauf (alle drei Einträge)

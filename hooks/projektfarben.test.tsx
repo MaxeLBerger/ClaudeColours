@@ -3239,6 +3239,26 @@ test('the repair icon opens a menu of three entries; an entry sends its prompt, 
   await band.unmount()
 })
 
+test('the repair strip opens under the band and leaves it in view; the icon opens and closes it, in a wide and a narrow band', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  for (const bodyColumns of [100, 30]) {
+    const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+    expect(await band.find({ key: 'repair-leiste' })).toBe(undefined)
+    await band.press({ key: 'repair' })
+    // The strip stands beside the band, which keeps its name, counts, gauge and actions.
+    expect(await band.find({ key: 'repair-leiste' })).toBeDefined()
+    for (const key of ['repair', 'merge', 'prs', 'issues', 'kontext', 'einstellungen', 'repair-ui', 'repair-repo', 'upgrade']) {
+      expect(await band.find({ key }), `${key} at ${bodyColumns}`).toBeDefined()
+    }
+    expect(await band.find({ type: 'Text', text: /Beta/ })).toBeDefined()
+    // The same icon closes it again.
+    await band.press({ key: 'repair' })
+    expect(await band.find({ key: 'repair-leiste' })).toBe(undefined)
+    await band.unmount()
+  }
+})
+
 test('on the terminal the repair icon is a text glyph and the menu has no Svg', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
