@@ -932,6 +932,30 @@ export function shortName(name: string, max: number): string {
   return chars.length <= max ? name : `${chars.slice(0, Math.max(1, max - 1)).join('')}…`
 }
 
+/** Words a yes/no question starts with (German and English); a question with another opening is left open. */
+const JA_NEIN_ANFANG =
+  /^(soll|sollen|sollte|darf|dürfen|kann|können|könnte|könnten|möchtest|möchten|willst|wollen|ist|sind|passt|stimmt|wäre|wären|würdest|würde|hast|haben|hat|ok|okay|shall|should|do|does|did|can|could|would|is|are|want|ready)\b/i
+
+/**
+ * The yes/no question the answer ends with, as plain text, for the chat's buttons; null when it ends otherwise.
+ * Only the last paragraph counts, with code blocks taken out and the markdown marks stripped; it must end
+ * with a question mark, open like a yes/no question, and not offer a choice ("A oder B?"), where Yes and
+ * No would not answer it.
+ */
+export function frageOf(answer: string): string | null {
+  const plain = answer
+    .replace(/```[\s\S]*?(```|$)/g, '')
+    .replace(/[`*_]/g, '')
+    .trim()
+  const paragraph = plain.split(/\n\s*\n/).pop()?.trim() ?? ''
+  if (!paragraph.endsWith('?') || /^\s*([-*•]|\d+[.)])\s/.test(paragraph)) {
+    return null
+  }
+  const sentence = paragraph.replace(/\s+/g, ' ').split(/(?<=[.!?:])\s+/).pop() ?? ''
+
+  return JA_NEIN_ANFANG.test(sentence) && !/\b(oder|or)\b/i.test(sentence) ? sentence : null
+}
+
 /** The band counts open pull requests up to this number; more than that shows as "100+". */
 export const PR_LIMIT = 100
 
