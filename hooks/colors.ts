@@ -937,7 +937,7 @@ const JA_NEIN_ANFANG =
   /^(soll|sollen|sollte|darf|dürfen|kann|können|könnte|könnten|möchtest|möchten|willst|wollen|ist|sind|passt|stimmt|wäre|wären|würdest|würde|hast|haben|hat|ok|okay|shall|should|do|does|did|can|could|would|is|are|want|ready)\b/i
 
 /**
- * The yes/no question the answer ends with, as plain text for the band; null when it ends otherwise.
+ * The yes/no question the answer ends with, as plain text, for the chat's buttons; null when it ends otherwise.
  * Only the last paragraph counts, with code blocks taken out and the markdown marks stripped; it must end
  * with a question mark, open like a yes/no question, and not offer a choice ("A oder B?"), where Yes and
  * No would not answer it.

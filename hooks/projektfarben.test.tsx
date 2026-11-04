@@ -3598,3 +3598,23 @@ test('no buttons without a question, after an aborted turn, under another block,
   expect(await after.has('antwort-nein')).toBe(false)
   await after.mounted.unmount()
 })
+
+test('a hidden prompt leaves the question open, and a band action sent over it takes the buttons away', async ($, on) => {
+  engineMessage(on)
+  const { sent } = await meinungSession($, on)
+  const asked = await frageChat($, on, 'Soll ich weitermachen?')
+  // A task notification or another session's message is not the person's answer.
+  await $.prompt.submit({ text: 'Hintergrund fertig', isMeta: true })
+  expect(await asked.has('antwort-ja')).toBe(true)
+  await asked.mounted.unmount()
+
+  // Pressing another action sends a prompt of its own: the question is answered, its buttons go.
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+  await band.press({ key: 'meinung' })
+  await sessionClock?.settle()
+  await band.unmount()
+  expect(sent.map(one => one.text)).toContain(meinungPrompt('Beta'))
+  const after = await frageChat($, on, 'nichts', 'Soll ich weitermachen?')
+  expect(await after.has('antwort-ja')).toBe(false)
+  await after.mounted.unmount()
+})

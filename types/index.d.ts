@@ -55,8 +55,8 @@ export type ProjektfarbenView = {
   /** Keys of the session actions whose prompt was sent a moment ago; a repeated press is not sent again. */
   sent: string[]
   /**
-   * The yes/no question the session's last answer ends with, as plain text; the band then shows Yes and No
-   * buttons. Null when there is none. A state kept from before this field existed lacks it: read it as null.
+   * The yes/no question the session's last answer ends with, as plain text; the chat then shows Yes and No
+   * buttons under that message. Null when there is none. A state kept from before this field existed lacks it: read it as null.
    */
   frage: string | null
 }

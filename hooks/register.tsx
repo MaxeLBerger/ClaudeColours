@@ -140,6 +140,9 @@ const EMPTY: ProjektfarbenView = {
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 
+/** The open yes/no question; a state kept from before the field existed lacks it. */
+const frageNow = (v: ProjektfarbenView): string | null => v.frage ?? null
+
 // The side panel with the overview of all sessions; its data is the one `/projektfarbe status` prints.
 const PANEL = 'uebersicht'
 const PANEL_EVERY_MS = 60_000
@@ -297,7 +300,7 @@ async function afterTurn($: Engine, grund: Grund, answer: string): Promise<void>
   // with gets its Yes and No buttons; an aborted or failed turn asks nothing.
   const frage = grund === 'answer' ? frageOf(answer) : null
   void update($, view, v =>
-    v.sent.length === 0 && (v.frage ?? null) === frage ? v : { ...v, sent: [], frage },
+    v.sent.length === 0 && frageNow(v) === frage ? v : { ...v, sent: [], frage },
   ).catch(() => undefined)
   // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
   const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
@@ -773,7 +776,7 @@ async function openPanel($: Engine): Promise<boolean> {
  */
 async function bitteSenden(
   $: Engine,
-  action: { key: string; label: string; failure: string; isAnswer?: boolean },
+  action: { key: string; label: string; failure: string; isQuiet?: boolean },
   text: (projekt: string) => string,
 ): Promise<void> {
   // The press must be answered at once and a second press must not send the prompt again (each one costs
@@ -790,7 +793,9 @@ async function bitteSenden(
 
       return
     }
-    $.ui.toast(`${action.label}: wird gesendet …`)
+    if (action.isQuiet !== true) {
+      $.ui.toast(`${action.label}: wird gesendet …`)
+    }
     const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
     const sent = await $.prompt.submit({ text: text(projekt), asUser: true })
     if (sent.drop !== undefined) {
@@ -798,9 +803,12 @@ async function bitteSenden(
 
       return
     }
-    // A send from the mod's own hook does not pass its own `prompt.submit` hook: an answer clears the question here.
-    await update($, view, v => ({ ...v, sent: [...v.sent, action.key], ...(action.isAnswer === true ? { frage: null } : {}) }))
-    $.ui.toast(`${action.label}: gesendet, die Antwort kommt im Chat.`)
+    // A send from the mod's own hook does not pass its own `prompt.submit` hook: whatever is sent answers
+    // the open question, so it is cleared here. An answer's own message in the chat needs no toast.
+    await update($, view, v => ({ ...v, sent: [...v.sent, action.key], frage: null }))
+    if (action.isQuiet !== true) {
+      $.ui.toast(`${action.label}: gesendet, die Antwort kommt im Chat.`)
+    }
   } catch (error) {
     $.ui.toast(`${action.failure}: ${firstLine(String(error))}`)
   } finally {
@@ -1204,16 +1212,21 @@ export const register: Register = on => {
   // send as the band's actions, so a double click is one) and takes the buttons away.
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const message = await next(e)
-    const frage = (await read($, view)).frage ?? null
-    $.ui.toast(`DBG AM keys=${Object.keys(e.props).join(',')} msg=${message === null || message === undefined ? String(message) : typeof message} frage=${frage === null ? 'null' : 'set'} match=${typeof e.props.text === 'string' ? String(frageOf(e.props.text) === frage) : typeof e.props.text}`)
-    if (frage === null || e.props.isSummary === true || frageOf(e.props.text) !== frage) {
+    const frage = frageNow(await read($, view))
+    if (
+      frage === null ||
+      e.props.isSummary === true ||
+      typeof e.props.text !== 'string' ||
+      frageOf(e.props.text) !== frage
+    ) {
       return message
     }
     const { Box, Button, Markdown } = $.ui.resolve(e)
     const antwort = (key: string, label: string) => (
       <Button
         key={key}
-        onPress={() => bitteSenden($, { key, label, failure: 'Die Antwort wurde nicht gesendet', isAnswer: true }, () => label)}
+        variant={key === 'antwort-ja' ? 'primary' : 'secondary'}
+        onPress={() => bitteSenden($, { key, label, failure: 'Die Antwort wurde nicht gesendet', isQuiet: true }, () => label)}
       >
         {label}
       </Button>
@@ -1230,9 +1243,10 @@ export const register: Register = on => {
     )
   })
 
-  // The person has answered (with a button or in the prompt): the question's buttons have done their job.
+  // The person has answered in the prompt: the question's buttons have done their job. A hidden prompt (a
+  // task notification, another session's message) answers nothing.
   on('prompt.submit', async ($, e, next) => {
-    if (((await read($, view)).frage ?? null) !== null) {
+    if (e.isMeta !== true && frageNow(await read($, view)) !== null) {
       await update($, view, v => ({ ...v, frage: null }))
     }
 
@@ -1742,6 +1756,7 @@ export const register: Register = on => {
     if (isMain) {
       lastCi = ci === null ? null : ciForm(columns, ci, isMono)
     }
+
     // Too narrow for one row: two rows. Name, counts and a short gauge above; below the session actions at
     // the left and the overview and settings at the right, indented to stand under the name.
     if (form === null) {
