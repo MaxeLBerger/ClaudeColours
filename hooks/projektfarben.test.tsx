@@ -33,6 +33,7 @@ import {
   desiredTitle,
   farbeFor,
   FARBEN,
+  frageOf,
   findFarbe,
   findSatz,
   ghNumbers,
@@ -3630,4 +3631,120 @@ test('a head without runs is asked once; one pushed while the session watches wa
   await clock.settle()
   expect(graphql.length).toBeLessThanOrEqual(asked + 2)
   expect(await ciRowOf($)).toEqual([])
+})
+
+test('a yes/no question at the end of an answer is found; open questions, choices and mid-text questions are not', () => {
+  // The case from the chat: a closing question after a list and inline code.
+  expect(
+    frageOf(
+      '- **Lesen:** Ein `journal-analyst` liest die DB.\n\nSoll ich den `journal-analyst` für die lesende Abfrage auf die Live-DB starten?',
+    ),
+  ).toBe('Soll ich den journal-analyst für die lesende Abfrage auf die Live-DB starten?')
+  expect(frageOf('Alles grün.\n\nKann ich mergen? **Ja, merge.**')).toBeNull()
+  expect(frageOf('Fertig. Kann ich mergen?')).toBe('Kann ich mergen?')
+  expect(frageOf('Should I push this branch?')).toBe('Should I push this branch?')
+  // An open question, a choice, a list item and a question that is not the last word are left alone.
+  expect(frageOf('Welche Variante willst du?')).toBeNull()
+  expect(frageOf('Soll ich A machen oder lieber B?')).toBeNull()
+  expect(frageOf('Offen:\n\n- Soll ich das tun?')).toBeNull()
+  expect(frageOf('Soll ich das tun?\n\nDann mache ich weiter.')).toBeNull()
+  // A question inside a code block does not count, and an empty answer asks nothing.
+  expect(frageOf('Beispiel:\n\n```\nSoll ich das tun?\n```')).toBeNull()
+  expect(frageOf('')).toBeNull()
+})
+
+/** Stands for the engine's own drawing of a chat message, which the mod puts the buttons under. */
+function engineMessage(on: TestOn) {
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine</Text>
+  })
+}
+
+/** The chat's message block `text`, drawn after the session's turn ended with `answer`. */
+async function frageChat(
+  $: TestEngine,
+  on: TestOn,
+  answer: string,
+  text = answer,
+  reason: 'answer' | 'aborted' = 'answer',
+) {
+  await $.turn.complete({ ...TURN, answer, reason, isAborted: reason === 'aborted' })
+  await sessionClock?.settle()
+  const mounted = await $.ui.mount({
+    plugin: 'projektfarben',
+    component: 'AssistantMessage',
+    props: { text, isFirstOfReply: true },
+    surface: 'desktop',
+  })
+  const has = async (key: string) => Boolean(await mounted.find({ key }))
+  const texts = (await mounted.findAll({ type: 'Text' })).map(one => one.text)
+
+  return { mounted, has, texts }
+}
+
+test('a closing yes/no question gets Yes and No buttons under the message that send the answer as the persons own words', async ($, on) => {
+  engineMessage(on)
+  const { sent } = await meinungSession($, on)
+  const question = 'Fertig.\n\nSoll ich den PR öffnen?'
+  const { mounted, has, texts } = await frageChat($, on, question)
+  expect(await has('antwort-ja')).toBe(true)
+  expect(await has('antwort-nein')).toBe(true)
+  // The engine's own drawing of the message stays.
+  expect(texts).toContain('engine')
+
+  await mounted.press({ key: 'antwort-nein' })
+  await sessionClock?.settle()
+  expect(sent.map(one => one.text)).toEqual(['Nein'])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  // The person has answered: the buttons are gone.
+  await mounted.unmount()
+  const again = await frageChat($, on, 'nichts', question)
+  expect(await again.has('antwort-ja')).toBe(false)
+  await again.mounted.unmount()
+})
+
+test('no buttons without a question, after an aborted turn, under another block, or once the person has written something', async ($, on) => {
+  engineMessage(on)
+  await meinungSession($, on)
+  const plain = await frageChat($, on, 'Fertig, nichts offen.')
+  expect(await plain.has('antwort-ja')).toBe(false)
+  await plain.mounted.unmount()
+
+  const aborted = await frageChat($, on, 'Soll ich weitermachen?', undefined, 'aborted')
+  expect(await aborted.has('antwort-ja')).toBe(false)
+  await aborted.mounted.unmount()
+
+  // The question stands under the block that holds it, not under an earlier one of the reply.
+  const other = await frageChat($, on, 'Soll ich weitermachen?', 'Ich habe das geprüft.')
+  expect(await other.has('antwort-ja')).toBe(false)
+  await other.mounted.unmount()
+  const asked = await frageChat($, on, 'Soll ich weitermachen?')
+  expect(await asked.has('antwort-ja')).toBe(true)
+  await $.prompt.submit({ text: 'lieber nicht', asUser: true })
+  await asked.mounted.unmount()
+  const after = await frageChat($, on, 'nichts', 'Soll ich weitermachen?')
+  expect(await after.has('antwort-nein')).toBe(false)
+  await after.mounted.unmount()
+})
+
+test('a hidden prompt leaves the question open, and a band action sent over it takes the buttons away', async ($, on) => {
+  engineMessage(on)
+  const { sent } = await meinungSession($, on)
+  const asked = await frageChat($, on, 'Soll ich weitermachen?')
+  // A task notification or another session's message is not the person's answer.
+  await $.prompt.submit({ text: 'Hintergrund fertig', isMeta: true })
+  expect(await asked.has('antwort-ja')).toBe(true)
+  await asked.mounted.unmount()
+
+  // Pressing another action sends a prompt of its own: the question is answered, its buttons go.
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+  await band.press({ key: 'meinung' })
+  await sessionClock?.settle()
+  await band.unmount()
+  expect(sent.map(one => one.text)).toContain(meinungPrompt('Beta'))
+  const after = await frageChat($, on, 'nichts', 'Soll ich weitermachen?')
+  expect(await after.has('antwort-ja')).toBe(false)
+  await after.mounted.unmount()
 })

@@ -31,6 +31,7 @@ import {
   contextPercent,
   contextTokens,
   farbeFor,
+  frageOf,
   findFarbe,
   findSatz,
   ghNumbers,
@@ -143,8 +144,12 @@ const EMPTY: ProjektfarbenView = {
   hasStack: false,
   ci: null,
   sent: [],
+  frage: null,
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
+
+/** The open yes/no question; a state kept from before the field existed lacks it. */
+const frageNow = (v: ProjektfarbenView): string | null => v.frage ?? null
 
 // The side panel with the overview of all sessions; its data is the one `/projektfarbe status` prints.
 const PANEL = 'uebersicht'
@@ -298,9 +303,13 @@ async function recordStand($: Engine, sessionId: string, grund: Grund): Promise<
  * After a turn: the session's last turn is stored, the band follows a color picked
  * in another session, and the title gets its mark.
  */
-async function afterTurn($: Engine, grund: Grund): Promise<void> {
-  // The answer to a sent action has come: its button works again.
-  void update($, view, v => (v.sent.length === 0 ? v : { ...v, sent: [] })).catch(() => undefined)
+async function afterTurn($: Engine, grund: Grund, answer: string): Promise<void> {
+  // The answer to a sent action has come: its button works again. A yes/no question the answer ends
+  // with gets its Yes and No buttons; an aborted or failed turn asks nothing.
+  const frage = grund === 'answer' ? frageOf(answer) : null
+  void update($, view, v =>
+    v.sent.length === 0 && frageNow(v) === frage ? v : { ...v, sent: [], frage },
+  ).catch(() => undefined)
   // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
   const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
   void self
@@ -775,7 +784,7 @@ async function openPanel($: Engine): Promise<boolean> {
  */
 async function bitteSenden(
   $: Engine,
-  action: { key: string; label: string; failure: string },
+  action: { key: string; label: string; failure: string; isQuiet?: boolean },
   text: (projekt: string) => string,
 ): Promise<void> {
   // The press must be answered at once and a second press must not send the prompt again (each one costs
@@ -792,7 +801,9 @@ async function bitteSenden(
 
       return
     }
-    $.ui.toast(`${action.label}: wird gesendet …`)
+    if (action.isQuiet !== true) {
+      $.ui.toast(`${action.label}: wird gesendet …`)
+    }
     const projekt = projectOf(await $.session.cwd()) ?? 'dieses Projekt'
     const sent = await $.prompt.submit({ text: text(projekt), asUser: true })
     if (sent.drop !== undefined) {
@@ -800,8 +811,12 @@ async function bitteSenden(
 
       return
     }
-    await update($, view, v => ({ ...v, sent: [...v.sent, action.key] }))
-    $.ui.toast(`${action.label}: gesendet, die Antwort kommt im Chat.`)
+    // A send from the mod's own hook does not pass its own `prompt.submit` hook: whatever is sent answers
+    // the open question, so it is cleared here. An answer's own message in the chat needs no toast.
+    await update($, view, v => ({ ...v, sent: [...v.sent, action.key], frage: null }))
+    if (action.isQuiet !== true) {
+      $.ui.toast(`${action.label}: gesendet, die Antwort kommt im Chat.`)
+    }
   } catch (error) {
     $.ui.toast(`${action.failure}: ${firstLine(String(error))}`)
   } finally {
@@ -1194,7 +1209,53 @@ export const register: Register = on => {
   // background: the turn never waits on the app or on the person's answer there.
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
-      void afterTurn($, e.reason).catch(() => undefined)
+      void afterTurn($, e.reason, e.answer).catch(() => undefined)
+    }
+
+    return next(e)
+  })
+
+  // Yes and No under the message that ends with a yes/no question, in the chat itself: the block whose
+  // question is the one `afterTurn` stored. A press sends the answer as the person's own words (the same
+  // send as the band's actions, so a double click is one) and takes the buttons away.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    const message = await next(e)
+    const frage = frageNow(await read($, view))
+    if (
+      frage === null ||
+      e.props.isSummary === true ||
+      typeof e.props.text !== 'string' ||
+      frageOf(e.props.text) !== frage
+    ) {
+      return message
+    }
+    const { Box, Button, Markdown } = $.ui.resolve(e)
+    const antwort = (key: string, label: string) => (
+      <Button
+        key={key}
+        variant={key === 'antwort-ja' ? 'primary' : 'secondary'}
+        onPress={() => bitteSenden($, { key, label, failure: 'Die Antwort wurde nicht gesendet', isQuiet: true }, () => label)}
+      >
+        {label}
+      </Button>
+    )
+
+    return (
+      <Box flexDirection="column">
+        {message ?? <Markdown text={e.props.text} />}
+        <Box key="frage-zeile" marginTop={1} columnGap={2}>
+          {antwort('antwort-ja', 'Ja')}
+          {antwort('antwort-nein', 'Nein')}
+        </Box>
+      </Box>
+    )
+  })
+
+  // The person has answered in the prompt: the question's buttons have done their job. A hidden prompt (a
+  // task notification, another session's message) answers nothing.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.isMeta !== true && frageNow(await read($, view)) !== null) {
+      await update($, view, v => ({ ...v, frage: null }))
     }
 
     return next(e)
