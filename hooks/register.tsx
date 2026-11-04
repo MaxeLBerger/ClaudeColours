@@ -55,6 +55,11 @@ import {
   promptsMarkdown,
   pruefenPrompt,
   stackPrompt,
+  repairRepoPrompt,
+  repairUiPrompt,
+  REPAIR_MENU_SVG,
+  upgradePrompt,
+  UPGRADE_TEILE,
   mergePrs,
   modusLabel,
   nameBudget,
@@ -100,6 +105,7 @@ import {
   type Status,
   type SessionRow,
   type TitlePlan,
+  type UpgradeTeil,
   type Uebersicht,
   type UebersichtZeile,
 } from './colors'
@@ -131,6 +137,8 @@ const EMPTY: ProjektfarbenView = {
   bramble: null,
   satz: BUNT.id,
   isPicking: false,
+  isRepair: false,
+  upgradeTeile: ['ui', 'repo', 'werkzeuge'],
   isHidden: false,
   hasStack: false,
   ci: null,
@@ -1348,6 +1356,86 @@ export const register: Register = on => {
       }
     }
 
+    // The repair menu: three entries, each a new session with an audit and a playbook; the upgrade's parts
+    // are switches. A press closes the menu and sends the prompt (the same toast and lock as the other
+    // actions), and the work only starts building after the person's yes in that session.
+    if (state.isRepair) {
+      const els = $.ui.resolve(e)
+      const MenuSvg = e.surface !== 'terminal' && 'Svg' in els ? els.Svg : null
+      // A state kept from before the menu existed lacks the field: read it as all on.
+      const teile = (state.upgradeTeile ?? EMPTY.upgradeTeile) as UpgradeTeil[]
+      const close = (): Promise<void> => update($, view, v => ({ ...v, isRepair: false }))
+      const eintrag = (
+        key: 'repair-ui' | 'repair-repo' | 'upgrade',
+        label: string,
+        text: (projekt: string) => string,
+        failure: string,
+      ) => (
+        <Box key={`${key}-zeile`} columnGap={1} alignItems="center">
+          {MenuSvg === null ? null : (
+            <MenuSvg
+              source={REPAIR_MENU_SVG[key].source}
+              alt={REPAIR_MENU_SVG[key].alt}
+              width={ICON_SVG_SIZE}
+              height={ICON_SVG_SIZE}
+            />
+          )}
+          <Button
+            key={key}
+            plain
+            onPress={async () => {
+              await close()
+              await bitteSenden($, { key, label, failure }, text)
+            }}
+          >
+            {label}
+          </Button>
+        </Box>
+      )
+
+      return above(
+        <Box flexDirection="column">
+          <Text dimColor>
+            Reparieren in {state.project}: eine neue Session prüft und schreibt ein Playbook; gebaut wird erst nach deinem Ja.
+          </Text>
+          {eintrag('repair-ui', 'UI auf Studio-Niveau', repairUiPrompt, 'Die UI-Reparatur wurde nicht gestartet')}
+          {eintrag('repair-repo', 'Repo wieder gesund machen', repairRepoPrompt, 'Die Repo-Reparatur wurde nicht gestartet')}
+          {eintrag(
+            'upgrade',
+            'KI-Upgrade',
+            projekt => upgradePrompt(projekt, teile),
+            'Das KI-Upgrade wurde nicht gestartet',
+          )}
+          <Box columnGap={2} flexWrap="wrap">
+            <Text dimColor>Upgrade umfasst:</Text>
+            {UPGRADE_TEILE.map(teil => (
+              <Button
+                key={`upgrade-${teil.id}`}
+                plain
+                onPress={() =>
+                  update($, view, v => {
+                    const now = (v.upgradeTeile ?? EMPTY.upgradeTeile) as UpgradeTeil[]
+
+                    return {
+                      ...v,
+                      upgradeTeile: now.includes(teil.id) ? now.filter(one => one !== teil.id) : [...now, teil.id],
+                    }
+                  })
+                }
+              >
+                <Text bold={teile.includes(teil.id)} dimColor={!teile.includes(teil.id)}>
+                  {`${teile.includes(teil.id) ? '☑' : '☐'} ${teil.label}`}
+                </Text>
+              </Button>
+            ))}
+            <Button key="abbrechen" plain onPress={close}>
+              <Text dimColor>abbrechen</Text>
+            </Button>
+          </Box>
+        </Box>,
+      )
+    }
+
     if (state.isPicking) {
       return above(
         <Box flexDirection="column">
@@ -1531,6 +1619,13 @@ export const register: Register = on => {
         press: () => bitteSenden($, { key: 'merge', label: 'Merge', failure: 'Merge und Issues wurden nicht gestartet' }, mergePrompt),
       },
       {
+        key: 'repair',
+        hint: 'Reparieren: UI, Repo oder KI-Upgrade in einer neuen Session',
+        icon: '⚒',
+        svg: ICON_SVG.repair,
+        press: () => update($, view, v => ({ ...v, isRepair: true, isPicking: false })),
+      },
+      {
         key: 'uebersicht',
         hint: 'Übersicht',
         icon: '☰',
@@ -1549,7 +1644,7 @@ export const register: Register = on => {
         press: async () => {
           // The picker offers the colors of the set in the store, not of the last turn's reading.
           const current = await satzNow($)
-          await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
+          await update($, view, v => ({ ...v, satz: current.id, isPicking: true, isRepair: false }))
         },
       },
       // The rebuild needs a compose file in the folder.

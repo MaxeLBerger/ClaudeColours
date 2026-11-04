@@ -267,6 +267,107 @@ export function stackPrompt(projekt: string): string {
   ].join('\n\n')
 }
 
+/** The parts a KI-Upgrade can cover; the menu offers them as switches, all on at first. */
+export type UpgradeTeil = 'ui' | 'repo' | 'werkzeuge'
+
+export const UPGRADE_TEILE: readonly { id: UpgradeTeil; label: string }[] = [
+  { id: 'ui', label: 'UI' },
+  { id: 'repo', label: 'Repo' },
+  { id: 'werkzeuge', label: 'Werkzeuge' },
+]
+
+const UI_AUDIT =
+  'Screenshots jeder Seite bei 390 und 1440 px (mit Playwright; Skills und Skripte des Projekts zuerst), Abstände und Ausrichtung, Design-Tokens und Brüche im Stil, Leer-, Lade- und Fehlerzustände, Tastatur und Barrierefreiheit (axe), Bewegung und Performance. Erkenne selbst, was für dieses Projekt zählt (Web-App, Spiel mit HUD und Inventar, Desktop-Programm).'
+
+const UI_PLAYBOOK =
+  'Zuerst ein Design-System (Tokens, Komponenten), dann Seite für Seite. Für die wichtigsten Seiten legst du vorher Mockup-Varianten (A, B, C) als Bilder vor, aus denen ich wähle.'
+
+const REPO_AUDIT =
+  'läuft es aus einem sauberen Clone (Setup, Build, Start); stimmen README und CLAUDE.md noch; Abhängigkeiten (veraltet, verwundbar, ungenutzt); toter Code, Duplikate, Struktur und zu große Dateien; Testlücken auf den kritischen Pfaden und flackernde Tests; Lint, Typen und Format; die CI (Dauer, Kosten, Rechte, Geheimnisse); Git (alte Branches, große Dateien, .gitignore, Geheimnisse in der Historie); Fehlerbehandlung, Logging und Konfiguration.'
+
+const REPO_PLAYBOOK =
+  'Quick Wins zuerst, je ein PR. Riskantes wird ein Issue. Bei Code, der ohne Tests entstanden ist, schreibst du vor einem Umbau Tests, die das jetzige Verhalten festhalten.'
+
+const TOOLS_AUDIT =
+  'CLAUDE.md, Skills, Hooks und Agents des Projekts: Behelfe für schwächere Modelle, Prompts mit Längengrenzen oder festen Gliederungen, Stellen, an denen das Projekt selbst ein Modell aufruft.'
+
+/**
+ * The frame the three repair entries share: a new session with a fresh worktree gets the task, and the
+ * person's press is the go-ahead for the audit and the playbook, not for the changes. The session states the
+ * cost and asks before anything is built, then works the playbook off in steps with workers. Goals, not a
+ * form: what to look at and what must not happen, the how is the session's.
+ */
+function repairPrompt(
+  projekt: string,
+  p: { ziel: string; audit: string; datei: string; playbook: string; umsetzung: string },
+): string {
+  return [
+    `Starte für „${projekt}“ eine neue Session in einem eigenen Worktree, ohne diesen Gesprächsverlauf mitzugeben, mit diesem Auftrag: ${p.ziel} Dass ich den Knopf gedrückt habe, gilt als Freigabe für die Schritte 1 bis 3; Schritt 4 beginnt erst nach meinem Ja.`,
+    [
+      `1. Audit, nur lesen: Lass mehrere günstige Agenten (Sonnet oder Haiku) parallel je eine Seite der Sache prüfen: ${p.audit} Sie ändern nichts.`,
+      `2. Playbook: Aus den Befunden schreibt ein stärkeres Modell (Opus, bei großen Umbauten Fable) ${p.datei}: die Befunde nach Gewicht, die Maßnahmen je mit Prüfkriterium, Reihenfolge, Risiko und Größe. Leitregel: nichts wird schlechter als jetzt. Miss vorher, was sich messen lässt, und schreib auf, wie du nachher vergleichst. ${p.playbook}`,
+      '3. Freigabe: Gib mir das Playbook als Zusammenfassung, mit einer Kostenschätzung (Worker mal Modell) und der Liste dessen, was angefasst wird, und stell mir eine Ja/Nein-Frage, ob umgesetzt werden soll. Bis zu meinem Ja ändert sich am Code nichts.',
+      `4. Umsetzung: Nach meinem Ja arbeite das Playbook Schritt für Schritt mit Workern ab (Haiku, Sonnet oder Opus nach der Größe des Schritts): ein Branch und ein PR je Schritt, mit Review und Tests. Am Ende läuft die volle Prüfung des Projekts, und du gibst mir einen kurzen Bericht. ${p.umsetzung}`,
+    ].join('\n'),
+    'Grenzen: kein Push auf den Hauptzweig, kein Force-Push, nichts mergen, keine Daten oder Volumes löschen, keine Major-Updates ohne Tests. Wo Geld im Spiel ist (Handel, Budget, Orders), läuft vor dem PR ein Risiko-Review. Was unklar bleibt oder meine Entscheidung braucht, wird ein Issue oder eine Frage an mich, kein Raten. Am Ende eine kurze Liste: was gemacht ist, was offen blieb.',
+  ].join('\n\n')
+}
+
+/** What "UI auf Studio-Niveau" sends: audit, playbook with mockups, then page by page. */
+export function repairUiPrompt(projekt: string): string {
+  return repairPrompt(projekt, {
+    ziel: 'Bring die Oberfläche mit allem, was dazugehört, auf die Qualität eines AAA-Entwicklerstudios.',
+    audit: UI_AUDIT,
+    datei: 'docs/playbook-ui.md',
+    playbook: UI_PLAYBOOK,
+    umsetzung: 'Jeder PR zeigt Vorher-nachher-Screenshots.',
+  })
+}
+
+/** What "Repo wieder gesund machen" sends: doctor, code review and hygiene for a project that grew by vibe. */
+export function repairRepoPrompt(projekt: string): string {
+  return repairPrompt(projekt, {
+    ziel: 'Bring dieses Repository auf den nächsten Stand, wie ein Doctor, ein gründliches Code-Review und eine Repo-Hygiene zusammen.',
+    audit: REPO_AUDIT,
+    datei: 'docs/playbook-repo.md',
+    playbook: `${REPO_PLAYBOOK} Fass die Befunde als Gesundheitsbericht mit einer Note je Dimension zusammen.`,
+    umsetzung: 'Quick Wins gehen zuerst durch.',
+  })
+}
+
+/**
+ * What the KI-Upgrade sends: the umbrella over the other two. It starts from what an earlier upgrade left in
+ * `docs/ai-upgrade.md` (so a newer model only does the difference, and the same model finds only what is
+ * new), looks at the parts the person left on, and raises the ambition: what used to be too hard or too
+ * dear. A model the project calls itself is never switched without a measurement.
+ */
+export function upgradePrompt(projekt: string, teile: readonly UpgradeTeil[] = ['ui', 'repo', 'werkzeuge']): string {
+  const audit = [
+    teile.includes('werkzeuge') ? `Werkzeuge: ${TOOLS_AUDIT}` : null,
+    teile.includes('repo') ? `Repo: ${REPO_AUDIT}` : null,
+    teile.includes('ui') ? `UI: ${UI_AUDIT}` : null,
+    'Ehrgeiz: Sieh das Repository mit frischem Blick an, nach allem, was früher zu schwer oder zu teuer war: größere Umbauten, fehlende Tests, Architektur, Performance.',
+  ]
+    .filter(part => part !== null)
+    .join(' ')
+  const playbook = [
+    teile.includes('repo') ? REPO_PLAYBOOK : null,
+    teile.includes('ui') ? UI_PLAYBOOK : null,
+    'Ruft das Projekt selbst ein Modell auf, stell nie eine Modell-ID ohne Messung um; leg stattdessen eine Messung mit Budget an oder ein Issue.',
+  ]
+    .filter(part => part !== null)
+    .join(' ')
+
+  return repairPrompt(projekt, {
+    ziel: 'Hebe dieses Projekt Stück für Stück auf das höchste Niveau, das die aktuellen Modelle möglich machen. Lies zuerst docs/ai-upgrade.md, falls es die Datei gibt (womit und wann zuletzt hochgestuft wurde), und mach nur den Unterschied; ohne sie fängst du bei null an. Das gilt auch, wenn es dasselbe Modell ist wie beim letzten Mal.',
+    audit,
+    datei: 'docs/playbook-upgrade.md',
+    playbook,
+    umsetzung:
+      'Halte zum Schluss in docs/ai-upgrade.md Datum, Modell, Umfang und das Playbook fest, damit der nächste Lauf nur den Unterschied macht.',
+  })
+}
+
 /**
  * What a project's folder offers the band, from the names in it: a Docker stack shows the rebuild
  * button. Matches `docker-compose.yml`, `compose.yaml` and their `.override` / `.dev` forms.
@@ -354,6 +455,40 @@ export const PROMPT_INFO = [
       'Danach Health und Stand (SHA, Version oder Build-Zeit) geprüft.',
     ],
     text: stackPrompt,
+  },
+  {
+    key: 'repair-ui',
+    name: 'Reparieren: UI auf Studio-Niveau',
+    does: 'Startet eine neue Session, die die Oberfläche prüft, ein Playbook schreibt (mit Mockup-Varianten zur Wahl) und es nach deinem Ja Seite für Seite mit Workern umsetzt.',
+    checks: [
+      'Die Reihenfolge ist Audit, Playbook, Freigabe, Umsetzung; der Knopf gilt nur für die ersten drei Schritte.',
+      'Der Audit ändert nichts; umgesetzt wird erst nach dem Ja, mit Kostenschätzung vorher.',
+      'Kein Push auf den Hauptzweig, kein Force-Push, nichts gemergt, nichts gelöscht; bei Geld ein Risiko-Review.',
+      'Keine Zeilengrenze, keine feste Gliederung der Antwort, kein Leseverbot.',
+    ],
+    text: repairUiPrompt,
+  },
+  {
+    key: 'repair-repo',
+    name: 'Reparieren: Repo wieder gesund machen',
+    does: 'Startet eine neue Session, die das Repository wie ein Doctor, ein Code-Review und eine Repo-Hygiene prüft, ein Playbook schreibt und es nach deinem Ja mit Workern abarbeitet.',
+    checks: [
+      'Wie bei der UI: Audit, Playbook, Freigabe, Umsetzung, mit denselben Grenzen.',
+      'Quick Wins zuerst, Riskantes wird ein Issue.',
+      'Vor einem Umbau von Code ohne Tests kommen Tests, die das jetzige Verhalten festhalten.',
+    ],
+    text: repairRepoPrompt,
+  },
+  {
+    key: 'upgrade',
+    name: 'Reparieren: KI-Upgrade',
+    does: 'Startet eine neue Session, die das Projekt mit dem Stand der aktuellen Modelle neu ansieht und Stück für Stück anhebt. Die Schalter im Menü (UI, Repo, Werkzeuge) bestimmen den Umfang; hier gezeigt mit allen dreien.',
+    checks: [
+      'Liest docs/ai-upgrade.md zuerst und macht nur den Unterschied; schreibt es am Ende fort.',
+      'Eine Modell-ID im Projekt wird nie ohne Messung umgestellt.',
+      'Dieselben Stufen und Grenzen wie bei den anderen beiden.',
+    ],
+    text: upgradePrompt,
   },
 ] as const
 
@@ -717,6 +852,28 @@ const svgIcon = (inner: string, viewBox = '0 0 24 24', color = ICON_SVG_COLOR): 
 const CAP_ICON =
   '<path d="M2.5 11 11 7 19.5 11 11 15Z"/><path d="M6 13v4c0 1.2 2.2 2.5 5 2.5s5-1.3 5-2.5v-4"/><path d="M19.5 11v4"/><path d="M19 2.5v3.5M17.2 4.2h3.6"/>'
 
+const REPAIR_WRENCH = '<path d="M7 10h3V7L6.5 3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1-3 3l-6-6a6 6 0 0 1-8-8L7 10z"/>'
+
+/**
+ * The icons of the repair menu's three entries, drawn beside their words (not in a band field, so
+ * `ICON_SVG` stays the band's own): a screen for the UI, a pulse line for the repo's health, and an arrow
+ * with a spark for the upgrade, in gold like the golden teacher.
+ */
+export const REPAIR_MENU_SVG = {
+  'repair-ui': {
+    alt: 'UI auf Studio-Niveau',
+    source: svgIcon('<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M9 21h6M12 18v3"/>'),
+  },
+  'repair-repo': {
+    alt: 'Repo wieder gesund machen',
+    source: svgIcon('<path d="M3 12h4l2-5 4 10 2-5h6"/>'),
+  },
+  upgrade: {
+    alt: 'KI-Upgrade',
+    source: svgIcon('<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/><path d="M5 20h9"/><path d="M19 2v5M16.5 4.5h5"/>', '0 0 24 24', GOLD),
+  },
+} as const satisfies Record<string, { alt: string; source: string }>
+
 export const ICON_SVG = {
   // The golden teacher: the opinion's cap in gold, ask Fable when it matters. The same drawing keeps it in
   // the family; the gold sets it apart.
@@ -787,6 +944,11 @@ export const ICON_SVG = {
       `<circle cx="5" cy="4.5" r="2"/><circle cx="5" cy="16.5" r="2"/><circle cx="14" cy="10.5" r="2"/><path d="M5 6.5v8"/><path d="M5 6.5v.5a3.5 3.5 0 0 0 3.5 3.5h3.5"/><path d="m12.5 17.5 3.2 3.2 6-6.7" stroke="${ICON_SVG_OK}" stroke-width="2.25"/>`,
     ),
   },
+  // A wrench: the repair menu (UI, repo, upgrade), each a new session with an audit and a playbook.
+  repair: {
+    alt: 'Reparieren',
+    source: svgIcon(REPAIR_WRENCH),
+  },
   // Three lines: the overview of all sessions.
   uebersicht: {
     alt: 'Übersicht',
@@ -805,9 +967,9 @@ export const ICON_SVG = {
 export const ICON_BOX = 3
 export const ICON_GAP = 1
 const BLOCK_CELLS = 2
-// The band's actions: Fable, opinion, review + PR, handoff, (stack), check, merge at the left; overview, settings at the right
+// The band's actions: Fable, opinion, review + PR, handoff, (stack), check, merge, repair at the left; overview, settings at the right
 // (the gauge, drawn beside them, is counted apart).
-export const ACTION_COUNT = 8
+export const ACTION_COUNT = 9
 // The merge action also shows the number of open pull requests next to its icon: its field is this many
 // cells wider.
 export const MERGE_EXTRA = 1
