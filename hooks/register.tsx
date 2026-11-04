@@ -31,6 +31,7 @@ import {
   contextPercent,
   contextTokens,
   farbeFor,
+  frageOf,
   findFarbe,
   findSatz,
   ghNumbers,
@@ -135,6 +136,7 @@ const EMPTY: ProjektfarbenView = {
   hasStack: false,
   ci: null,
   sent: [],
+  frage: null,
 }
 const view = atom({ plugin: 'projektfarben', key: 'view' } as const, EMPTY)
 
@@ -290,9 +292,13 @@ async function recordStand($: Engine, sessionId: string, grund: Grund): Promise<
  * After a turn: the session's last turn is stored, the band follows a color picked
  * in another session, and the title gets its mark.
  */
-async function afterTurn($: Engine, grund: Grund): Promise<void> {
-  // The answer to a sent action has come: its button works again.
-  void update($, view, v => (v.sent.length === 0 ? v : { ...v, sent: [] })).catch(() => undefined)
+async function afterTurn($: Engine, grund: Grund, answer: string): Promise<void> {
+  // The answer to a sent action has come: its button works again. A yes/no question the answer ends
+  // with gets its Yes and No buttons; an aborted or failed turn asks nothing.
+  const frage = grund === 'answer' ? frageOf(answer) : null
+  void update($, view, v =>
+    v.sent.length === 0 && (v.frage ?? null) === frage ? v : { ...v, sent: [], frage },
+  ).catch(() => undefined)
   // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
   const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
   void self
@@ -767,7 +773,7 @@ async function openPanel($: Engine): Promise<boolean> {
  */
 async function bitteSenden(
   $: Engine,
-  action: { key: string; label: string; failure: string },
+  action: { key: string; label: string; failure: string; isAnswer?: boolean },
   text: (projekt: string) => string,
 ): Promise<void> {
   // The press must be answered at once and a second press must not send the prompt again (each one costs
@@ -792,7 +798,8 @@ async function bitteSenden(
 
       return
     }
-    await update($, view, v => ({ ...v, sent: [...v.sent, action.key] }))
+    // A send from the mod's own hook does not pass its own `prompt.submit` hook: an answer clears the question here.
+    await update($, view, v => ({ ...v, sent: [...v.sent, action.key], ...(action.isAnswer === true ? { frage: null } : {}) }))
     $.ui.toast(`${action.label}: gesendet, die Antwort kommt im Chat.`)
   } catch (error) {
     $.ui.toast(`${action.failure}: ${firstLine(String(error))}`)
@@ -1186,7 +1193,16 @@ export const register: Register = on => {
   // background: the turn never waits on the app or on the person's answer there.
   on('turn.complete', async ($, e, next) => {
     if (e.agentId === undefined) {
-      void afterTurn($, e.reason).catch(() => undefined)
+      void afterTurn($, e.reason, e.answer).catch(() => undefined)
+    }
+
+    return next(e)
+  })
+
+  // The person has answered (with a button or in the prompt): the question's buttons have done their job.
+  on('prompt.submit', async ($, e, next) => {
+    if (((await read($, view)).frage ?? null) !== null) {
+      await update($, view, v => ({ ...v, frage: null }))
     }
 
     return next(e)
@@ -1695,6 +1711,27 @@ export const register: Register = on => {
     if (isMain) {
       lastCi = ci === null ? null : ciForm(columns, ci, isMono)
     }
+    // The question row: when the session's last answer ends with a yes/no question, Yes and No send
+    // the answer as the person's own words (the same send as the actions, so a double click is one).
+    // The buttons stand first, so a long question cut off at the right never takes them away.
+    const frage = isMain ? (state.frage ?? null) : null
+    const antwort = (key: string, label: string) => (
+      <Button
+        key={key}
+        plain
+        onPress={() => bitteSenden($, { key, label, failure: 'Die Antwort wurde nicht gesendet', isAnswer: true }, () => label)}
+      >
+        {label}
+      </Button>
+    )
+    const frageRow =
+      frage === null ? null : (
+        <Box key="frage-zeile" columnGap={2} flexWrap="nowrap" overflow="hidden">
+          {antwort('antwort-ja', 'Ja')}
+          {antwort('antwort-nein', 'Nein')}
+          <Text dimColor>{shortName(frage, Math.max(20, columns - 16))}</Text>
+        </Box>
+      )
 
     // Too narrow for one row: two rows. Name, counts and a short gauge above; below the session actions at
     // the left and the overview and settings at the right, indented to stand under the name.
@@ -1713,6 +1750,7 @@ export const register: Register = on => {
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
             <Box columnGap={ICON_GAP}>{settingActions}</Box>
           </Box>
+          {frageRow}
           {ciRow}
         </Box>
       )
@@ -1738,14 +1776,15 @@ export const register: Register = on => {
       </Box>
     )
 
-    // The CI row stands below the band where the pushed head has runs. It follows what the head has,
-    // not the width, so a resize never adds or takes it away.
+    // The question row, then the CI row, stand below the band where there is a question or the pushed
+    // head has runs. They follow what the session has, not the width, so a resize never adds or takes them away.
     return above(
-      ciRow === null ? (
+      ciRow === null && frageRow === null ? (
         row
       ) : (
         <Box flexDirection="column">
           {row}
+          {frageRow}
           {ciRow}
         </Box>
       ),

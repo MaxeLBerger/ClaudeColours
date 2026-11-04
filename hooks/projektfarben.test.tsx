@@ -33,6 +33,7 @@ import {
   desiredTitle,
   farbeFor,
   FARBEN,
+  frageOf,
   findFarbe,
   findSatz,
   ghNumbers,
@@ -3500,4 +3501,69 @@ test('a head without runs is asked once; one pushed while the session watches wa
   await clock.settle()
   expect(graphql.length).toBeLessThanOrEqual(asked + 2)
   expect(await ciRowOf($)).toEqual([])
+})
+
+test('a yes/no question at the end of an answer is found; open questions, choices and mid-text questions are not', () => {
+  // The case from the chat: a closing question after a list and inline code.
+  expect(
+    frageOf(
+      '- **Lesen:** Ein `journal-analyst` liest die DB.\n\nSoll ich den `journal-analyst` für die lesende Abfrage auf die Live-DB starten?',
+    ),
+  ).toBe('Soll ich den journal-analyst für die lesende Abfrage auf die Live-DB starten?')
+  expect(frageOf('Alles grün.\n\nKann ich mergen? **Ja, merge.**')).toBeNull()
+  expect(frageOf('Fertig. Kann ich mergen?')).toBe('Kann ich mergen?')
+  expect(frageOf('Should I push this branch?')).toBe('Should I push this branch?')
+  // An open question, a choice, a list item and a question that is not the last word are left alone.
+  expect(frageOf('Welche Variante willst du?')).toBeNull()
+  expect(frageOf('Soll ich A machen oder lieber B?')).toBeNull()
+  expect(frageOf('Offen:\n\n- Soll ich das tun?')).toBeNull()
+  expect(frageOf('Soll ich das tun?\n\nDann mache ich weiter.')).toBeNull()
+  // A question inside a code block does not count, and an empty answer asks nothing.
+  expect(frageOf('Beispiel:\n\n```\nSoll ich das tun?\n```')).toBeNull()
+  expect(frageOf('')).toBeNull()
+})
+
+/** The Yes/No buttons of a band drawn after a turn that ended with `answer`. */
+async function frageBand($: TestEngine, answer: string, reason: 'answer' | 'aborted' = 'answer') {
+  await $.turn.complete({ ...TURN, answer, reason, isAborted: reason === 'aborted' })
+  await sessionClock?.settle()
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+
+  return { band, has: async (key: string) => (await band.find({ key })) !== undefined && (await band.find({ key })) !== null }
+}
+
+test('a closing yes/no question gets Yes and No buttons that send the answer as the person\'s words', async ($, on) => {
+  const { sent } = await meinungSession($, on)
+  const { band, has } = await frageBand($, 'Fertig.\n\nSoll ich den PR öffnen?')
+  expect(await has('antwort-ja')).toBe(true)
+  expect(await has('antwort-nein')).toBe(true)
+
+  await band.press({ key: 'antwort-nein' })
+  await sessionClock?.settle()
+  expect(sent.map(one => one.text)).toEqual(['Nein'])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  // The person has answered: the buttons are gone.
+  await band.unmount()
+  const again = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+  expect(await again.find({ key: 'antwort-ja' })).toBeFalsy()
+  await again.unmount()
+})
+
+test('no question row without a question, after an aborted turn, or once the person has written something', async ($, on) => {
+  await meinungSession($, on)
+  const plain = await frageBand($, 'Fertig, nichts offen.')
+  expect(await plain.has('antwort-ja')).toBe(false)
+  await plain.band.unmount()
+
+  const aborted = await frageBand($, 'Soll ich weitermachen?', 'aborted')
+  expect(await aborted.has('antwort-ja')).toBe(false)
+  await aborted.band.unmount()
+
+  const asked = await frageBand($, 'Soll ich weitermachen?')
+  expect(await asked.has('antwort-ja')).toBe(true)
+  await $.prompt.submit({ text: 'lieber nicht', asUser: true })
+  await asked.band.unmount()
+  const after = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+  expect(await after.find({ key: 'antwort-nein' })).toBeFalsy()
+  await after.unmount()
 })
