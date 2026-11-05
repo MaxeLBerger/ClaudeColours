@@ -267,14 +267,8 @@ export function stackPrompt(projekt: string): string {
   ].join('\n\n')
 }
 
-/** The parts a KI-Upgrade can cover; the strip offers them as switches, all on at first. */
+/** The parts a KI-Upgrade can cover; the band's button covers all three. */
 export type UpgradeTeil = 'ui' | 'repo' | 'werkzeuge'
-
-export const UPGRADE_TEILE: readonly { id: UpgradeTeil; label: string }[] = [
-  { id: 'ui', label: 'UI' },
-  { id: 'repo', label: 'Repo' },
-  { id: 'werkzeuge', label: 'Werkzeuge' },
-]
 
 const UI_AUDIT =
   'Screenshots jeder Seite bei 390 und 1440 px (mit Playwright; Skills und Skripte des Projekts zuerst), Abstände und Ausrichtung, Design-Tokens und Brüche im Stil, Leer-, Lade- und Fehlerzustände, Tastatur und Barrierefreiheit (axe), Bewegung und Performance. Erkenne selbst, was für dieses Projekt zählt (Web-App, Spiel mit HUD und Inventar, Desktop-Programm).'
@@ -482,7 +476,7 @@ export const PROMPT_INFO = [
   {
     key: 'upgrade',
     name: 'Reparieren: KI-Upgrade',
-    does: 'Startet eine neue Session, die das Projekt mit dem Stand der aktuellen Modelle neu ansieht und Stück für Stück anhebt. Die Schalter in der Leiste (UI, Repo, Werkzeuge) bestimmen den Umfang; hier gezeigt mit allen dreien.',
+    does: 'Startet eine neue Session, die das Projekt mit dem Stand der aktuellen Modelle neu ansieht und Stück für Stück anhebt. Der Knopf deckt UI, Repo und Werkzeuge ab.',
     checks: [
       'Liest docs/ai-upgrade.md zuerst und macht nur den Unterschied; schreibt es am Ende fort.',
       'Eine Modell-ID im Projekt wird nie ohne Messung umgestellt.',
@@ -855,9 +849,9 @@ const CAP_ICON =
 const REPAIR_WRENCH = '<path d="M7 10h3V7L6.5 3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1-3 3l-6-6a6 6 0 0 1-8-8L7 10z"/>'
 
 /**
- * The icons of the repair strip's three entries, drawn beside their words (not in a band field, so
- * `ICON_SVG` stays the band's own): a screen for the UI, a pulse line for the repo's health, and an arrow
- * with a spark for the upgrade, in gold like the golden teacher.
+ * The icons of the repair strip's buttons, drawn in fields like the band's own (kept apart from `ICON_SVG`
+ * because the band's icon tests walk that one): a screen for the UI, a pulse line for the repo's health, an
+ * arrow with a spark for the upgrade, in gold like the golden teacher, and a cross to close the strip.
  */
 export const REPAIR_MENU_SVG = {
   'repair-ui': {
@@ -867,6 +861,10 @@ export const REPAIR_MENU_SVG = {
   'repair-repo': {
     alt: 'Repo wieder gesund machen',
     source: svgIcon('<path d="M3 12h4l2-5 4 10 2-5h6"/>'),
+  },
+  abbrechen: {
+    alt: 'Leiste schließen',
+    source: svgIcon('<path d="M6 6l12 12M18 6 6 18"/>'),
   },
   upgrade: {
     alt: 'KI-Upgrade',

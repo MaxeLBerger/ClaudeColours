@@ -60,7 +60,6 @@ import {
   repairUiPrompt,
   REPAIR_MENU_SVG,
   upgradePrompt,
-  UPGRADE_TEILE,
   mergePrs,
   modusLabel,
   nameBudget,
@@ -106,7 +105,6 @@ import {
   type Status,
   type SessionRow,
   type TitlePlan,
-  type UpgradeTeil,
   type Uebersicht,
   type UebersichtZeile,
 } from './colors'
@@ -139,7 +137,6 @@ const EMPTY: ProjektfarbenView = {
   satz: BUNT.id,
   isPicking: false,
   isRepair: false,
-  upgradeTeile: ['ui', 'repo', 'werkzeuge'],
   isHidden: false,
   hasStack: false,
   ci: null,
@@ -1710,69 +1707,54 @@ export const register: Register = on => {
         </Box>
       )
     }
-    // The repair strip: one small row under the band (the band stays in view) with the three entries,
-    // each a new session with an audit and a playbook, and the upgrade's switches. An entry closes the strip
-    // and goes through `bitteSenden` (the same toast and lock); the work only starts building after the
-    // person's yes in that session.
-    // A state kept from before the strip existed lacks the field: read it as all on.
-    const teile = (state.upgradeTeile ?? EMPTY.upgradeTeile) as UpgradeTeil[]
+    // The repair strip: one small row under the band (the band stays in view) of icon buttons like the
+    // band's own, drawn by `draw` (so each has its field, its Button and its hover card, which says what
+    // it does): the three entries, each a new session with an audit and a playbook, and a close button. An
+    // entry closes the strip and goes through `bitteSenden` (the same toast and lock); the work only starts
+    // building after the person's yes in that session. The upgrade covers all three parts.
     const closeRepair = (): Promise<void> => update($, view, v => ({ ...v, isRepair: false }))
-    const eintrag = (
-      key: 'repair-ui' | 'repair-repo' | 'upgrade',
-      label: string,
-      text: (projekt: string) => string,
-      failure: string,
-    ) => (
-      <Box key={`${key}-zeile`} columnGap={1} alignItems="center">
-        {Svg === null ? null : (
-          <Svg
-            source={REPAIR_MENU_SVG[key].source}
-            alt={REPAIR_MENU_SVG[key].alt}
-            width={ICON_SVG_SIZE}
-            height={ICON_SVG_SIZE}
-          />
-        )}
-        <Button
-          key={key}
-          plain
-          onPress={async () => {
-            await closeRepair()
-            await bitteSenden($, { key, label, failure }, text)
-          }}
-        >
-          {label}
-        </Button>
-      </Box>
-    )
+    const repairDefs: Def[] = [
+      {
+        key: 'repair-ui',
+        hint: 'UI auf Studio-Niveau: Audit, Playbook mit Mockup-Varianten, dann Seite für Seite (neue Session)',
+        icon: '▭',
+        svg: REPAIR_MENU_SVG['repair-ui'],
+        press: async () => {
+          await closeRepair()
+          await bitteSenden($, { key: 'repair-ui', label: 'UI auf Studio-Niveau', failure: 'Die UI-Reparatur wurde nicht gestartet' }, repairUiPrompt)
+        },
+      },
+      {
+        key: 'repair-repo',
+        hint: 'Repo wieder gesund machen: Doctor, Code-Review und Hygiene (neue Session)',
+        icon: '⌁',
+        svg: REPAIR_MENU_SVG['repair-repo'],
+        press: async () => {
+          await closeRepair()
+          await bitteSenden($, { key: 'repair-repo', label: 'Repo gesund machen', failure: 'Die Repo-Reparatur wurde nicht gestartet' }, repairRepoPrompt)
+        },
+      },
+      {
+        key: 'upgrade',
+        hint: 'KI-Upgrade: UI, Repo und Werkzeuge mit dem Stand der neuen Modelle anheben (neue Session)',
+        icon: '⇧',
+        svg: REPAIR_MENU_SVG.upgrade,
+        press: async () => {
+          await closeRepair()
+          await bitteSenden($, { key: 'upgrade', label: 'KI-Upgrade', failure: 'Das KI-Upgrade wurde nicht gestartet' }, projekt => upgradePrompt(projekt))
+        },
+      },
+      {
+        key: 'abbrechen',
+        hint: 'Leiste schließen',
+        icon: '✕',
+        svg: REPAIR_MENU_SVG.abbrechen,
+        press: closeRepair,
+      },
+    ]
     const leiste = !state.isRepair ? null : (
-      <Box key="repair-leiste" columnGap={2} flexWrap="wrap">
-        {eintrag('repair-ui', 'UI auf Studio-Niveau', repairUiPrompt, 'Die UI-Reparatur wurde nicht gestartet')}
-        {eintrag('repair-repo', 'Repo gesund machen', repairRepoPrompt, 'Die Repo-Reparatur wurde nicht gestartet')}
-        {eintrag('upgrade', 'KI-Upgrade', projekt => upgradePrompt(projekt, teile), 'Das KI-Upgrade wurde nicht gestartet')}
-        <Text dimColor>Upgrade mit</Text>
-        {UPGRADE_TEILE.map(teil => (
-          <Button
-            key={`upgrade-${teil.id}`}
-            plain
-            onPress={() =>
-              update($, view, v => {
-                const now = (v.upgradeTeile ?? EMPTY.upgradeTeile) as UpgradeTeil[]
-
-                return {
-                  ...v,
-                  upgradeTeile: now.includes(teil.id) ? now.filter(one => one !== teil.id) : [...now, teil.id],
-                }
-              })
-            }
-          >
-            <Text bold={teile.includes(teil.id)} dimColor={!teile.includes(teil.id)}>
-              {`${teile.includes(teil.id) ? '☑' : '☐'} ${teil.label}`}
-            </Text>
-          </Button>
-        ))}
-        <Button key="abbrechen" plain onPress={closeRepair}>
-          <Text dimColor>✕</Text>
-        </Button>
+      <Box key="repair-leiste" columnGap={ICON_GAP} paddingLeft={2}>
+        {repairDefs.map(draw)}
       </Box>
     )
     const sessionActions = defs.filter(def => !RIGHT_KEYS.includes(def.key)).map(draw)

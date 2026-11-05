@@ -43,10 +43,8 @@ export type ProjektfarbenView = {
   satz: string
   /** True while the band shows the color buttons. */
   isPicking: boolean
-  /** True while the band shows the repair menu (UI, repo, upgrade). */
+  /** True while the band shows the repair strip (UI, repo, upgrade). */
   isRepair: boolean
-  /** The parts the KI-Upgrade covers (`ui`, `repo`, `werkzeuge`); all three at first. */
-  upgradeTeile: string[]
   /** True when the person hid the band (kept across sessions in the store). */
   isHidden: boolean
   /** True where the folder holds a compose file: the band then shows the stack rebuild. */

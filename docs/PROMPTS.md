@@ -181,7 +181,7 @@ Grenzen: kein Push auf den Hauptzweig, kein Force-Push, nichts mergen, keine Dat
 
 ## Reparieren: KI-Upgrade (`upgrade`)
 
-Startet eine neue Session, die das Projekt mit dem Stand der aktuellen Modelle neu ansieht und Stück für Stück anhebt. Die Schalter in der Leiste (UI, Repo, Werkzeuge) bestimmen den Umfang; hier gezeigt mit allen dreien.
+Startet eine neue Session, die das Projekt mit dem Stand der aktuellen Modelle neu ansieht und Stück für Stück anhebt. Der Knopf deckt UI, Repo und Werkzeuge ab.
 
 Prüfen:
 - Liest docs/ai-upgrade.md zuerst und macht nur den Unterschied; schreibt es am Ende fort.
