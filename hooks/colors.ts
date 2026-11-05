@@ -834,6 +834,14 @@ export const ICON_SVG_OK = '#2ea35e'
 export const DOCKER_BLUE = '#2496ED'
 /** The golden teacher's stroke: a mid-tone gold, like the gray, so it reads on the light and the dark theme. */
 export const GOLD = '#C8961E'
+/**
+ * The repair popup stands on a card of its own over the band's counts, and its ground is dark in both themes
+ * (the engine's `subtle` was dark on a light theme): the band's mid gray icons vanished on it. So the card has a
+ * fixed dark ground and its icons light strokes, which read on that ground whatever the theme.
+ */
+export const POPUP_BG = '#2b2f38'
+export const POPUP_ICON = '#e4e8ef'
+export const POPUP_GOLD = '#E3B341'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
 /** CSS pixels one cell of the band is wide on the desktop (a field of `ICON_BOX` cells measures about 23 px). */
@@ -856,19 +864,19 @@ const REPAIR_WRENCH = '<path d="M7 10h3V7L6.5 3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1-3 
 export const REPAIR_MENU_SVG = {
   'repair-ui': {
     alt: 'UI auf Studio-Niveau',
-    source: svgIcon('<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M9 21h6M12 18v3"/>'),
+    source: svgIcon('<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M9 21h6M12 18v3"/>', '0 0 24 24', POPUP_ICON),
   },
   'repair-repo': {
     alt: 'Repo wieder gesund machen',
-    source: svgIcon('<path d="M3 12h4l2-5 4 10 2-5h6"/>'),
+    source: svgIcon('<path d="M3 12h4l2-5 4 10 2-5h6"/>', '0 0 24 24', POPUP_ICON),
   },
   abbrechen: {
     alt: 'Leiste schließen',
-    source: svgIcon('<path d="M6 6l12 12M18 6 6 18"/>'),
+    source: svgIcon('<path d="M6 6l12 12M18 6 6 18"/>', '0 0 24 24', POPUP_ICON),
   },
   upgrade: {
     alt: 'KI-Upgrade',
-    source: svgIcon('<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/><path d="M5 20h9"/><path d="M19 2v5M16.5 4.5h5"/>', '0 0 24 24', GOLD),
+    source: svgIcon('<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/><path d="M5 20h9"/><path d="M19 2v5M16.5 4.5h5"/>', '0 0 24 24', POPUP_GOLD),
   },
 } as const satisfies Record<string, { alt: string; source: string }>
 

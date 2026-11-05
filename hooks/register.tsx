@@ -58,6 +58,7 @@ import {
   stackPrompt,
   repairRepoPrompt,
   repairUiPrompt,
+  POPUP_BG,
   REPAIR_MENU_SVG,
   upgradePrompt,
   mergePrs,
@@ -305,7 +306,7 @@ async function afterTurn($: Engine, grund: Grund, answer: string): Promise<void>
   // with gets its Yes and No buttons; an aborted or failed turn asks nothing.
   const frage = grund === 'answer' ? frageOf(answer) : null
   void update($, view, v =>
-    v.sent.length === 0 && frageNow(v) === frage ? v : { ...v, sent: [], frage },
+    v.sent.length === 0 && !v.isRepair && frageNow(v) === frage ? v : { ...v, sent: [], frage, isRepair: false },
   ).catch(() => undefined)
   // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
   const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
@@ -818,6 +819,28 @@ async function bitteSenden(
     $.ui.toast(`${action.failure}: ${firstLine(String(error))}`)
   } finally {
     sending.delete(action.key)
+  }
+}
+
+/** How long the repair popup stays open when nothing is pressed. */
+const REPAIR_OPEN_MS = 30_000
+/** The popup's icon fields (cells) and the height of its icons (px): bigger than the band's own, as it is a card of its own. */
+const POPUP_FIELD = 5
+const POPUP_ICON_PX = 18
+let repairTimer: { cancel: () => void } | undefined
+
+/**
+ * The repair icon opens the popup and a second press closes it. An open popup also closes by itself after a
+ * while and when the session's next turn ends, so it can never be stuck open.
+ */
+async function toggleRepair($: Engine): Promise<void> {
+  const wasOpen = (await read($, view)).isRepair
+  repairTimer?.cancel()
+  await update($, view, v => ({ ...v, isRepair: !wasOpen, isPicking: false }))
+  if (!wasOpen) {
+    repairTimer = $.clock.after(REPAIR_OPEN_MS, () => {
+      void update($, view, v => (v.isRepair ? { ...v, isRepair: false } : v)).catch(() => undefined)
+    })
   }
 }
 
@@ -1601,7 +1624,7 @@ export const register: Register = on => {
         hint: 'Reparieren: UI, Repo oder KI-Upgrade in einer neuen Session',
         icon: '⚒',
         svg: ICON_SVG.repair,
-        press: () => update($, view, v => ({ ...v, isRepair: !v.isRepair, isPicking: false })),
+        press: () => toggleRepair($),
       },
       {
         key: 'uebersicht',
@@ -1722,7 +1745,8 @@ export const register: Register = on => {
         key: 'repair-ui',
         hint: 'UI auf Studio-Niveau (neue Session)',
         icon: '▭',
-        svg: REPAIR_MENU_SVG['repair-ui'],
+        svg: { ...REPAIR_MENU_SVG['repair-ui'], height: POPUP_ICON_PX },
+        width: POPUP_FIELD,
         press: async () => {
           await closeRepair()
           await bitteSenden($, { key: 'repair-ui', label: 'UI auf Studio-Niveau', failure: 'Die UI-Reparatur wurde nicht gestartet' }, repairUiPrompt)
@@ -1732,7 +1756,8 @@ export const register: Register = on => {
         key: 'repair-repo',
         hint: 'Repo gesund machen (neue Session)',
         icon: '⌁',
-        svg: REPAIR_MENU_SVG['repair-repo'],
+        svg: { ...REPAIR_MENU_SVG['repair-repo'], height: POPUP_ICON_PX },
+        width: POPUP_FIELD,
         press: async () => {
           await closeRepair()
           await bitteSenden($, { key: 'repair-repo', label: 'Repo gesund machen', failure: 'Die Repo-Reparatur wurde nicht gestartet' }, repairRepoPrompt)
@@ -1742,7 +1767,8 @@ export const register: Register = on => {
         key: 'upgrade',
         hint: 'KI-Upgrade: UI, Repo, Werkzeuge (neue Session)',
         icon: '⇧',
-        svg: REPAIR_MENU_SVG.upgrade,
+        svg: { ...REPAIR_MENU_SVG.upgrade, height: POPUP_ICON_PX },
+        width: POPUP_FIELD,
         press: async () => {
           await closeRepair()
           await bitteSenden($, { key: 'upgrade', label: 'KI-Upgrade', failure: 'Das KI-Upgrade wurde nicht gestartet' }, projekt => upgradePrompt(projekt))
@@ -1752,7 +1778,8 @@ export const register: Register = on => {
         key: 'abbrechen',
         hint: 'Schließen',
         icon: '✕',
-        svg: REPAIR_MENU_SVG.abbrechen,
+        svg: { ...REPAIR_MENU_SVG.abbrechen, height: POPUP_ICON_PX },
+        width: POPUP_FIELD,
         press: closeRepair,
       },
     ]
@@ -1763,8 +1790,8 @@ export const register: Register = on => {
         top={0}
         left={ICON_BOX}
         columnGap={ICON_GAP}
-        backgroundColor="subtle"
-        paddingX={1}
+        backgroundColor={POPUP_BG}
+        paddingX={2}
       >
         {repairDefs.map(def => draw(def))}
       </Box>
@@ -1846,7 +1873,7 @@ export const register: Register = on => {
             </Box>
             {!showsGauge ? null : draw(kontextDef(true))}
           </Box>
-          <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
+          <Box columnGap={1} paddingLeft={2} justifyContent="space-between" {...(state.isRepair ? { paddingBottom: 1 } : {})}>
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
             <Box columnGap={ICON_GAP}>{settingActions}</Box>
           </Box>
@@ -1861,7 +1888,13 @@ export const register: Register = on => {
     // jump to two rows and back; what does not fit is cut off at the right for that moment. The narrower
     // layouts move the items closer together.
     const row = (
-      <Box columnGap={form.gap} flexWrap="nowrap" overflow="hidden" justifyContent="space-between">
+      <Box
+        columnGap={form.gap}
+        flexWrap="nowrap"
+        overflow="hidden"
+        justifyContent="space-between"
+        {...(state.isRepair ? { paddingBottom: 1 } : {})}
+      >
         <Box columnGap={form.gap}>
           {project}
           <Box columnGap={ICON_GAP}>{sessionActions}</Box>
