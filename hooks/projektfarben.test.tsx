@@ -5,6 +5,7 @@ import {
   archiveReason,
   assignFarben,
   bandBreite,
+  EINZEILER,
   bandStufe,
   brambleKandidaten,
   brambleRoot,
@@ -72,24 +73,24 @@ import {
   ICON_SVG,
   ICON_SVG_COLOR,
   ICON_BOX,
+  ICON_GAP,
   ICON_SVG_OK,
   ICON_SVG_SIZE,
   handoffPrompt,
   meinungPrompt,
   mergePrompt,
-  POPUP_BG,
-  POPUP_GOLD,
-  POPUP_ICON,
   PROMPT_INFO,
   promptsMarkdown,
   pruefenPrompt,
   raised,
   REPAIR_MENU_SVG,
+  repairBreite,
   repairRepoPrompt,
   repairUiPrompt,
   reviewPrompt,
   stackPrompt,
   upgradePrompt,
+  zaehlerBreite,
 } from './colors'
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
@@ -1666,7 +1667,7 @@ test('each icon has a hover card saying what it does', async ($, on) => {
       'Übergabe für eine frische Session schreiben lassen',
       'Prüfen: Qualität, Tests und e2e mit Playwright',
       'Offene PRs mergen und passende Issues lösen',
-      'Reparieren: UI, Repo oder KI-Upgrade in einer neuen Session',
+      'Reparieren: UI, Repo, Upgrade',
     ]
     // In the two-row band the gauge stands in the first row, before the session actions of the second.
     const isStacked = bodyColumns < 60
@@ -3153,7 +3154,7 @@ test('the repair prompts share one frame: a new session, audit, playbook, a yes,
   }
 })
 
-test('each repair prompt has its own audit: the UI at two widths, the repo from a clean clone, the upgrade by its parts', async () => {
+test('each repair prompt has its own audit: the UI at two widths, the repo from a clean clone, the upgrade by all three parts', async () => {
   const ui = repairUiPrompt('Beta')
   expect(ui).toContain('AAA-Entwicklerstudios')
   expect(ui).toContain('bei 390 und 1440 px')
@@ -3177,138 +3178,157 @@ test('each repair prompt has its own audit: the UI at two widths, the repo from 
   for (const part of ['Werkzeuge:', 'Repo:', 'UI:']) {
     expect(all).toContain(part)
   }
-  // The switches cut the parts; the ambition stays.
-  const onlyRepo = upgradePrompt('Beta', ['repo'])
-  expect(onlyRepo).toContain('Repo:')
-  expect(onlyRepo).not.toContain('UI:')
-  expect(onlyRepo).not.toContain('Werkzeuge:')
-  expect(onlyRepo).not.toContain('Mockup-Varianten')
-  const none = upgradePrompt('Beta', [])
-  expect(none).toContain('Ehrgeiz:')
-  expect(none).not.toMatch(/Repo:|UI:|Werkzeuge:/)
+  // It covers the tools, the repo and the UI; the upgrade has no switch for a part.
+  expect(all).toContain('Mockup-Varianten (A, B, C)')
+  expect(upgradePrompt.length).toBe(1)
 })
 
-test('the repair popup icons are light line icons on the 24 grid; the upgrade one is gold', async () => {
+test('the repair icons are line icons of the band\'s own family: the same gray, the upgrade in gold', async () => {
   for (const [key, icon] of Object.entries(REPAIR_MENU_SVG)) {
     expect(icon.source, key).toContain('viewBox="0 0 24 24"')
     expect(icon.alt, key).not.toBe('')
   }
-  // The popup has a dark ground of its own, so its icons are light strokes: the band's mid gray vanished on it.
-  expect(REPAIR_MENU_SVG['repair-ui'].source).toContain(`stroke="${POPUP_ICON}"`)
-  expect(REPAIR_MENU_SVG['repair-repo'].source).toContain(`stroke="${POPUP_ICON}"`)
-  expect(REPAIR_MENU_SVG.abbrechen.source).toContain(`stroke="${POPUP_ICON}"`)
-  expect(REPAIR_MENU_SVG.upgrade.source).toContain(`stroke="${POPUP_GOLD}"`)
-  for (const icon of Object.values(REPAIR_MENU_SVG)) {
-    expect(icon.source).not.toContain(ICON_SVG_COLOR)
+  // No ground of its own and no colors of its own: the family's gray, and gold for the upgrade like the golden teacher.
+  for (const key of ['repair-ui', 'repair-repo', 'schliessen'] as const) {
+    expect(REPAIR_MENU_SVG[key].source, key).toContain(`stroke="${ICON_SVG_COLOR}"`)
+  }
+  expect(REPAIR_MENU_SVG.upgrade.source).toContain(`stroke="${GOLD}"`)
+  expect(REPAIR_MENU_SVG.upgrade.source).not.toContain(ICON_SVG_COLOR)
+  // The wrench itself is one of the band's icons.
+  expect(ICON_SVG.repair.source).toContain(`stroke="${ICON_SVG_COLOR}"`)
+})
+
+/** What the band shows at `bodyColumns`, with the repair icon opened or not: the tree's texts, keys and boxes. */
+async function repairBand($: Tested, bodyColumns: number, surface: 'desktop' | 'terminal' = 'desktop') {
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface })
+  const snapshot = async () => {
+    const keys = (await band.findAll({ type: 'Button' })).map(button => String(button.key))
+    const boxes = await band.findAll({ type: 'Box' })
+    const texts = (await band.findAll({ type: 'Text' })).map(text => text.text)
+    const svgs = (await band.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt))
+    const cards = boxes.filter(box => box.props.position === 'absolute' && box.props.display === 'none').map(box => box.text)
+
+    return { keys, boxes, texts, svgs, cards, isOpen: keys.includes('repair-ui') }
+  }
+
+  return { band, snapshot }
+}
+
+test('the repair icon opens the three entries where the counts stand: the wrench becomes a cross, the band keeps one row', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  for (const bodyColumns of [100, 74, 30]) {
+    const { band, snapshot } = await repairBand($, bodyColumns)
+    const closed = await snapshot()
+    expect(closed.isOpen).toBe(false)
+    expect(closed.keys).toEqual(expect.arrayContaining(['repair', 'prs', 'issues']))
+    expect(closed.svgs).toContain(ICON_SVG.repair.alt)
+
+    await band.press({ key: 'repair' })
+    const open = await snapshot()
+    expect(open.isOpen, `open at ${bodyColumns}`).toBe(true)
+    // The three entries stand in the counts' place: the counts are not drawn, nothing else of the band goes.
+    expect(open.keys).toEqual(expect.arrayContaining(['repair-ui', 'repair-repo', 'upgrade']))
+    expect(open.keys).not.toContain('prs')
+    expect(open.keys).not.toContain('issues')
+    for (const key of ['fable', 'meinung', 'review', 'handoff', 'pruefen', 'merge', 'repair', 'kontext', 'uebersicht', 'einstellungen']) {
+      expect(open.keys, `${key} at ${bodyColumns}`).toContain(key)
+    }
+    expect(open.texts.some(text => text.includes('Beta'))).toBe(true)
+    // The wrench turned into the cross, and the entries carry the family's icons.
+    expect(open.svgs).toContain(REPAIR_MENU_SVG.schliessen.alt)
+    expect(open.svgs).not.toContain(ICON_SVG.repair.alt)
+    for (const key of ['repair-ui', 'repair-repo', 'upgrade'] as const) {
+      expect(open.svgs).toContain(REPAIR_MENU_SVG[key].alt)
+    }
+    // No card out of the flow but the hidden hover cards (an open card was clipped and covered the counts),
+    // and no extra height: the row has no padding of its own.
+    const loose = open.boxes.filter(box => box.props.position === 'absolute' && box.props.display !== 'none' && box.props.hover === undefined)
+    expect(loose.every(box => box.props.width !== undefined || box.props.left === 0)).toBe(true)
+    expect(open.boxes.some(box => box.props.paddingBottom !== undefined)).toBe(false)
+    expect(open.boxes.some(box => box.props.backgroundColor !== undefined && box.props.backgroundColor !== 'subtle' && box.props.display === undefined && box.props.position === 'absolute')).toBe(false)
+
+    // Pressed again, it is closed and the counts are back.
+    await band.press({ key: 'repair' })
+    const again = await snapshot()
+    expect(again.isOpen).toBe(false)
+    expect(again.keys).toEqual(expect.arrayContaining(['repair', 'prs', 'issues']))
+    await band.unmount()
   }
 })
 
-test('the repair icon opens a strip of icon buttons; an entry sends its prompt, closes the strip, and a refusal is a toast', async ($, on) => {
+test('the open repair row is never wider than the counts it replaces, in any one-row layout', async () => {
+  // The narrowest case: both counts as short as they get (" ?" or " 0"). A wider row would push the gauge out.
+  for (const isMono of [false, true]) {
+    for (const stufe of EINZEILER) {
+      const counts = zaehlerBreite(stufe, { name: 4, prs: 2, issues: 2, percent: 1 }, isMono)
+      expect(repairBreite(isMono), `${stufe}, ${isMono ? 'terminal' : 'desktop'}`).toBeLessThanOrEqual(counts)
+    }
+  }
+  // Three fields and the gaps between them.
+  expect(repairBreite(true)).toBe(3 * ICON_BOX + 2 * ICON_GAP)
+})
+
+test('every entry has a short hover card that says what it does, and the cards stay in the band', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  for (const bodyColumns of [100, 74, 30]) {
+    const { band, snapshot } = await repairBand($, bodyColumns)
+    await band.press({ key: 'repair' })
+    const { cards } = await snapshot()
+    const repair = ['UI auf Studio-Niveau', 'Repo gesund machen', 'KI-Upgrade für UI, Repo, Tools', 'Reparieren schließen']
+    for (const hint of repair) {
+      expect(cards, `${hint} at ${bodyColumns}`).toContain(hint)
+      // A card opens to the side and is clipped to the band's row: short enough for the narrowest layouts.
+      expect(hint.length).toBeLessThanOrEqual(32)
+    }
+    await band.press({ key: 'repair' })
+    await band.unmount()
+  }
+})
+
+test('an entry closes the row and sends its prompt as the person\'s own words; a refusal is a toast and the key is free again', async ($, on) => {
   let isRefused = false
   const { sent, toasts } = await meinungSession($, on, text => (isRefused ? { drop: 'Stop-Hook' } : { text }))
-  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 100 }, surface: 'desktop' })
+  const { band, snapshot } = await repairBand($, 100)
   await afterCooldown($)
 
-  expect(await band.find({ key: 'repair-ui' })).toBe(undefined)
-  await band.press({ key: 'repair' })
-  for (const key of ['repair-ui', 'repair-repo', 'upgrade', 'abbrechen']) {
-    expect(await band.find({ key }), key).toBeDefined()
-  }
-  // Every button of the strip is an icon, like the band's own.
-  const alts = (await band.findAll({ type: 'Svg' })).map(svg => String(svg.props.alt))
-  for (const icon of Object.values(REPAIR_MENU_SVG)) {
-    expect(alts).toContain(icon.alt)
-  }
-
-  // Cancelling sends nothing and brings the band back.
-  await band.press({ key: 'abbrechen' })
-  expect(await band.find({ key: 'repair-ui' })).toBe(undefined)
-  expect(sent).toEqual([])
-
-  // An entry closes the menu and sends its prompt as the person's own words.
   await band.press({ key: 'repair' })
   await band.press({ key: 'repair-ui' })
-  expect(await band.find({ key: 'repair-ui' })).toBe(undefined)
+  expect((await snapshot()).isOpen).toBe(false)
   expect(sent.map(prompt => prompt.text)).toEqual([repairUiPrompt('Beta')])
   expect(sent[0].origin).toMatchObject({ asUser: true })
 
-  // The upgrade covers all three parts.
   await band.press({ key: 'repair' })
   await band.press({ key: 'upgrade' })
   expect(sent.at(-1)?.text).toBe(upgradePrompt('Beta'))
+  await band.press({ key: 'repair' })
+  await band.press({ key: 'repair-repo' })
+  expect(sent.at(-1)?.text).toBe(repairRepoPrompt('Beta'))
+
+  // A second press of the same entry is only "already asked".
+  const count = sent.length
+  await band.press({ key: 'repair' })
+  await band.press({ key: 'repair-ui' })
+  expect(sent).toHaveLength(count)
 
   isRefused = true
+  await afterCooldown($)
   await band.press({ key: 'repair' })
   await band.press({ key: 'repair-repo' })
   expect(toasts).toEqual(['Die Repo-Reparatur wurde nicht gestartet: Stop-Hook'])
   await band.unmount()
 })
 
-test('the repair strip opens under the band and leaves it in view; the icon opens and closes it, in a wide and a narrow band', async ($, on) => {
-  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
-
-  for (const bodyColumns of [100, 30]) {
-    const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
-    expect(await band.find({ key: 'repair-leiste' })).toBe(undefined)
-    await band.press({ key: 'repair' })
-    // The strip stands beside the band, which keeps its name, counts, gauge and actions.
-    expect(await band.find({ key: 'repair-leiste' })).toBeDefined()
-    for (const key of ['repair', 'merge', 'prs', 'issues', 'kontext', 'einstellungen', 'repair-ui', 'repair-repo', 'upgrade']) {
-      expect(await band.find({ key }), `${key} at ${bodyColumns}`).toBeDefined()
-    }
-    expect(await band.find({ type: 'Text', text: /Beta/ })).toBeDefined()
-    // The same icon closes it again.
-    await band.press({ key: 'repair' })
-    expect(await band.find({ key: 'repair-leiste' })).toBe(undefined)
-    await band.unmount()
-  }
-})
-
-test('the repair popup shows only icons, each with a hover card that says what it does', async ($, on) => {
-  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
-
-  for (const bodyColumns of [100, 30]) {
-    const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
-    expect(await band.find({ key: 'repair-leiste' })).toBe(undefined)
-    await band.press({ key: 'repair' })
-    const strip = await band.find({ key: 'repair-leiste' })
-    const texts = (await band.findAll({ type: 'Text' })).map(text => text.text)
-    const cards = (await band.findAll({ type: 'Box' }))
-      .filter(box => box.props.position === 'absolute' && box.props.display === 'none')
-      .map(box => box.text)
-    // Closed again, so the next width starts without it.
-    await band.press({ key: 'abbrechen' })
-    await band.unmount()
-
-    // The strip is there, with no written-out labels and no switches.
-    expect(strip).toBeDefined()
-    expect(texts.some(text => /Studio-Niveau|gesund machen|Upgrade mit|☑|☐/.test(text.replace(/\s+/g, ' ')) && !cards.includes(text))).toBe(false)
-    // The descriptions stand in the hover cards.
-    expect(cards.some(card => card.startsWith('UI auf Studio-Niveau'))).toBe(true)
-    expect(cards.some(card => card.startsWith('Repo gesund machen'))).toBe(true)
-    expect(cards.some(card => card.startsWith('KI-Upgrade:'))).toBe(true)
-    expect(cards).toContain('Schließen')
-    // The popup stands where the repair icon's hover card would: out of the flow, right of its field, so
-    // the band keeps its one row and the popup is only as big as its icons.
-    expect(strip?.props).toMatchObject({ position: 'absolute', top: 0, left: ICON_BOX, backgroundColor: POPUP_BG })
-  }
-})
-
-test('the repair popup never stays stuck: the icon and the cross close it, a finished turn does, and so does a wait', async ($, on) => {
+test('the repair row never stays stuck: the cross, a finished turn, the settings icon and a double click close it', async ($, on) => {
   await meinungSession($, on)
-  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 100 }, surface: 'desktop' })
-  const isOpen = async () => (await band.find({ key: 'repair-leiste' })) !== undefined
-  expect(await isOpen()).toBe(false)
+  const { band, snapshot } = await repairBand($, 100)
+  const isOpen = async () => (await snapshot()).isOpen
 
-  // The icon opens it and a second press closes it.
+  // The icon (a cross while open) opens and closes it.
   await band.press({ key: 'repair' })
   expect(await isOpen()).toBe(true)
   await band.press({ key: 'repair' })
-  expect(await isOpen()).toBe(false)
-
-  // The cross closes it.
-  await band.press({ key: 'repair' })
-  await band.press({ key: 'abbrechen' })
   expect(await isOpen()).toBe(false)
 
   // The end of the session's next turn closes it.
@@ -3317,58 +3337,37 @@ test('the repair popup never stays stuck: the icon and the cross close it, a fin
   await $.turn.complete(TURN)
   expect(await isOpen()).toBe(false)
 
-  // Left alone it closes by itself, and an earlier wait does not close a popup opened later.
+  // The settings icon closes it (and opens the picker).
   await band.press({ key: 'repair' })
-  await sessionClock?.advance(20_000)
+  await band.press({ key: 'einstellungen' })
+  expect(await isOpen()).toBe(false)
+  expect(await band.find({ key: 'farbe-lila' })).toBeDefined()
+  await band.press({ key: 'abbrechen' })
+
+  // Nothing closes it by a wait: a timer took the entries from under the pointer.
+  await band.press({ key: 'repair' })
+  await sessionClock?.advance(10 * 60_000)
   expect(await isOpen()).toBe(true)
   await band.press({ key: 'repair' })
-  await band.press({ key: 'repair' })
-  await sessionClock?.advance(20_000)
-  expect(await isOpen()).toBe(true)
-  await sessionClock?.advance(11_000)
+
+  // Two presses in a row end where they started, whatever the order of the reads.
+  await Promise.all([band.press({ key: 'repair' }), band.press({ key: 'repair' })])
   expect(await isOpen()).toBe(false)
   await band.unmount()
 })
 
-test('the repair popup is a card of its own: wider fields and taller icons than the band, and room under the row', async ($, on) => {
+test('on the terminal the repair icon is a text glyph that turns into a cross, and the entries are glyphs', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
-  for (const bodyColumns of [100, 30]) {
-    const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
-    const rowOf = async () =>
-      (await band.findAll({ type: 'Box' })).find(box => box.props.justifyContent === 'space-between' && box.props.overflow === 'hidden') ??
-      (await band.findAll({ type: 'Box' })).filter(box => box.props.justifyContent === 'space-between').at(-1)
-    expect((await rowOf())?.props.paddingBottom).toBe(undefined)
-    await band.press({ key: 'repair' })
-    const strip = await band.find({ key: 'repair-leiste' })
-    expect(strip?.props.paddingX).toBeGreaterThan(1)
-    // Fields wider than the band's icon fields (`ICON_BOX`), icons taller than the band's (`ICON_SVG_SIZE`).
-    const fields = (await band.findAll({ type: 'Box' })).filter(box => ['repair-ui-feld', 'upgrade-feld', 'abbrechen-feld'].includes(String(box.key)))
-    expect(fields).toHaveLength(3)
-    for (const field of fields) {
-      expect(field.props.width).toBeGreaterThan(ICON_BOX)
-    }
-    const heights = (await band.findAll({ type: 'Svg' }))
-      .filter(svg => Object.values(REPAIR_MENU_SVG).some(icon => icon.alt === svg.props.alt))
-      .map(svg => Number(svg.props.height))
-    expect(heights).toHaveLength(4)
-    expect(heights.every(height => height > ICON_SVG_SIZE)).toBe(true)
-    // The band's row has a line more room while it is open, so its clip does not cut the card.
-    expect((await rowOf())?.props.paddingBottom).toBe(1)
-    await band.press({ key: 'repair' })
-    await band.unmount()
-  }
-})
-
-test('on the terminal the repair icon is a text glyph and the menu has no Svg', async ($, on) => {
-  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
-
-  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 100 }, surface: 'terminal' })
-  expect((await ui.find({ key: 'repair' }))?.text).toBe('⚒')
-  await ui.press({ key: 'repair' })
-  expect(await ui.find({ key: 'repair-repo' })).toBeDefined()
-  expect(await ui.findAll({ type: 'Svg' })).toEqual([])
-  await ui.unmount()
+  const { band, snapshot } = await repairBand($, 100, 'terminal')
+  expect((await band.find({ key: 'repair' }))?.text).toBe('⚒')
+  await band.press({ key: 'repair' })
+  const open = await snapshot()
+  expect(open.isOpen).toBe(true)
+  expect(open.svgs).toEqual([])
+  expect((await band.find({ key: 'repair' }))?.text).toBe('✕')
+  expect([(await band.find({ key: 'repair-ui' }))?.text, (await band.find({ key: 'repair-repo' }))?.text, (await band.find({ key: 'upgrade' }))?.text]).toEqual(['▭', '⌁', '⇧'])
+  await band.unmount()
 })
 
 test('the prompts document shows what each button does, what to check, and the text itself', async () => {

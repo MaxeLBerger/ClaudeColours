@@ -267,9 +267,6 @@ export function stackPrompt(projekt: string): string {
   ].join('\n\n')
 }
 
-/** The parts a KI-Upgrade can cover; the band's button covers all three. */
-export type UpgradeTeil = 'ui' | 'repo' | 'werkzeuge'
-
 const UI_AUDIT =
   'Screenshots jeder Seite bei 390 und 1440 px (mit Playwright; Skills und Skripte des Projekts zuerst), Abstände und Ausrichtung, Design-Tokens und Brüche im Stil, Leer-, Lade- und Fehlerzustände, Tastatur und Barrierefreiheit (axe), Bewegung und Performance. Erkenne selbst, was für dieses Projekt zählt (Web-App, Spiel mit HUD und Inventar, Desktop-Programm).'
 
@@ -330,27 +327,23 @@ export function repairRepoPrompt(projekt: string): string {
 }
 
 /**
- * What the KI-Upgrade sends: the umbrella over the other two. It starts from what an earlier upgrade left in
- * `docs/ai-upgrade.md` (so a newer model only does the difference, and the same model finds only what is
- * new), looks at the parts the person left on, and raises the ambition: what used to be too hard or too
- * dear. A model the project calls itself is never switched without a measurement.
+ * What the KI-Upgrade sends: the umbrella over the other two, covering the tools, the repo and the UI. It
+ * starts from what an earlier upgrade left in `docs/ai-upgrade.md` (so a newer model only does the
+ * difference, and the same model finds only what is new) and raises the ambition: what used to be too hard or
+ * too dear. A model the project calls itself is never switched without a measurement.
  */
-export function upgradePrompt(projekt: string, teile: readonly UpgradeTeil[] = ['ui', 'repo', 'werkzeuge']): string {
+export function upgradePrompt(projekt: string): string {
   const audit = [
-    teile.includes('werkzeuge') ? `Werkzeuge: ${TOOLS_AUDIT}` : null,
-    teile.includes('repo') ? `Repo: ${REPO_AUDIT}` : null,
-    teile.includes('ui') ? `UI: ${UI_AUDIT}` : null,
+    `Werkzeuge: ${TOOLS_AUDIT}`,
+    `Repo: ${REPO_AUDIT}`,
+    `UI: ${UI_AUDIT}`,
     'Ehrgeiz: Sieh das Repository mit frischem Blick an, nach allem, was früher zu schwer oder zu teuer war: größere Umbauten, fehlende Tests, Architektur, Performance.',
-  ]
-    .filter(part => part !== null)
-    .join(' ')
+  ].join(' ')
   const playbook = [
-    teile.includes('repo') ? REPO_PLAYBOOK : null,
-    teile.includes('ui') ? UI_PLAYBOOK : null,
+    REPO_PLAYBOOK,
+    UI_PLAYBOOK,
     'Ruft das Projekt selbst ein Modell auf, stell nie eine Modell-ID ohne Messung um; leg stattdessen eine Messung mit Budget an oder ein Issue.',
-  ]
-    .filter(part => part !== null)
-    .join(' ')
+  ].join(' ')
 
   return repairPrompt(projekt, {
     ziel: 'Hebe dieses Projekt Stück für Stück auf das höchste Niveau, das die aktuellen Modelle möglich machen. Lies zuerst docs/ai-upgrade.md, falls es die Datei gibt (womit und wann zuletzt hochgestuft wurde), und mach nur den Unterschied; ohne sie fängst du bei null an. Das gilt auch, wenn es dasselbe Modell ist wie beim letzten Mal.',
@@ -834,14 +827,6 @@ export const ICON_SVG_OK = '#2ea35e'
 export const DOCKER_BLUE = '#2496ED'
 /** The golden teacher's stroke: a mid-tone gold, like the gray, so it reads on the light and the dark theme. */
 export const GOLD = '#C8961E'
-/**
- * The repair popup stands on a card of its own over the band's counts, and its ground is dark in both themes
- * (the engine's `subtle` was dark on a light theme): the band's mid gray icons vanished on it. So the card has a
- * fixed dark ground and its icons light strokes, which read on that ground whatever the theme.
- */
-export const POPUP_BG = '#2b2f38'
-export const POPUP_ICON = '#e4e8ef'
-export const POPUP_GOLD = '#E3B341'
 /** CSS pixels an icon is drawn at; the field around it is `ICON_BOX` cells. */
 export const ICON_SVG_SIZE = 14
 /** CSS pixels one cell of the band is wide on the desktop (a field of `ICON_BOX` cells measures about 23 px). */
@@ -857,26 +842,27 @@ const CAP_ICON =
 const REPAIR_WRENCH = '<path d="M7 10h3V7L6.5 3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1-3 3l-6-6a6 6 0 0 1-8-8L7 10z"/>'
 
 /**
- * The icons of the repair popup's buttons, drawn in fields like the band's own (kept apart from `ICON_SVG`
- * because the band's icon tests walk that one): a screen for the UI, a pulse line for the repo's health, an
- * arrow with a spark for the upgrade, in gold like the golden teacher, and a cross to close the popup.
+ * The icons of the repair entries and of the cross the wrench turns into while they are open. They are drawn
+ * like the band's own (one mid gray, the upgrade in gold like the golden teacher), in the same fields, and kept
+ * apart from `ICON_SVG` because the band's icon tests walk that one: a screen for the UI, a pulse line for the
+ * repo's health, an arrow with a spark for the upgrade.
  */
 export const REPAIR_MENU_SVG = {
   'repair-ui': {
     alt: 'UI auf Studio-Niveau',
-    source: svgIcon('<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M9 21h6M12 18v3"/>', '0 0 24 24', POPUP_ICON),
+    source: svgIcon('<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M9 21h6M12 18v3"/>'),
   },
   'repair-repo': {
     alt: 'Repo wieder gesund machen',
-    source: svgIcon('<path d="M3 12h4l2-5 4 10 2-5h6"/>', '0 0 24 24', POPUP_ICON),
+    source: svgIcon('<path d="M3 12h4l2-5 4 10 2-5h6"/>'),
   },
-  abbrechen: {
-    alt: 'Leiste schließen',
-    source: svgIcon('<path d="M6 6l12 12M18 6 6 18"/>', '0 0 24 24', POPUP_ICON),
+  schliessen: {
+    alt: 'Reparieren schließen',
+    source: svgIcon('<path d="M6 6l12 12M18 6 6 18"/>'),
   },
   upgrade: {
     alt: 'KI-Upgrade',
-    source: svgIcon('<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/><path d="M5 20h9"/><path d="M19 2v5M16.5 4.5h5"/>', '0 0 24 24', POPUP_GOLD),
+    source: svgIcon('<path d="M12 20V7"/><path d="M6 12l6-6 6 6"/><path d="M5 20h9"/><path d="M19 2v5M16.5 4.5h5"/>', '0 0 24 24', GOLD),
   },
 } as const satisfies Record<string, { alt: string; source: string }>
 
@@ -1048,6 +1034,27 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
   const nodes = [...left, ...right]
 
   return nodes.reduce((sum, cells) => sum + cells, 0) + (left.length - 1 + right.length - 1 + 1) * gapCells
+}
+
+/**
+ * The cells the three repair entries take where the counts stand while the repair icon is open: three icon
+ * fields and the gaps between them. They stand in the place of `PRs:` and `Issues:`, so the row never gets wider.
+ */
+export function repairBreite(isMono = false): number {
+  const m = isMono ? TERMINAL : DESKTOP
+
+  return 3 * ICON_BOX + 2 * m.iconGap
+}
+
+/**
+ * The cells the two counts take in a one-row layout, with the gap that follows them: what the repair entries
+ * replace. At least their shortest text (` ?` or ` 0`), so `repairBreite` is held to the narrowest case.
+ */
+export function zaehlerBreite(stufe: Exclude<BandStufe, 'zwei'>, inhalt: BandInhalt, isMono = false): number {
+  const m = isMono ? TERMINAL : DESKTOP
+  const gapCells = BAND_FORMEN[stufe].gap === 1 ? m.gapTight : m.gap
+
+  return (4 + inhalt.prs) * m.text + (7 + inhalt.issues) * m.text + gapCells
 }
 
 // Going back to a roomier layout than the one drawn last takes this many cells more than fitting does,
