@@ -70,7 +70,7 @@ Lokal committen, `version` in `.claude-plugin/plugin.json` anheben, Branch in de
 
 ## Phase 2: Fünf Knöpfe im IssueBoard
 
-Eigenes Repo, eigene Vorschau. Die Aktionen sind eine reine Tabelle (`public/aktionen.mjs`: Schlüssel, Ort, Sichtbarkeit, Icon, Prompt aus dem Kartenkontext), die Icons liegen im vorhandenen SVG-Sprite. Der Server rendert den Prompt aus der Karte, der Browser kopiert ihn und zeigt einen Toast; eine Session startet weiterhin die Session, in die du ihn einfügst.
+Eigenes Repo, eigene Vorschau. Die Icons liegen als Entwürfe in `docs/plans/board-icons/` (je eine SVG-Datei, dazu `index.html` zum Ansehen). Die Aktionen sind eine reine Tabelle (`public/aktionen.mjs`: Schlüssel, Ort, Sichtbarkeit, Icon, Prompt aus dem Kartenkontext), die Icons liegen im vorhandenen SVG-Sprite. Der Server rendert den Prompt aus der Karte, der Browser kopiert ihn und zeigt einen Toast; eine Session startet weiterhin die Session, in die du ihn einfügst.
 
 | Knopf | Ort | Inhalt |
 |---|---|---|
