@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board-Icons</title>
+<style>
+:root { --bg:#f4f5f7; --fg:#1d2330; --muted:#5d6676; --line:#dde1e8; --card:#fff; }
+@media (prefers-color-scheme: dark) { :root { --bg:#14171d; --fg:#e4e8ef; --muted:#98a2b3; --line:#2b313c; --card:#1b1f27; } }
+body { background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,sans-serif; margin:0; padding:28px 16px 120px; }
+main { max-width:760px; margin:0 auto; }
+h1 { font-size:22px; margin:0 0 4px; }
+p { color:var(--muted); margin:0 0 24px; }
+.bar { display:flex; gap:6px; flex-wrap:wrap; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:8px; width:max-content; max-width:100%; }
+.btn { position:relative; display:inline-flex; width:40px; height:40px; align-items:center; justify-content:center; border-radius:8px; }
+.btn:hover, .btn:focus-visible { background:var(--bg); outline:none; }
+.btn img { width:20px; height:20px; }
+.btn .tip { display:none; position:absolute; top:46px; left:0; z-index:1; white-space:nowrap; background:var(--fg); color:var(--bg); font-size:12px; padding:4px 8px; border-radius:6px; }
+.btn:hover .tip, .btn:focus-visible .tip { display:block; }
+</style>
+</head>
+<body>
+<main>
+<h1>Icons für die IssueBoard-Knöpfe</h1>
+<p>Phase 2 des Plans. Linienicons auf dem 24er-Raster, wie die im Band; Trader fragen in Gold. Die Beschreibung erscheint beim Darüberfahren.</p>
+<div class="bar">
+<span class="btn" tabindex="0" role="button" aria-label="Starten: Karte in „bereit“: eigene Session mit Branch und PR"><img src="starten.svg" alt=""><span class="tip">Starten: Karte in „bereit“: eigene Session mit Branch und PR</span></span>
+<span class="btn" tabindex="0" role="button" aria-label="Welle starten: Alle bereiten Karten eines Plans, nach Abhängigkeit"><img src="welle.svg" alt=""><span class="tip">Welle starten: Alle bereiten Karten eines Plans, nach Abhängigkeit</span></span>
+<span class="btn" tabindex="0" role="button" aria-label="Trader fragen: Fable als erfahrener Trader: Check des Ganzen und Abnahme-Vorschlag"><img src="trader-fragen.svg" alt=""><span class="tip">Trader fragen: Fable als erfahrener Trader: Check des Ganzen und Abnahme-Vorschlag</span></span>
+<span class="btn" tabindex="0" role="button" aria-label="Fertig?: Stand prüfen, Reste als Issues, aufräumen"><img src="fertig.svg" alt=""><span class="tip">Fertig?: Stand prüfen, Reste als Issues, aufräumen</span></span>
+<span class="btn" tabindex="0" role="button" aria-label="Überblick: Günstige Session baut eine HTML-Seite: was lief, was ist offen, was ist zu tun"><img src="ueberblick.svg" alt=""><span class="tip">Überblick: Günstige Session baut eine HTML-Seite: was lief, was ist offen, was ist zu tun</span></span>
+<span class="btn" tabindex="0" role="button" aria-label="Plan gegenprüfen: Frische Session prüft nur den Plan, Befunde landen in der Plan-Datei"><img src="plan-gegenpruefen.svg" alt=""><span class="tip">Plan gegenprüfen: Frische Session prüft nur den Plan, Befunde landen in der Plan-Datei</span></span>
+</div>
+</main>
+</body>
+</html>
