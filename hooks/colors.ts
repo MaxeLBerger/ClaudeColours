@@ -300,7 +300,7 @@ function repairPrompt(
       '3. Freigabe: Gib mir das Playbook als Zusammenfassung, mit einer Kostenschätzung (Worker mal Modell) und der Liste dessen, was angefasst wird, und stell mir eine Ja/Nein-Frage, ob umgesetzt werden soll. Bis zu meinem Ja ändert sich am Code nichts.',
       `4. Umsetzung: Nach meinem Ja arbeite das Playbook Schritt für Schritt mit Workern ab (Haiku, Sonnet oder Opus nach der Größe des Schritts): ein Branch und ein PR je Schritt, mit Review und Tests. Am Ende läuft die volle Prüfung des Projekts, und du gibst mir einen kurzen Bericht. ${p.umsetzung}`,
     ].join('\n'),
-    'Grenzen: kein Push auf den Hauptzweig, kein Force-Push, nichts mergen, keine Daten oder Volumes löschen, keine Major-Updates ohne Tests. Wo Geld im Spiel ist (Handel, Budget, Orders), läuft vor dem PR ein Risiko-Review. Was unklar bleibt oder meine Entscheidung braucht, wird ein Issue oder eine Frage an mich, kein Raten. Am Ende eine kurze Liste: was gemacht ist, was offen blieb.',
+    'Grenzen: kein Push auf den Hauptzweig, kein Force-Push, nichts mergen, keine Daten oder Volumes löschen, keine Major-Updates ohne Tests. Wo Geld im Spiel ist (Handel, Budget, Orders), läuft vor dem PR ein Risiko-Review. Was unklar bleibt oder meine Entscheidung braucht, wird ein Issue oder eine Frage an mich, kein Raten. Kannst du keine neue Session starten (etwa im Terminal oder ohne das Werkzeug dafür), sag es mir und hör auf, statt den Auftrag in dieser Session auszuführen. Am Ende eine kurze Liste: was gemacht ist, was offen blieb.',
   ].join('\n\n')
 }
 
@@ -451,6 +451,7 @@ export const PROMPT_INFO = [
       'Die Reihenfolge ist Audit, Playbook, Freigabe, Umsetzung; der Knopf gilt nur für die ersten drei Schritte.',
       'Der Audit ändert nichts; umgesetzt wird erst nach dem Ja, mit Kostenschätzung vorher.',
       'Kein Push auf den Hauptzweig, kein Force-Push, nichts gemergt, nichts gelöscht; bei Geld ein Risiko-Review.',
+      'Kann die Session keine neue Session starten (Terminal, Werkzeug fehlt), sagt sie es und hört auf, statt den Auftrag selbst auszuführen.',
       'Keine Zeilengrenze, keine feste Gliederung der Antwort, kein Leseverbot.',
     ],
     text: repairUiPrompt,

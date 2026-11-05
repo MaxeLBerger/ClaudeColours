@@ -3149,6 +3149,8 @@ test('the repair prompts share one frame: a new session, audit, playbook, a yes,
     expect(prompt).toContain('kein Push auf den Hauptzweig, kein Force-Push, nichts mergen')
     expect(prompt).toContain('keine Major-Updates ohne Tests')
     expect(prompt).toContain('Risiko-Review')
+    // Where no new session can be started it says so and stops, instead of doing the task in this session.
+    expect(prompt).toContain('sag es mir und hör auf, statt den Auftrag in dieser Session auszuführen')
     // Goals, not gates: no length cap, no fixed headings, no ban on reading.
     expect(prompt).not.toMatch(/höchstens \d+|maximal \d+|nicht mehr als \d+|Überschriften:|lies nichts/i)
   }
