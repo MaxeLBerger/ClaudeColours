@@ -13,7 +13,7 @@ Nicht gebaut werden: Merge-Zug, Halten und Live schalten (gestrichen). Die Ein-W
 
 ## Phase 1: Repair-Menü im Band
 
-> Nach der Vorschau geändert: Das Menü ersetzte das Band und wirkte nicht passend. Der Schraubenschlüssel öffnet stattdessen eine kleine Leiste unter dem Band (`repair-leiste`) nur aus Symbol-Buttons wie die anderen, mit der Beschreibung beim Darüberfahren; das Band bleibt sichtbar. Die Schalter für den Upgrade-Umfang sind weggefallen, das Upgrade deckt UI, Repo und Werkzeuge ab. Wo unten „Menü“ steht, ist diese Leiste gemeint.
+> Nach der Vorschau geändert: Das Menü ersetzte das Band und wirkte nicht passend. Der Schraubenschlüssel öffnet stattdessen rechts neben sich, wo sonst die Hover-Beschreibung steht, eine kleine Karte (`repair-leiste`) nur aus Symbol-Buttons wie die anderen, mit der Beschreibung beim Darüberfahren; das Band bleibt in einer Zeile. Die Schalter für den Upgrade-Umfang sind weggefallen, das Upgrade deckt UI, Repo und Werkzeuge ab. Wo unten „Menü“ steht, ist diese Leiste gemeint.
 
 Ein Knopf (Schraubenschlüssel) öffnet eine kleine Auswahl mit drei Einträgen. Jeder Eintrag schickt einen Prompt; die Session startet daraufhin eine **neue Session** im eigenen Worktree (`start_session`, `user_asked`, `fresh`). Der Klick ist die Freigabe für genau die Stufen 1 und 2 unten.
 

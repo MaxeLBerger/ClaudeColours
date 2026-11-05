@@ -1653,7 +1653,7 @@ export const register: Register = on => {
         press: () => kontextKomprimieren($),
       }
     }
-    const draw = (def: Def) => {
+    const draw = (def: Def, popup: JSX.Element | null = null) => {
       const isRight = RIGHT_KEYS.includes(def.key)
       const hasSvg = Svg !== null && def.svg !== undefined
       const width = def.width ?? ICON_BOX
@@ -1692,31 +1692,35 @@ export const register: Register = on => {
           )}
           {/* What the icon does, as a card in the band's own row (a card is clipped to the band), shown while
               the pointer is over the field; the surface does it, no hook runs. The left group opens it to
-              the right of its icon, the right group to the left, so none reaches past the band's edge. */}
-          <Box
-            position="absolute"
-            top={0}
-            {...(isRight ? { right: width } : { left: width })}
-            display="none"
-            hover={{ display: 'flex' }}
-            backgroundColor="subtle"
-            paddingX={1}
-          >
-            <Text>{def.hint}</Text>
-          </Box>
+              the right of its icon, the right group to the left, so none reaches past the band's edge. An
+              open popup (the repair icon's) stands in the card's place while it is open. */}
+          {popup ?? (
+            <Box
+              position="absolute"
+              top={0}
+              {...(isRight ? { right: width } : { left: width })}
+              display="none"
+              hover={{ display: 'flex' }}
+              backgroundColor="subtle"
+              paddingX={1}
+            >
+              <Text>{def.hint}</Text>
+            </Box>
+          )}
         </Box>
       )
     }
-    // The repair strip: one small row under the band (the band stays in view) of icon buttons like the
-    // band's own, drawn by `draw` (so each has its field, its Button and its hover card, which says what
-    // it does): the three entries, each a new session with an audit and a playbook, and a close button. An
-    // entry closes the strip and goes through `bitteSenden` (the same toast and lock); the work only starts
-    // building after the person's yes in that session. The upgrade covers all three parts.
+    // The repair popup: a small card of icon buttons like the band's own, standing right of the repair icon
+    // where its hover card would (so the band keeps its one row, and the card is only as big as its icons).
+    // The buttons are drawn by `draw`, so each has its field and its own hover card saying what it does: the
+    // three entries, each a new session with an audit and a playbook, and a close button. An entry closes
+    // the popup and goes through `bitteSenden` (the same toast and lock); the work only starts building
+    // after the person's yes in that session. The upgrade covers all three parts.
     const closeRepair = (): Promise<void> => update($, view, v => ({ ...v, isRepair: false }))
     const repairDefs: Def[] = [
       {
         key: 'repair-ui',
-        hint: 'UI auf Studio-Niveau: Audit, Playbook mit Mockup-Varianten, dann Seite für Seite (neue Session)',
+        hint: 'UI auf Studio-Niveau (neue Session)',
         icon: '▭',
         svg: REPAIR_MENU_SVG['repair-ui'],
         press: async () => {
@@ -1726,7 +1730,7 @@ export const register: Register = on => {
       },
       {
         key: 'repair-repo',
-        hint: 'Repo wieder gesund machen: Doctor, Code-Review und Hygiene (neue Session)',
+        hint: 'Repo gesund machen (neue Session)',
         icon: '⌁',
         svg: REPAIR_MENU_SVG['repair-repo'],
         press: async () => {
@@ -1736,7 +1740,7 @@ export const register: Register = on => {
       },
       {
         key: 'upgrade',
-        hint: 'KI-Upgrade: UI, Repo und Werkzeuge mit dem Stand der neuen Modelle anheben (neue Session)',
+        hint: 'KI-Upgrade: UI, Repo, Werkzeuge (neue Session)',
         icon: '⇧',
         svg: REPAIR_MENU_SVG.upgrade,
         press: async () => {
@@ -1746,19 +1750,29 @@ export const register: Register = on => {
       },
       {
         key: 'abbrechen',
-        hint: 'Leiste schließen',
+        hint: 'Schließen',
         icon: '✕',
         svg: REPAIR_MENU_SVG.abbrechen,
         press: closeRepair,
       },
     ]
-    const leiste = !state.isRepair ? null : (
-      <Box key="repair-leiste" columnGap={ICON_GAP} paddingLeft={2}>
-        {repairDefs.map(draw)}
+    const repairPopup = !state.isRepair ? null : (
+      <Box
+        key="repair-leiste"
+        position="absolute"
+        top={0}
+        left={ICON_BOX}
+        columnGap={ICON_GAP}
+        backgroundColor="subtle"
+        paddingX={1}
+      >
+        {repairDefs.map(def => draw(def))}
       </Box>
     )
-    const sessionActions = defs.filter(def => !RIGHT_KEYS.includes(def.key)).map(draw)
-    const settingActions = defs.filter(def => RIGHT_KEYS.includes(def.key)).map(draw)
+    const sessionActions = defs
+      .filter(def => !RIGHT_KEYS.includes(def.key))
+      .map(def => draw(def, def.key === 'repair' ? repairPopup : null))
+    const settingActions = defs.filter(def => RIGHT_KEYS.includes(def.key)).map(def => draw(def))
     const repoUrl = state.repoUrl
     // With a Bramble build the name is a Button that opens the repository there: a Link is opened by
     // the surface, in the system's browser. The block stays beside it, since a Button drops its color.
@@ -1836,7 +1850,6 @@ export const register: Register = on => {
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
             <Box columnGap={ICON_GAP}>{settingActions}</Box>
           </Box>
-          {leiste}
           {ciRow}
         </Box>
       )
@@ -1865,12 +1878,11 @@ export const register: Register = on => {
     // The CI row stands below the band where the pushed head has runs. It follows what the head has,
     // not the width, so a resize never adds or takes it away.
     return above(
-      ciRow === null && leiste === null ? (
+      ciRow === null ? (
         row
       ) : (
         <Box flexDirection="column">
           {row}
-          {leiste}
           {ciRow}
         </Box>
       ),

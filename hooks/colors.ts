@@ -849,9 +849,9 @@ const CAP_ICON =
 const REPAIR_WRENCH = '<path d="M7 10h3V7L6.5 3.5a6 6 0 0 1 8 8l6 6a2 2 0 0 1-3 3l-6-6a6 6 0 0 1-8-8L7 10z"/>'
 
 /**
- * The icons of the repair strip's buttons, drawn in fields like the band's own (kept apart from `ICON_SVG`
+ * The icons of the repair popup's buttons, drawn in fields like the band's own (kept apart from `ICON_SVG`
  * because the band's icon tests walk that one): a screen for the UI, a pulse line for the repo's health, an
- * arrow with a spark for the upgrade, in gold like the golden teacher, and a cross to close the strip.
+ * arrow with a spark for the upgrade, in gold like the golden teacher, and a cross to close the popup.
  */
 export const REPAIR_MENU_SVG = {
   'repair-ui': {
@@ -942,7 +942,7 @@ export const ICON_SVG = {
       `<circle cx="5" cy="4.5" r="2"/><circle cx="5" cy="16.5" r="2"/><circle cx="14" cy="10.5" r="2"/><path d="M5 6.5v8"/><path d="M5 6.5v.5a3.5 3.5 0 0 0 3.5 3.5h3.5"/><path d="m12.5 17.5 3.2 3.2 6-6.7" stroke="${ICON_SVG_OK}" stroke-width="2.25"/>`,
     ),
   },
-  // A wrench: the repair strip (UI, repo, upgrade), each a new session with an audit and a playbook.
+  // A wrench: the repair popup (UI, repo, upgrade), each a new session with an audit and a playbook.
   repair: {
     alt: 'Reparieren',
     source: svgIcon(REPAIR_WRENCH),

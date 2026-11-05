@@ -3257,7 +3257,7 @@ test('the repair strip opens under the band and leaves it in view; the icon open
   }
 })
 
-test('the repair strip shows only icons, each with a hover card that says what it does', async ($, on) => {
+test('the repair popup shows only icons, each with a hover card that says what it does', async ($, on) => {
   await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
 
   for (const bodyColumns of [100, 30]) {
@@ -3277,10 +3277,13 @@ test('the repair strip shows only icons, each with a hover card that says what i
     expect(strip).toBeDefined()
     expect(texts.some(text => /Studio-Niveau|gesund machen|Upgrade mit|☑|☐/.test(text.replace(/\s+/g, ' ')) && !cards.includes(text))).toBe(false)
     // The descriptions stand in the hover cards.
-    expect(cards.some(card => card.startsWith('UI auf Studio-Niveau:'))).toBe(true)
-    expect(cards.some(card => card.startsWith('Repo wieder gesund machen:'))).toBe(true)
+    expect(cards.some(card => card.startsWith('UI auf Studio-Niveau'))).toBe(true)
+    expect(cards.some(card => card.startsWith('Repo gesund machen'))).toBe(true)
     expect(cards.some(card => card.startsWith('KI-Upgrade:'))).toBe(true)
-    expect(cards).toContain('Leiste schließen')
+    expect(cards).toContain('Schließen')
+    // The popup stands where the repair icon's hover card would: out of the flow, right of its field, so
+    // the band keeps its one row and the popup is only as big as its icons.
+    expect(strip?.props).toMatchObject({ position: 'absolute', top: 0, left: ICON_BOX })
   }
 })
 
