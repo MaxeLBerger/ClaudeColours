@@ -1,6 +1,6 @@
 # Plan: die Extension schön und dauerhaft vorzeigbar machen
 
-Stand: 2026-11-05. Status: Paket 1 gebaut (Version 0.19.0, in der Vorschau zu prüfen), der Rest ist Plan. Anlass: Die Repair-Karte gefiel nach fünf Vorschau-Runden weiterhin nicht. Grundlage: eine unabhängige Zweitmeinung (Opus, nur gelesen, mit Pixelmessung an beiden Screenshots) und meine eigene Prüfung am Repo.
+Stand: 2026-11-05. Status: Paket 1 gebaut und in der Vorschau abgenommen (0.19.0), Paket 2 gebaut (0.19.1), Paket 4 als PR 22 (gestapelt auf PR 21). Offen: Paket 3 (Zuschnitt, wartet auf deine Entscheidung), 5 (Theme-Prüfung durch dich) und 6 (Entflechten). Anlass: Die Repair-Karte gefiel nach fünf Vorschau-Runden weiterhin nicht. Grundlage: eine unabhängige Zweitmeinung (Opus, nur gelesen, mit Pixelmessung an beiden Screenshots) und meine eigene Prüfung am Repo.
 
 ## 1. Befund
 
