@@ -80,14 +80,16 @@ main { max-width: 780px; margin: 0 auto; display: grid; gap: 20px; }
   </header>
   <pre class="prompt" id="p-fable">Das hier ist wichtig, hol Fable dazu: zu dem, worum es in diesem Gespräch gerade geht, meiner letzten Frage, dem Plan, den wir haben, einer Entscheidung, die schwer rückgängig zu machen ist, oder dem Stand von „<span class="slot">{Projekt}</span>“; als zweite Meinung, als gründliches Review der Änderungen oder als Antwort auf eine Frage, an der wir hängen. Du entscheidest, was gemeint ist.
 
-Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:
-- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Sag ihm, warum es wichtig ist und was davon abhängt.
+Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable, effort xhigh) und baue seinen Auftrag selbst zusammen:
+- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht, Fehlermeldungen und Messwerte unverändert; für ein Review den Ordner, den Branch und seinen Basis-Branch, den Diff holt er sich selbst, nicht committete Änderungen eingeschlossen. Sag ihm, warum es wichtig ist und was davon abhängt.
+- Gib ihm meine Vorgaben mit, so nah an meinem Wortlaut wie möglich: was ich will und was nicht, Grenzen, die ich gesetzt habe, und Wege, die ich verworfen habe, mit meinem Grund. Das steht nur in diesem Gespräch; ohne es beantwortet er eine andere Frage.
 - Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.
-- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.
-- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.
+- Darüber hinaus keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (README.md, git log, gh pr list, gh issue list; CLAUDE.md hat er schon). Er ändert nichts.
+- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen und jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer). Was außerhalb des Repositorys liegt (Bibliotheken, APIs, Modelle, Versionen), soll er in der Dokumentation oder im Web nachsehen statt aus dem Gedächtnis zu antworten. Er soll offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.
+- Nachfragen kann er nicht: Er soll die Annahmen nennen, die er treffen musste, und die offene Frage, die sein Urteil am ehesten ändern würde.
 
-Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.</pre>
-  <p class="note">Der Knopf für das, was zählt: eine Entscheidung, die schwer rückgängig zu machen ist, ein Plan, an dem viel hängt, ein Review, das halten muss, eine Frage, an der die Arbeit hängt. Für den Alltag bleibt die Opus-Meinung. Fable ändert nichts.</p>
+Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst. Kannst du seine offene Frage aus unserem Gespräch beantworten, schick ihm die Antwort, damit er sein Urteil daran prüft, und gib seine Ergänzung ebenso unverändert wieder; sonst stell sie mir.</pre>
+  <p class="note">Der Knopf für das, was zählt: eine Entscheidung, die schwer rückgängig zu machen ist, ein Plan, an dem viel hängt, ein Review, das halten muss, eine Frage, an der die Arbeit hängt. Für den Alltag bleibt die Opus-Meinung. Fable läuft mit Effort xhigh, bekommt deine Vorgaben im Wortlaut und ändert nichts.</p>
 </article>
 
 <article class="card" id="meinung">
@@ -122,12 +124,12 @@ Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du ander
   </header>
   <pre class="prompt" id="p-review">Bring die Änderungen in „<span class="slot">{Projekt}</span>“ bis zum Pull Request: erst prüfen, dann committen, dann den PR öffnen.
 
-1. Review: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist (git status, git diff, bei Bedarf der code-review-Skill). Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was du gefunden und geändert hast.
+1. Review: Lass prüfen, was seit dem Abzweig vom Basis-Branch geändert ist, und zwar unabhängig: Starte mit dem Agent-Tool einen Subagenten (subagent_type general-purpose), der nur den Ordner, den Branch, den Basis-Branch und den Zweck der Änderung bekommt (nicht committete Änderungen gehören dazu), nicht unser Gespräch und nicht deine Einschätzung; wer den Code geschrieben hat, übersieht die eigenen Fehler am leichtesten. Er belegt jeden Befund mit einer Stelle und ändert nichts. Prüf seine Befunde nach. Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was gefunden wurde und was du geändert hast.
 2. Commit: Fasse zusammen, was zusammengehört, mit Nachrichten in der Art der letzten Commits. Nimm nur Dateien dieser Arbeit mit, keine Nebenprodukte und keine Geheimnisse.
 3. PR: Pushe den Branch (nie auf den Basis-Branch, nie mit force) und öffne einen Pull Request dagegen, mit einer Beschreibung, die sagt, was sich ändert, warum und was geprüft ist. Mergen tust du nicht.
 
 Wenn einer der Schritte nicht geht (Tests rot, nichts zu committen, kein Remote, ein Befund, der meine Entscheidung braucht), halte an und sag mir, woran es liegt, statt es zu umgehen. Am Ende nennst du mir den Link zum PR.</pre>
-  <p class="note">Gemergt wird nicht, auf den Basis-Branch wird nicht gepusht, nie mit force. Geht ein Schritt nicht, hält die Session an.</p>
+  <p class="note">Das Review macht ein Subagent, der euer Gespräch nicht kennt. Gemergt wird nicht, auf den Basis-Branch wird nicht gepusht, nie mit force. Geht ein Schritt nicht, hält die Session an.</p>
 </article>
 
 <article class="card" id="handoff">

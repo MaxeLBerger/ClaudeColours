@@ -2722,7 +2722,8 @@ test('the Fable prompt is for what matters: the matter and why it matters, no ow
   const prompt = fablePrompt('Beta')
   expect(prompt).toContain('„Beta“')
   expect(prompt).toContain('Das hier ist wichtig, hol Fable dazu')
-  expect(prompt).toContain('subagent_type general-purpose, model fable')
+  // A subagent on another model does not take the session's effort, so the prompt sets it.
+  expect(prompt).toContain('subagent_type general-purpose, model fable, effort xhigh')
   expect(prompt).not.toMatch(/opus/i)
   // A second opinion, a thorough review or a question the work is stuck on; the session decides which.
   expect(prompt).toContain('einer Entscheidung, die schwer rückgängig zu machen ist')
@@ -2737,6 +2738,20 @@ test('the Fable prompt is for what matters: the matter and why it matters, no ow
   expect(prompt).toContain('der Sache auf den Grund gehen')
   expect(prompt).toContain('unverändert wieder')
   expect(prompt).not.toMatch(/Höchstens|\d+ Zeilen|zusätzlich lesen|Nächstes ansteht/)
+  // What lives only in the conversation goes along in the person's words, the session's view does not.
+  expect(prompt).toContain('meine Vorgaben mit, so nah an meinem Wortlaut wie möglich')
+  // Only the person's dropped paths: the session's would carry its own conclusion.
+  expect(prompt).toContain('Wege, die ich verworfen habe, mit meinem Grund')
+  // A review runs before a commit, so the uncommitted changes belong to it.
+  expect(prompt).toContain('nicht committete Änderungen eingeschlossen')
+  expect(prompt.indexOf('meine Vorgaben')).toBeLessThan(prompt.indexOf('nicht deine eigene Schlussfolgerung'))
+  // Facts outside the repository are looked up, not recalled.
+  expect(prompt).toContain('statt aus dem Gedächtnis')
+  // It cannot ask back: it names its assumptions and the open question, which the session answers or passes on.
+  expect(prompt).toContain('Nachfragen kann er nicht')
+  expect(prompt).toContain('die offene Frage, die sein Urteil am ehesten ändern würde')
+  expect(prompt).toContain('schick ihm die Antwort, damit er sein Urteil daran prüft')
+  expect(prompt).toContain('sonst stell sie mir')
   // The Opus opinion stays the everyday button.
   expect(meinungPrompt('Beta')).toContain('model opus')
 })
@@ -2769,6 +2784,13 @@ test('the review prompt takes the work to the pull request and stops short of me
   // Review first, then commit, then the pull request.
   expect(prompt.indexOf('1. Review')).toBeLessThan(prompt.indexOf('2. Commit'))
   expect(prompt.indexOf('2. Commit')).toBeLessThan(prompt.indexOf('3. PR'))
+  // The review is independent: a subagent without the conversation or the session's view, checked after.
+  expect(prompt).toContain('subagent_type general-purpose')
+  expect(prompt).toContain('nicht unser Gespräch und nicht deine Einschätzung')
+  // The button runs before the commit, so the reviewer must look at the uncommitted changes too.
+  expect(prompt).toContain('nicht committete Änderungen gehören dazu')
+  expect(prompt.indexOf('Subagenten')).toBeLessThan(prompt.indexOf('2. Commit'))
+  expect(prompt).toContain('Prüf seine Befunde nach')
   expect(prompt).toContain('Behebe echte Befunde')
   expect(prompt).toContain('nie mit force')
   expect(prompt).toContain('Mergen tust du nicht')
