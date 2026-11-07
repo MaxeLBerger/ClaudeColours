@@ -204,6 +204,63 @@ Grenzen: nichts pushen, nichts mergen, keine Tests löschen oder abschwächen. L
 Grenzen: kein docker compose down mit -v, keine Volumes oder Daten löschen, keine Datenbank zurücksetzen, keine Container anfassen, die nicht zu diesem Stack gehören. Bleibt ein Dienst rot oder passt der Stand nicht, sag mir, was du siehst, statt weiterzubasteln. Am Ende: welche Container laufen, auf welchem Stand, und was dir aufgefallen ist.</pre>
   <p class="note">Bei etwas Live-Scharfem hält die Session an. Kein down -v, keine Volumes gelöscht, keine fremden Container angefasst.</p>
 </article>
+<article class="card" id="repair-ui">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M9 21h6M12 18v3"/></svg>
+    <div class="titles">
+      <h2>UI auf Studio-Niveau</h2>
+      <p class="does">Startet eine neue Session, die die Oberfläche prüft, ein Playbook schreibt und es nach deinem Ja mit Workern umsetzt.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-repair-ui" id="copy-repair-ui">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-repair-ui">Starte für „<span class="slot">{Projekt}</span>“ eine neue Session in einem eigenen Worktree, ohne diesen Gesprächsverlauf mitzugeben, mit diesem Auftrag: Bring die Oberfläche mit allem, was dazugehört, auf die Qualität eines AAA-Entwicklerstudios. Dass ich den Knopf gedrückt habe, gilt als Freigabe für die Schritte 1 bis 3; Schritt 4 beginnt erst nach meinem Ja.
+
+1. Audit, nur lesen: Lass mehrere günstige Agenten (Sonnet oder Haiku) parallel je eine Seite der Sache prüfen: Screenshots jeder Seite bei 390 und 1440 px (mit Playwright; Skills und Skripte des Projekts zuerst), Abstände und Ausrichtung, Design-Tokens und Brüche im Stil, Leer-, Lade- und Fehlerzustände, Tastatur und Barrierefreiheit (axe), Bewegung und Performance. Erkenne selbst, was für dieses Projekt zählt (Web-App, Spiel mit HUD und Inventar, Desktop-Programm). Sie ändern nichts.
+2. Playbook: Aus den Befunden schreibt ein stärkeres Modell (Opus, bei großen Umbauten Fable) docs/playbook-ui.md: die Befunde nach Gewicht, die Maßnahmen je mit Prüfkriterium, Reihenfolge, Risiko und Größe. Leitregel: nichts wird schlechter als jetzt. Miss vorher, was sich messen lässt, und schreib auf, wie du nachher vergleichst. Zuerst ein Design-System (Tokens, Komponenten), dann Seite für Seite. Für die wichtigsten Seiten legst du vorher Mockup-Varianten (A, B, C) als Bilder vor, aus denen ich wähle.
+3. Freigabe: Gib mir das Playbook als Zusammenfassung, mit einer Kostenschätzung (Worker mal Modell) und der Liste dessen, was angefasst wird, und stell mir eine Ja/Nein-Frage, ob umgesetzt werden soll. Bis zu meinem Ja ändert sich am Code nichts.
+4. Umsetzung: Nach meinem Ja arbeite das Playbook Schritt für Schritt mit Workern ab (Haiku, Sonnet oder Opus nach der Größe des Schritts): ein Branch und ein PR je Schritt, mit Review und Tests. Am Ende läuft die volle Prüfung des Projekts, und du gibst mir einen kurzen Bericht. Jeder PR zeigt Vorher-nachher-Screenshots.
+
+Grenzen: kein Push auf den Hauptzweig, kein Force-Push, nichts mergen, keine Daten oder Volumes löschen, keine Major-Updates ohne Tests. Wo Geld im Spiel ist (Handel, Budget, Orders), läuft vor dem PR ein Risiko-Review. Was unklar bleibt oder meine Entscheidung braucht, wird ein Issue oder eine Frage an mich, kein Raten. Kannst du keine neue Session starten (etwa im Terminal oder ohne das Werkzeug dafür), sag es mir und hör auf, statt den Auftrag in dieser Session auszuführen. Am Ende eine kurze Liste: was gemacht ist, was offen blieb.</pre>
+  <p class="note">Audit, Playbook und Freigabe gelten mit dem Klick, gebaut wird erst nach deinem Ja. Kein Push auf den Hauptzweig, nichts gemergt, nichts gelöscht.</p>
+</article>
+<article class="card" id="repair-repo">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg>
+    <div class="titles">
+      <h2>Repo wieder gesund machen</h2>
+      <p class="does">Startet eine neue Session, die das Repository wie ein Doctor, ein Code-Review und eine Repo-Hygiene prüft und es nach deinem Ja abarbeitet.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-repair-repo" id="copy-repair-repo">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-repair-repo">Starte für „<span class="slot">{Projekt}</span>“ eine neue Session in einem eigenen Worktree, ohne diesen Gesprächsverlauf mitzugeben, mit diesem Auftrag: Bring dieses Repository auf den nächsten Stand, wie ein Doctor, ein gründliches Code-Review und eine Repo-Hygiene zusammen. Dass ich den Knopf gedrückt habe, gilt als Freigabe für die Schritte 1 bis 3; Schritt 4 beginnt erst nach meinem Ja.
+
+1. Audit, nur lesen: Lass mehrere günstige Agenten (Sonnet oder Haiku) parallel je eine Seite der Sache prüfen: läuft es aus einem sauberen Clone (Setup, Build, Start); stimmen README und CLAUDE.md noch; Abhängigkeiten (veraltet, verwundbar, ungenutzt); toter Code, Duplikate, Struktur und zu große Dateien; Testlücken auf den kritischen Pfaden und flackernde Tests; Lint, Typen und Format; die CI (Dauer, Kosten, Rechte, Geheimnisse); Git (alte Branches, große Dateien, .gitignore, Geheimnisse in der Historie); Fehlerbehandlung, Logging und Konfiguration. Sie ändern nichts.
+2. Playbook: Aus den Befunden schreibt ein stärkeres Modell (Opus, bei großen Umbauten Fable) docs/playbook-repo.md: die Befunde nach Gewicht, die Maßnahmen je mit Prüfkriterium, Reihenfolge, Risiko und Größe. Leitregel: nichts wird schlechter als jetzt. Miss vorher, was sich messen lässt, und schreib auf, wie du nachher vergleichst. Quick Wins zuerst, je ein PR. Riskantes wird ein Issue. Bei Code, der ohne Tests entstanden ist, schreibst du vor einem Umbau Tests, die das jetzige Verhalten festhalten. Fass die Befunde als Gesundheitsbericht mit einer Note je Dimension zusammen.
+3. Freigabe: Gib mir das Playbook als Zusammenfassung, mit einer Kostenschätzung (Worker mal Modell) und der Liste dessen, was angefasst wird, und stell mir eine Ja/Nein-Frage, ob umgesetzt werden soll. Bis zu meinem Ja ändert sich am Code nichts.
+4. Umsetzung: Nach meinem Ja arbeite das Playbook Schritt für Schritt mit Workern ab (Haiku, Sonnet oder Opus nach der Größe des Schritts): ein Branch und ein PR je Schritt, mit Review und Tests. Am Ende läuft die volle Prüfung des Projekts, und du gibst mir einen kurzen Bericht. Quick Wins gehen zuerst durch.
+
+Grenzen: kein Push auf den Hauptzweig, kein Force-Push, nichts mergen, keine Daten oder Volumes löschen, keine Major-Updates ohne Tests. Wo Geld im Spiel ist (Handel, Budget, Orders), läuft vor dem PR ein Risiko-Review. Was unklar bleibt oder meine Entscheidung braucht, wird ein Issue oder eine Frage an mich, kein Raten. Kannst du keine neue Session starten (etwa im Terminal oder ohne das Werkzeug dafür), sag es mir und hör auf, statt den Auftrag in dieser Session auszuführen. Am Ende eine kurze Liste: was gemacht ist, was offen blieb.</pre>
+  <p class="note">Quick Wins zuerst, Riskantes wird ein Issue. Vor einem Umbau von Code ohne Tests kommen Tests, die das jetzige Verhalten festhalten.</p>
+</article>
+<article class="card" id="upgrade">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="#C8961E" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20V7"/><path d="M6 12l6-6 6 6"/><path d="M5 20h9"/><path d="M19 2v5M16.5 4.5h5"/></svg>
+    <div class="titles">
+      <h2>KI-Upgrade</h2>
+      <p class="does">Startet eine neue Session, die das Projekt mit dem Stand der aktuellen Modelle neu ansieht und Stück für Stück anhebt.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-upgrade" id="copy-upgrade">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-upgrade">Starte für „<span class="slot">{Projekt}</span>“ eine neue Session in einem eigenen Worktree, ohne diesen Gesprächsverlauf mitzugeben, mit diesem Auftrag: Hebe dieses Projekt Stück für Stück auf das höchste Niveau, das die aktuellen Modelle möglich machen. Lies zuerst docs/ai-upgrade.md, falls es die Datei gibt (womit und wann zuletzt hochgestuft wurde), und mach nur den Unterschied; ohne sie fängst du bei null an. Das gilt auch, wenn es dasselbe Modell ist wie beim letzten Mal. Dass ich den Knopf gedrückt habe, gilt als Freigabe für die Schritte 1 bis 3; Schritt 4 beginnt erst nach meinem Ja.
+
+1. Audit, nur lesen: Lass mehrere günstige Agenten (Sonnet oder Haiku) parallel je eine Seite der Sache prüfen: Werkzeuge: CLAUDE.md, Skills, Hooks und Agents des Projekts: Behelfe für schwächere Modelle, Prompts mit Längengrenzen oder festen Gliederungen, Stellen, an denen das Projekt selbst ein Modell aufruft. Repo: läuft es aus einem sauberen Clone (Setup, Build, Start); stimmen README und CLAUDE.md noch; Abhängigkeiten (veraltet, verwundbar, ungenutzt); toter Code, Duplikate, Struktur und zu große Dateien; Testlücken auf den kritischen Pfaden und flackernde Tests; Lint, Typen und Format; die CI (Dauer, Kosten, Rechte, Geheimnisse); Git (alte Branches, große Dateien, .gitignore, Geheimnisse in der Historie); Fehlerbehandlung, Logging und Konfiguration. UI: Screenshots jeder Seite bei 390 und 1440 px (mit Playwright; Skills und Skripte des Projekts zuerst), Abstände und Ausrichtung, Design-Tokens und Brüche im Stil, Leer-, Lade- und Fehlerzustände, Tastatur und Barrierefreiheit (axe), Bewegung und Performance. Erkenne selbst, was für dieses Projekt zählt (Web-App, Spiel mit HUD und Inventar, Desktop-Programm). Ehrgeiz: Sieh das Repository mit frischem Blick an, nach allem, was früher zu schwer oder zu teuer war: größere Umbauten, fehlende Tests, Architektur, Performance. Sie ändern nichts.
+2. Playbook: Aus den Befunden schreibt ein stärkeres Modell (Opus, bei großen Umbauten Fable) docs/playbook-upgrade.md: die Befunde nach Gewicht, die Maßnahmen je mit Prüfkriterium, Reihenfolge, Risiko und Größe. Leitregel: nichts wird schlechter als jetzt. Miss vorher, was sich messen lässt, und schreib auf, wie du nachher vergleichst. Quick Wins zuerst, je ein PR. Riskantes wird ein Issue. Bei Code, der ohne Tests entstanden ist, schreibst du vor einem Umbau Tests, die das jetzige Verhalten festhalten. Zuerst ein Design-System (Tokens, Komponenten), dann Seite für Seite. Für die wichtigsten Seiten legst du vorher Mockup-Varianten (A, B, C) als Bilder vor, aus denen ich wähle. Ruft das Projekt selbst ein Modell auf, stell nie eine Modell-ID ohne Messung um; leg stattdessen eine Messung mit Budget an oder ein Issue.
+3. Freigabe: Gib mir das Playbook als Zusammenfassung, mit einer Kostenschätzung (Worker mal Modell) und der Liste dessen, was angefasst wird, und stell mir eine Ja/Nein-Frage, ob umgesetzt werden soll. Bis zu meinem Ja ändert sich am Code nichts.
+4. Umsetzung: Nach meinem Ja arbeite das Playbook Schritt für Schritt mit Workern ab (Haiku, Sonnet oder Opus nach der Größe des Schritts): ein Branch und ein PR je Schritt, mit Review und Tests. Am Ende läuft die volle Prüfung des Projekts, und du gibst mir einen kurzen Bericht. Halte zum Schluss in docs/ai-upgrade.md Datum, Modell, Umfang und das Playbook fest, damit der nächste Lauf nur den Unterschied macht.
+
+Grenzen: kein Push auf den Hauptzweig, kein Force-Push, nichts mergen, keine Daten oder Volumes löschen, keine Major-Updates ohne Tests. Wo Geld im Spiel ist (Handel, Budget, Orders), läuft vor dem PR ein Risiko-Review. Was unklar bleibt oder meine Entscheidung braucht, wird ein Issue oder eine Frage an mich, kein Raten. Kannst du keine neue Session starten (etwa im Terminal oder ohne das Werkzeug dafür), sag es mir und hör auf, statt den Auftrag in dieser Session auszuführen. Am Ende eine kurze Liste: was gemacht ist, was offen blieb.</pre>
+  <p class="note">Der Knopf deckt UI, Repo und Werkzeuge ab. Liest docs/ai-upgrade.md zuerst und schreibt es fort. Eine Modell-ID im Projekt wird nie ohne Messung umgestellt.</p>
+</article>
   <p class="foot">Die Texte nennen Ziele und Grenzen, keine feste Gliederung. Was die Session daraus macht, hängt vom Gespräch ab.</p>
 </main>
 <script>

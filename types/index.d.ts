@@ -43,6 +43,8 @@ export type ProjektfarbenView = {
   satz: string
   /** True while the band shows the color buttons. */
   isPicking: boolean
+  /** True while the repair icon is open: the three repair entries stand where the counts stand. */
+  isRepair: boolean
   /** True when the person hid the band (kept across sessions in the store). */
   isHidden: boolean
   /** True where the folder holds a compose file: the band then shows the stack rebuild. */

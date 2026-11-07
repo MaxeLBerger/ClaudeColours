@@ -56,6 +56,10 @@ import {
   promptsMarkdown,
   pruefenPrompt,
   stackPrompt,
+  repairRepoPrompt,
+  repairUiPrompt,
+  REPAIR_MENU_SVG,
+  upgradePrompt,
   mergePrs,
   modusLabel,
   nameBudget,
@@ -132,6 +136,7 @@ const EMPTY: ProjektfarbenView = {
   bramble: null,
   satz: BUNT.id,
   isPicking: false,
+  isRepair: false,
   isHidden: false,
   hasStack: false,
   ci: null,
@@ -300,7 +305,7 @@ async function afterTurn($: Engine, grund: Grund, answer: string): Promise<void>
   // with gets its Yes and No buttons; an aborted or failed turn asks nothing.
   const frage = grund === 'answer' ? frageOf(answer) : null
   void update($, view, v =>
-    v.sent.length === 0 && frageNow(v) === frage ? v : { ...v, sent: [], frage },
+    v.sent.length === 0 && !v.isRepair && frageNow(v) === frage ? v : { ...v, sent: [], frage, isRepair: false },
   ).catch(() => undefined)
   // Asked first and stored on its own, so a band that cannot be refreshed still leaves the stand.
   const self = callJson($, 'get_session', { session_id: 'self' }).then(raw => toRow(raw, 'self'))
@@ -814,6 +819,15 @@ async function bitteSenden(
   } finally {
     sending.delete(action.key)
   }
+}
+
+/**
+ * The repair icon opens the three entries where the counts stand, and a second press closes them. It is one
+ * functional update, so a double click cannot read "closed" twice. Nothing closes it by a timer: the cross, an
+ * entry, the end of the session's next turn and the settings icon do.
+ */
+async function toggleRepair($: Engine): Promise<void> {
+  await update($, view, v => ({ ...v, isRepair: !v.isRepair, isPicking: false }))
 }
 
 /** The actions being sent right now; taken before anything is awaited, so a double click gets only one through. */
@@ -1592,6 +1606,13 @@ export const register: Register = on => {
         press: () => bitteSenden($, { key: 'merge', label: 'Merge', failure: 'Merge und Issues wurden nicht gestartet' }, mergePrompt),
       },
       {
+        key: 'repair',
+        hint: state.isRepair ? 'Reparieren schließen' : 'Reparieren: UI, Repo, Upgrade',
+        icon: state.isRepair ? '✕' : '⚒',
+        svg: state.isRepair ? REPAIR_MENU_SVG.schliessen : ICON_SVG.repair,
+        press: () => toggleRepair($),
+      },
+      {
         key: 'uebersicht',
         hint: 'Übersicht',
         icon: '☰',
@@ -1610,7 +1631,7 @@ export const register: Register = on => {
         press: async () => {
           // The picker offers the colors of the set in the store, not of the last turn's reading.
           const current = await satzNow($)
-          await update($, view, v => ({ ...v, satz: current.id, isPicking: true }))
+          await update($, view, v => ({ ...v, satz: current.id, isPicking: true, isRepair: false }))
         },
       },
       // The rebuild needs a compose file in the folder.
@@ -1695,8 +1716,53 @@ export const register: Register = on => {
         </Box>
       )
     }
-    const sessionActions = defs.filter(def => !RIGHT_KEYS.includes(def.key)).map(draw)
-    const settingActions = defs.filter(def => RIGHT_KEYS.includes(def.key)).map(draw)
+    // The three repair entries, each a new session with an audit and a playbook, drawn by `draw` like every
+    // other icon (same field, size and gray, the upgrade in gold, its own hover card). While the repair icon
+    // is open they stand where `PRs:` and `Issues:` stand, in the same row, so the band keeps its one row and
+    // its height and gets no wider (`repairBreite` against `zaehlerBreite`). An entry closes them and goes
+    // through `bitteSenden` (the same toast and lock); the work only starts building after the person's yes
+    // in that session. The upgrade covers the tools, the repo and the UI. The hints stay short: a card opens to
+    // the side and must stay inside the band in the narrowest layouts.
+    const closeRepair = (): Promise<void> => update($, view, v => ({ ...v, isRepair: false }))
+    const repairDefs: Def[] = [
+      {
+        key: 'repair-ui',
+        hint: 'UI auf Studio-Niveau',
+        icon: '▭',
+        svg: REPAIR_MENU_SVG['repair-ui'],
+        press: async () => {
+          await closeRepair()
+          await bitteSenden($, { key: 'repair-ui', label: 'UI auf Studio-Niveau', failure: 'Die UI-Reparatur wurde nicht gestartet' }, repairUiPrompt)
+        },
+      },
+      {
+        key: 'repair-repo',
+        hint: 'Repo gesund machen',
+        icon: '⌁',
+        svg: REPAIR_MENU_SVG['repair-repo'],
+        press: async () => {
+          await closeRepair()
+          await bitteSenden($, { key: 'repair-repo', label: 'Repo gesund machen', failure: 'Die Repo-Reparatur wurde nicht gestartet' }, repairRepoPrompt)
+        },
+      },
+      {
+        key: 'upgrade',
+        hint: 'KI-Upgrade für UI, Repo, Tools',
+        icon: '⇧',
+        svg: REPAIR_MENU_SVG.upgrade,
+        press: async () => {
+          await closeRepair()
+          await bitteSenden($, { key: 'upgrade', label: 'KI-Upgrade', failure: 'Das KI-Upgrade wurde nicht gestartet' }, upgradePrompt)
+        },
+      },
+    ]
+    const repairEntries = !state.isRepair ? null : (
+      <Box key="repair-leiste" columnGap={ICON_GAP}>
+        {repairDefs.map(def => draw(def))}
+      </Box>
+    )
+    const sessionActions = defs.filter(def => !RIGHT_KEYS.includes(def.key)).map(def => draw(def))
+    const settingActions = defs.filter(def => RIGHT_KEYS.includes(def.key)).map(def => draw(def))
     const repoUrl = state.repoUrl
     // With a Bramble build the name is a Button that opens the repository there: a Link is opened by
     // the surface, in the system's browser. The block stays beside it, since a Button drops its color.
@@ -1765,8 +1831,12 @@ export const register: Register = on => {
           <Box columnGap={1} justifyContent="space-between">
             <Box columnGap={1}>
               {project}
-              {prs}
-              {issues}
+              {repairEntries ?? (
+                <>
+                  {prs}
+                  {issues}
+                </>
+              )}
             </Box>
             {!showsGauge ? null : draw(kontextDef(true))}
           </Box>
@@ -1789,8 +1859,12 @@ export const register: Register = on => {
         <Box columnGap={form.gap}>
           {project}
           <Box columnGap={ICON_GAP}>{sessionActions}</Box>
-          {prs}
-          {issues}
+          {repairEntries ?? (
+            <>
+              {prs}
+              {issues}
+            </>
+          )}
         </Box>
         <Box columnGap={ICON_GAP}>
           {!showsGauge ? null : draw(kontextDef(form.hasPercent))}
