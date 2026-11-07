@@ -1,6 +1,6 @@
 {
   "name": "max-mods",
-  "description": "ClaudeColours: Farbpunkte pro Projekt für die Session-Liste der Claude-Desktop-App.",
+  "description": "ClaudeColours: Farbe pro Projekt, ein Aktionsband mit Review, Merge, Prüfen und Reparieren und der Stand der CI für die Claude-Desktop-App.",
   "owner": { "name": "MaxeLBerger" },
   "plugins": [{ "name": "projektfarben", "source": "./" }]
 }

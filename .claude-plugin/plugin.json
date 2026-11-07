@@ -1,7 +1,8 @@
 {
   "name": "projektfarben",
-  "version": "0.19.1",
-  "description": "Gibt jedem Projekt eine Farbe: ein Farbpunkt vor jedem Session-Namen in der Seitenleiste, ein farbiges Band im Chat und /projektfarbe zum Aendern. Der Schlafmodus tauscht die bunten Farben gegen ruhige Formen und gedaempfte Toene.",
+  "version": "0.19.2",
+  "description": "Gibt jedem Projekt eine Farbe: ein Farbpunkt vor jedem Session-Namen in der Seitenleiste, dazu ein Band über dem Eingabefeld mit Ein-Klick-Aktionen (Review, Merge, Prüfen, Reparieren), PR-, Issue- und CI-Anzeige und /projektfarbe zum Ändern. Der Schlafmodus tauscht die bunten Farben gegen ruhige Formen und gedämpfte Töne.",
+  "keywords": ["projektfarben", "projekt", "farbe", "band", "review", "merge", "ci", "repair"],
   "author": { "name": "MaxeLBerger", "url": "https://github.com/MaxeLBerger" },
   "homepage": "https://github.com/MaxeLBerger/ClaudeColours",
   "repository": "https://github.com/MaxeLBerger/ClaudeColours",
