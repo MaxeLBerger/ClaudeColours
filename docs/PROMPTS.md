@@ -8,20 +8,24 @@ Holt Fable dazu, wenn es wichtig ist: eine zweite Meinung zu einer Entscheidung 
 
 Prüfen:
 - Wie bei der Opus-Meinung: der Subagent bekommt die Sache selbst und warum sie wichtig ist, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.
-- Das Modell ist der Alias `fable`.
+- Anders als dort gehen die Vorgaben der Person mit, nah an ihrem Wortlaut, samt der Wege, die sie verworfen hat, mit ihrem Grund: sie stehen nur im Gespräch. Wege, die die Session verworfen hat, bleiben draußen.
+- Das Modell ist der Alias `fable`, mit `effort xhigh`: ein Subagent auf einem anderen Modell übernimmt die Effort-Stufe der Session nicht.
+- Fakten außerhalb des Repositorys schlägt er nach; da er nicht nachfragen kann, nennt er seine Annahmen und die offene Frage, und die Session beantwortet sie oder stellt sie der Person.
 - Er ändert nichts; Fixes, Commit und PR bleiben beim Knopf Review + PR.
 - Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.
 
 ```text
 Das hier ist wichtig, hol Fable dazu: zu dem, worum es in diesem Gespräch gerade geht, meiner letzten Frage, dem Plan, den wir haben, einer Entscheidung, die schwer rückgängig zu machen ist, oder dem Stand von „{Projekt}“; als zweite Meinung, als gründliches Review der Änderungen oder als Antwort auf eine Frage, an der wir hängen. Du entscheidest, was gemeint ist.
 
-Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:
-- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Sag ihm, warum es wichtig ist und was davon abhängt.
+Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable, effort xhigh) und baue seinen Auftrag selbst zusammen:
+- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht, Fehlermeldungen und Messwerte unverändert; für ein Review den Ordner, den Branch und seinen Basis-Branch, den Diff holt er sich selbst, nicht committete Änderungen eingeschlossen. Sag ihm, warum es wichtig ist und was davon abhängt.
+- Gib ihm meine Vorgaben mit, so nah an meinem Wortlaut wie möglich: was ich will und was nicht, Grenzen, die ich gesetzt habe, und Wege, die ich verworfen habe, mit meinem Grund. Das steht nur in diesem Gespräch; ohne es beantwortet er eine andere Frage.
 - Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.
-- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.
-- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.
+- Darüber hinaus keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (README.md, git log, gh pr list, gh issue list; CLAUDE.md hat er schon). Er ändert nichts.
+- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen und jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer). Was außerhalb des Repositorys liegt (Bibliotheken, APIs, Modelle, Versionen), soll er in der Dokumentation oder im Web nachsehen statt aus dem Gedächtnis zu antworten. Er soll offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.
+- Nachfragen kann er nicht: Er soll die Annahmen nennen, die er treffen musste, und die offene Frage, die sein Urteil am ehesten ändern würde.
 
-Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.
+Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst. Kannst du seine offene Frage aus unserem Gespräch beantworten, schick ihm die Antwort, damit er sein Urteil daran prüft, und gib seine Ergänzung ebenso unverändert wieder; sonst stell sie mir.
 ```
 
 ## Opus-Meinung (`meinung`)
@@ -51,13 +55,14 @@ Prüft die Änderungen, committet sie und öffnet den Pull Request.
 
 Prüfen:
 - Die Reihenfolge ist Review, Commit, PR.
+- Das Review macht ein Subagent ohne Gesprächsverlauf und ohne die Einschätzung der Session, über Ordner, Branch und Basis-Branch samt nicht committeter Änderungen; die Session prüft seine Befunde nach und behebt die echten.
 - Kein Merge, kein Push auf den Basis-Branch, nie mit force.
 - Geht ein Schritt nicht, hält die Session an und sagt, woran es liegt.
 
 ```text
 Bring die Änderungen in „{Projekt}“ bis zum Pull Request: erst prüfen, dann committen, dann den PR öffnen.
 
-1. Review: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist (git status, git diff, bei Bedarf der code-review-Skill). Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was du gefunden und geändert hast.
+1. Review: Lass prüfen, was seit dem Abzweig vom Basis-Branch geändert ist, und zwar unabhängig: Starte mit dem Agent-Tool einen Subagenten (subagent_type general-purpose), der nur den Ordner, den Branch, den Basis-Branch und den Zweck der Änderung bekommt (nicht committete Änderungen gehören dazu), nicht unser Gespräch und nicht deine Einschätzung; wer den Code geschrieben hat, übersieht die eigenen Fehler am leichtesten. Er belegt jeden Befund mit einer Stelle und ändert nichts. Prüf seine Befunde nach. Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was gefunden wurde und was du geändert hast.
 2. Commit: Fasse zusammen, was zusammengehört, mit Nachrichten in der Art der letzten Commits. Nimm nur Dateien dieser Arbeit mit, keine Nebenprodukte und keine Geheimnisse.
 3. PR: Pushe den Branch (nie auf den Basis-Branch, nie mit force) und öffne einen Pull Request dagegen, mit einer Beschreibung, die sagt, was sich ändert, warum und was geprüft ist. Mergen tust du nicht.
 

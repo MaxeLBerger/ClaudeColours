@@ -166,18 +166,30 @@ export function meinungPrompt(projekt: string): string {
  * is stuck on). Built like `meinungPrompt`: the session decides what is meant and hands the subagent the
  * matter itself and why it matters, never its own conclusion. The subagent goes to the bottom of it and
  * changes nothing.
+ *
+ * What this adds over the opinion prompt, each against a loss measured or documented for delegation:
+ * the effort is set (a subagent on another model than the session does not take the session's effort,
+ * and Fable 5.1's gains are largest at the higher levels, per Anthropic's prompting guide); the person's
+ * own requirements and the paths they dropped go along in their words (they live only in the
+ * conversation, and a brief without them asks a different question; the paths the session dropped stay
+ * out, as they are its conclusion); facts outside the repository are looked up, not recalled; and since
+ * the subagent cannot ask back, it names its assumptions and the open question, which the session
+ * answers from the conversation (sending the answer back so the verdict is checked against it) or puts
+ * to the person. A review covers uncommitted changes too: the button is pressed before a commit.
  */
 export function fablePrompt(projekt: string): string {
   return [
     `Das hier ist wichtig, hol Fable dazu: zu dem, worum es in diesem Gespräch gerade geht, meiner letzten Frage, dem Plan, den wir haben, einer Entscheidung, die schwer rückgängig zu machen ist, oder dem Stand von „${projekt}“; als zweite Meinung, als gründliches Review der Änderungen oder als Antwort auf eine Frage, an der wir hängen. Du entscheidest, was gemeint ist.`,
     [
-      'Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable) und baue seinen Auftrag selbst zusammen:',
-      '- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht; für ein Review den Branch und seinen Basis-Branch, den Diff holt er sich selbst. Sag ihm, warum es wichtig ist und was davon abhängt.',
+      'Starte dafür mit dem Agent-Tool einen Subagenten (subagent_type general-purpose, model fable, effort xhigh) und baue seinen Auftrag selbst zusammen:',
+      '- Gib ihm die Sache selbst mit: die Frage, den Plan im Wortlaut, die Entscheidung mit ihren Optionen oder die Dateien und Stellen, um die es geht, Fehlermeldungen und Messwerte unverändert; für ein Review den Ordner, den Branch und seinen Basis-Branch, den Diff holt er sich selbst, nicht committete Änderungen eingeschlossen. Sag ihm, warum es wichtig ist und was davon abhängt.',
+      '- Gib ihm meine Vorgaben mit, so nah an meinem Wortlaut wie möglich: was ich will und was nicht, Grenzen, die ich gesetzt habe, und Wege, die ich verworfen habe, mit meinem Grund. Das steht nur in diesem Gespräch; ohne es beantwortet er eine andere Frage.',
       '- Gib ihm nicht deine eigene Schlussfolgerung oder Empfehlung mit, sonst urteilt er nur nach; es sei denn, genau die soll er prüfen.',
-      '- Nimm nur auf, was er wirklich braucht: keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (CLAUDE.md, README.md, git log, gh pr list, gh issue list). Er ändert nichts.',
-      '- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen, jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer) und offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.',
+      '- Darüber hinaus keinen Gesprächsverlauf, keine Nebenpfade. Alles Weitere soll er selbst im Repository nachsehen (README.md, git log, gh pr list, gh issue list; CLAUDE.md hat er schon). Er ändert nichts.',
+      '- Er soll der Sache auf den Grund gehen, das Entscheidende zuerst sagen und jede Aussage mit einer Stelle belegen (Datei, Commit oder Nummer). Was außerhalb des Repositorys liegt (Bibliotheken, APIs, Modelle, Versionen), soll er in der Dokumentation oder im Web nachsehen statt aus dem Gedächtnis zu antworten. Er soll offen sagen, wo er anderer Meinung ist, wo er unsicher ist und was er an meiner Stelle tun würde.',
+      '- Nachfragen kann er nicht: Er soll die Annahmen nennen, die er treffen musste, und die offene Frage, die sein Urteil am ehesten ändern würde.',
     ].join('\n'),
-    'Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst.',
+    'Gib seine Antwort danach unverändert wieder und sage darunter kurz, wo du anderer Meinung bist und was du übernimmst. Kannst du seine offene Frage aus unserem Gespräch beantworten, schick ihm die Antwort, damit er sein Urteil daran prüft, und gib seine Ergänzung ebenso unverändert wieder; sonst stell sie mir.',
   ].join('\n\n')
 }
 
@@ -186,12 +198,14 @@ export function fablePrompt(projekt: string): string {
  * the pull request. Pressing the button is the go-ahead for those three steps, and for nothing beyond
  * them (no merge, no push to the main branch, no force). Like `meinungPrompt` it states goals and leaves
  * the how to the session, which knows the repository; where a step cannot be done it stops and says why.
+ * The review itself is a subagent's without the conversation or the session's view: the session wrote
+ * the code, and a model rates its own work too kindly.
  */
 export function reviewPrompt(projekt: string): string {
   return [
     `Bring die Änderungen in „${projekt}“ bis zum Pull Request: erst prüfen, dann committen, dann den PR öffnen.`,
     [
-      '1. Review: Sieh dir an, was seit dem Abzweig vom Basis-Branch geändert ist (git status, git diff, bei Bedarf der code-review-Skill). Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was du gefunden und geändert hast.',
+      '1. Review: Lass prüfen, was seit dem Abzweig vom Basis-Branch geändert ist, und zwar unabhängig: Starte mit dem Agent-Tool einen Subagenten (subagent_type general-purpose), der nur den Ordner, den Branch, den Basis-Branch und den Zweck der Änderung bekommt (nicht committete Änderungen gehören dazu), nicht unser Gespräch und nicht deine Einschätzung; wer den Code geschrieben hat, übersieht die eigenen Fehler am leichtesten. Er belegt jeden Befund mit einer Stelle und ändert nichts. Prüf seine Befunde nach. Behebe echte Befunde, bevor es weitergeht, und lass die Tests und Prüfungen des Projekts laufen (siehe CLAUDE.md oder README). Sag mir kurz, was gefunden wurde und was du geändert hast.',
       '2. Commit: Fasse zusammen, was zusammengehört, mit Nachrichten in der Art der letzten Commits. Nimm nur Dateien dieser Arbeit mit, keine Nebenprodukte und keine Geheimnisse.',
       '3. PR: Pushe den Branch (nie auf den Basis-Branch, nie mit force) und öffne einen Pull Request dagegen, mit einer Beschreibung, die sagt, was sich ändert, warum und was geprüft ist. Mergen tust du nicht.',
     ].join('\n'),
@@ -371,7 +385,9 @@ export const PROMPT_INFO = [
     does: 'Holt Fable dazu, wenn es wichtig ist: eine zweite Meinung zu einer Entscheidung oder einem Plan, ein gründliches Review oder die Antwort auf eine Frage, an der die Arbeit hängt. Für den Alltag bleibt die Opus-Meinung.',
     checks: [
       'Wie bei der Opus-Meinung: der Subagent bekommt die Sache selbst und warum sie wichtig ist, nicht die Schlussfolgerung der Session und keinen Gesprächsverlauf.',
-      'Das Modell ist der Alias `fable`.',
+      'Anders als dort gehen die Vorgaben der Person mit, nah an ihrem Wortlaut, samt der Wege, die sie verworfen hat, mit ihrem Grund: sie stehen nur im Gespräch. Wege, die die Session verworfen hat, bleiben draußen.',
+      'Das Modell ist der Alias `fable`, mit `effort xhigh`: ein Subagent auf einem anderen Modell übernimmt die Effort-Stufe der Session nicht.',
+      'Fakten außerhalb des Repositorys schlägt er nach; da er nicht nachfragen kann, nennt er seine Annahmen und die offene Frage, und die Session beantwortet sie oder stellt sie der Person.',
       'Er ändert nichts; Fixes, Commit und PR bleiben beim Knopf Review + PR.',
       'Keine Zeilengrenze, keine feste Gliederung, kein Leseverbot.',
     ],
@@ -394,6 +410,7 @@ export const PROMPT_INFO = [
     does: 'Prüft die Änderungen, committet sie und öffnet den Pull Request.',
     checks: [
       'Die Reihenfolge ist Review, Commit, PR.',
+      'Das Review macht ein Subagent ohne Gesprächsverlauf und ohne die Einschätzung der Session, über Ordner, Branch und Basis-Branch samt nicht committeter Änderungen; die Session prüft seine Befunde nach und behebt die echten.',
       'Kein Merge, kein Push auf den Basis-Branch, nie mit force.',
       'Geht ein Schritt nicht, hält die Session an und sagt, woran es liegt.',
     ],

@@ -1,6 +1,6 @@
 # Plan: die Extension schön und dauerhaft vorzeigbar machen
 
-Stand: 2026-11-05. Status: Paket 1 gebaut (Version 0.19.0, in der Vorschau zu prüfen), der Rest ist Plan. Anlass: Die Repair-Karte gefiel nach fünf Vorschau-Runden weiterhin nicht. Grundlage: eine unabhängige Zweitmeinung (Opus, nur gelesen, mit Pixelmessung an beiden Screenshots) und meine eigene Prüfung am Repo.
+Stand: 2026-11-05. Status: Paket 1 gebaut und in der Vorschau abgenommen (0.19.0), Paket 2 (0.19.1) und Paket 3 gebaut, Paket 4 als PR 22 (gestapelt auf PR 21). Offen: Paket 5 (Theme-Prüfung durch dich) und 6 (Entflechten). Anlass: Die Repair-Karte gefiel nach fünf Vorschau-Runden weiterhin nicht. Grundlage: eine unabhängige Zweitmeinung (Opus, nur gelesen, mit Pixelmessung an beiden Screenshots) und meine eigene Prüfung am Repo.
 
 ## 1. Befund
 
@@ -58,9 +58,9 @@ Dateien: `hooks/register.tsx`, `hooks/colors.ts`, `types/index.d.ts`, `hooks/pro
 
 Der Rahmen setzt voraus, dass die Session eine neue Session starten kann (Terminal oder fehlendes Werkzeug: nicht). Ein Satz in `repairPrompt` („kannst du keine neue Session starten, sag es und hör auf“), ein Test, danach `PROMPTS.md` und `prompts.html` neu.
 
-### Paket 3: Zuschnitt von PR 21
+### Paket 3: Zuschnitt von PR 21 (gebaut)
 
-PR 21 enthält Material, das nicht zum Mod gehört: `docs/plans/board-icons/` (Entwürfe der IssueBoard-Symbole) und den Phase-2-Teil des Plans. Beides soll in das IssueBoard-Repo oder auf einen eigenen Branch, damit PR 21 nur den Mod und seinen Plan enthält. Branch und PR-Titel danach zu „Repair im Band“ umbenennen. (Entscheidung offen, siehe Abschnitt 6.)
+Das IssueBoard-Material ist aus PR 21 heraus und liegt auf dem eigenen Branch `claude/issueboard-knoepfe-plan` (`docs/plans/issueboard-knoepfe.md` und `docs/plans/board-icons/`). Der Plan hier heißt jetzt `repair-im-band.md` und beschreibt nur noch den Mod. Branchname und PR-Titel von PR 21 sind angepasst (der Branchname selbst bleibt, ein Umbenennen würde den PR schließen).
 
 ### Paket 4: README, Marketplace und Manifest (eigener PR)
 
@@ -93,7 +93,7 @@ Die Checkliste kommt in CLAUDE.md unter „Previewing a change“, damit sie bei
 ## 5. Reihenfolge
 
 1. Paket 1 und 2 zusammen in PR 21, Vorschau mit Checkliste, dann Merge.
-2. Paket 3 (Zuschnitt) vor dem Merge von PR 21.
+2. Paket 3 (Zuschnitt) ist erledigt.
 3. Paket 4 (README und Marketplace) als eigener PR nach dem Merge.
 4. Paket 5 in der Vorschau von Paket 1 mitprüfen, Korrekturen nach Bedarf.
 5. Paket 6 zuletzt.
@@ -102,7 +102,7 @@ Die Checkliste kommt in CLAUDE.md unter „Previewing a change“, damit sie bei
 
 - **Der Einstieg als Ausklappen in der Zeile** (Abschnitt 2): Ersetzt er dir die Zähler zu sehr, solange er offen ist? Alternative wäre das eigene Panel; das widerspricht allerdings „nur Symbole, Beschreibung beim Hover“.
 - **Selbstschließen nach 30 s entfällt.** Geschlossen wird nur noch per ✕ und Schließwegen.
-- **Zuschnitt von PR 21:** Soll das IssueBoard-Material in das IssueBoard-Repo umziehen oder auf einen eigenen Branch hier?
+- **Das IssueBoard-Material** liegt auf dem Branch `claude/issueboard-knoepfe-plan`; ob es in das IssueBoard-Repo umzieht, entscheidest du später.
 - **Screenshots fürs README:** Sie kommen von dir; wann?
 
 ## 7. Risiken
