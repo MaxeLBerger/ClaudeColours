@@ -186,6 +186,28 @@ const NEW_COLOR = 'suggestion'
 // collapse, and empty Boxes sat a few pixels off the line of the text beside them.
 const NBSP = String.fromCharCode(0xa0)
 
+// The runtime takes a Button's label as a plain string, never as styled <Text> children. A Button
+// that must show a color or bold text is drawn as that Text with a plain Button laid over it, as
+// wide as the text, whose label is blanks of the same width (the way the band's SVG icons do it).
+// biome-ignore lint/suspicious/noExplicitAny: the resolved components are the runtime's own
+type JsxParts = { Box: any; Button: any; Text: any }
+const styledButton = (
+  { Box, Button, Text }: JsxParts,
+  key: string,
+  text: string,
+  textProps: Record<string, unknown>,
+  onPress: () => unknown,
+) => (
+  <Box key={`${key}-text`}>
+    <Text {...textProps}>{text}</Text>
+    <Box position="absolute" top={0} left={0}>
+      <Button key={key} plain onPress={onPress}>
+        {NBSP.repeat(Math.max(1, [...text].length))}
+      </Button>
+    </Box>
+  </Box>
+)
+
 const textOf = (content: readonly McpContentBlock[]): string =>
   content.map(block => (block.type === 'text' ? (block.text ?? '') : '')).join('')
 
@@ -1401,6 +1423,7 @@ export const register: Register = on => {
       return survey ?? next(e)
     }
     const { Box, Button, Link, Text } = $.ui.resolve(e)
+    const parts = { Box, Button, Text }
     const above = <T,>(band: T) =>
       survey === null ? (
         band
@@ -1428,41 +1451,37 @@ export const register: Register = on => {
         <Box flexDirection="column">
           <Text dimColor>Farbe für {state.project}:</Text>
           <Box flexWrap="wrap" columnGap={1}>
-            {satz.farben.map(farbe => (
-              <Button key={`farbe-${farbe.name}`} plain onPress={() => pick(farbe)}>
-                {isCalm ? <Text color={farbe.hex}>{farbe.mark}</Text> : farbe.mark}
-              </Button>
-            ))}
-            <Button
-              key="abbrechen"
-              plain
-              onPress={() => update($, view, v => ({ ...v, isPicking: false }))}
-            >
-              <Text dimColor>abbrechen</Text>
-            </Button>
+            {satz.farben.map(farbe =>
+              isCalm ? (
+                styledButton(parts, `farbe-${farbe.name}`, farbe.mark, { color: farbe.hex }, () => pick(farbe))
+              ) : (
+                <Button key={`farbe-${farbe.name}`} plain onPress={() => pick(farbe)}>
+                  {farbe.mark}
+                </Button>
+              ),
+            )}
+            {styledButton(parts, 'abbrechen', 'abbrechen', { dimColor: true }, () =>
+              update($, view, v => ({ ...v, isPicking: false })),
+            )}
           </Box>
-          <Box columnGap={2} marginTop="lg" flexWrap="wrap">
+          <Box columnGap={2} marginTop={2} flexWrap="wrap">
             <Text dimColor>Modus:</Text>
-            {SAETZE.map(wanted => (
-              <Button key={`modus-${wanted.id}`} plain onPress={() => changeMode(wanted)}>
-                <Text bold={wanted === satz} dimColor={wanted !== satz}>
-                  {modusLabel(wanted)}
-                </Text>
-              </Button>
-            ))}
+            {SAETZE.map(wanted =>
+              styledButton(
+                parts,
+                `modus-${wanted.id}`,
+                modusLabel(wanted),
+                { bold: wanted === satz, dimColor: wanted !== satz },
+                () => changeMode(wanted),
+              ),
+            )}
             <Text dimColor>benennt alle Sessions um</Text>
           </Box>
-          <Box marginTop="lg">
-            <Button
-              key="ausblenden"
-              plain
-              onPress={async () => {
-                await $.store.set('bandAus', true)
-                await update($, view, v => ({ ...v, isPicking: false, isHidden: true }))
-              }}
-            >
-              <Text dimColor>Band ausblenden</Text>
-            </Button>
+          <Box marginTop={2}>
+            {styledButton(parts, 'ausblenden', 'Band ausblenden', { dimColor: true }, async () => {
+              await $.store.set('bandAus', true)
+              await update($, view, v => ({ ...v, isPicking: false, isHidden: true }))
+            })}
           </Box>
         </Box>
       )
@@ -1500,7 +1519,7 @@ export const register: Register = on => {
     const block = isCalm ? (
       <Text color={hex}>{state.mark}</Text>
     ) : (
-      <Text mono backgroundColor={hex}>
+      <Text backgroundColor={hex}>
         {NBSP.repeat(2)}
       </Text>
     )
@@ -1668,9 +1687,14 @@ export const register: Register = on => {
       const width = def.width ?? ICON_BOX
       const badge =
         def.badge === undefined || def.badge === '' ? null : <Text {...(def.tone ?? { dimColor: true })}>{def.badge}</Text>
-      const button = (
+      const button = hasSvg ? (
         <Button key={def.key} plain onPress={def.press}>
-          {hasSvg ? <Text dimColor>{NBSP.repeat(width)}</Text> : <Text {...(def.tone ?? { dimColor: true })}>{def.icon}</Text>}
+          {NBSP.repeat(width)}
+        </Button>
+      ) : (
+        // No Svg to lay a Button over (the terminal): the glyph is the Button's own label.
+        <Button key={def.key} plain dimColor={def.tone === undefined} onPress={def.press}>
+          {def.icon}
         </Button>
       )
 
@@ -1897,6 +1921,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'Pane', requestId: PANEL }, async ($, e) => {
     const { Box, Button, Text } = $.ui.resolve(e)
+    const parts = { Box, Button, Text }
     const state = await read($, panel)
     const satz = await satzNow($)
     const picks = await picksOf($, satz)
@@ -1923,7 +1948,7 @@ export const register: Register = on => {
       return isCalm ? (
         <Text color={farbe.hex}>{farbe.mark}</Text>
       ) : (
-        <Text mono backgroundColor={farbe.hex}>
+        <Text backgroundColor={farbe.hex}>
           {NBSP.repeat(2)}
         </Text>
       )
@@ -1931,7 +1956,7 @@ export const register: Register = on => {
     // A session: a rail in the section's color along both lines; the sign, color, title and the
     // actions on the first, what it waits for and how long ago on the second.
     const zeileBox = (zeile: BereichZeile, withProject: boolean) => (
-      <Box key={`zeile-${zeile.sessionId}`} columnGap={1} marginBottom="sm" paddingLeft={2}>
+      <Box key={`zeile-${zeile.sessionId}`} columnGap={1} marginBottom={1} paddingLeft={2}>
         <Box width={1} backgroundColor={BEREICH_FARBE[bereichOf(zeile)]} />
         <Box flexDirection="column" flexGrow={1}>
           <Box justifyContent="space-between" columnGap={2} flexWrap="wrap">
@@ -1943,16 +1968,16 @@ export const register: Register = on => {
               {withProject && zeile.project !== null ? <Text dimColor>{zeile.project}</Text> : null}
             </Box>
             <Box columnGap={2}>
-              {zeile.link === null ? null : (
-                <Button key={`oeffnen-${zeile.sessionId}`} plain onPress={() => openSession($, zeile)}>
-                  <Text color="suggestion">öffnen ↗</Text>
-                </Button>
-              )}
-              {archiveReason(zeile) === null ? null : (
-                <Button key={`archivieren-${zeile.sessionId}`} plain onPress={() => archive($, zeile)}>
-                  <Text dimColor>archivieren</Text>
-                </Button>
-              )}
+              {zeile.link === null
+                ? null
+                : styledButton(parts, `oeffnen-${zeile.sessionId}`, 'öffnen ↗', { color: 'suggestion' }, () =>
+                    openSession($, zeile),
+                  )}
+              {archiveReason(zeile) === null
+                ? null
+                : styledButton(parts, `archivieren-${zeile.sessionId}`, 'archivieren', { dimColor: true }, () =>
+                    archive($, zeile),
+                  )}
             </Box>
           </Box>
           <Box columnGap={1} paddingLeft={withProject ? 5 : 2}>
@@ -1966,10 +1991,8 @@ export const register: Register = on => {
     )
     // A heading: the fold button, the title in its color, the count.
     const heading = (id: string, titel: unknown, count: number) => (
-      <Box columnGap={1} marginTop="md" marginBottom="sm">
-        <Button key={`falten-${id}`} plain onPress={() => fold(id)}>
-          <Text dimColor>{isFolded(id) ? '▸' : '▾'}</Text>
-        </Button>
+      <Box columnGap={1} marginTop={1} marginBottom={1}>
+        {styledButton(parts, `falten-${id}`, isFolded(id) ? '▸' : '▾', { dimColor: true }, () => fold(id))}
         {titel}
         <Text dimColor>{`${count}`}</Text>
       </Box>
@@ -1979,25 +2002,23 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Box columnGap={2} flexWrap="wrap">
           <Text bold>{isStatus ? 'Nach Status' : 'Nach Projekt'}</Text>
-          <Button key="ansicht" plain onPress={() => update($, panel, p => ({ ...p, ansicht: p.ansicht === 'status' ? 'projekt' : 'status' }))}>
-            <Text color="suggestion">{isStatus ? 'nach Projekt' : 'nach Status'}</Text>
-          </Button>
-          <Button key="aktualisieren" plain onPress={() => loadPanel($, true)}>
-            <Text color="suggestion">{state.isLoading ? 'lädt …' : '↻ aktualisieren'}</Text>
-          </Button>
-          <Button
-            key="schliessen"
-            plain
-            onPress={async () => {
-              await update($, panel, p => ({ ...p, isOpen: false }))
-              await $.ui.close({ id: PANEL })
-            }}
-          >
-            <Text dimColor>schließen</Text>
-          </Button>
+          {styledButton(parts, 'ansicht', isStatus ? 'nach Projekt' : 'nach Status', { color: 'suggestion' }, () =>
+            update($, panel, p => ({ ...p, ansicht: p.ansicht === 'status' ? 'projekt' : 'status' })),
+          )}
+          {styledButton(
+            parts,
+            'aktualisieren',
+            state.isLoading ? 'lädt …' : '↻ aktualisieren',
+            { color: 'suggestion' },
+            () => loadPanel($, true),
+          )}
+          {styledButton(parts, 'schliessen', 'schließen', { dimColor: true }, async () => {
+            await update($, panel, p => ({ ...p, isOpen: false }))
+            await $.ui.close({ id: PANEL })
+          })}
         </Box>
         {zaehler === null ? null : (
-          <Box columnGap={2} flexWrap="wrap" marginTop="sm">
+          <Box columnGap={2} flexWrap="wrap" marginTop={1}>
             <Text bold>{`${zaehler.sessions} ${zaehler.sessions === 1 ? 'Session' : 'Sessions'}`}</Text>
             {zaehler.dringend === 0 ? null : (
               <Text bold color="error">{`⚠ ${zaehler.dringend} dringend`}</Text>
