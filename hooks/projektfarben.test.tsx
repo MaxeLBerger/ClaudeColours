@@ -638,7 +638,10 @@ test('pressing the gauge compacts the context, says what it saved, and the gauge
   const press = async (surface: 'desktop' | 'terminal' = 'desktop') => {
     const ui = await $.ui.mount({ ...BAND, surface })
     await ui.press({ key: 'kontext' })
-    const shown = (await ui.findAll({ type: 'Text' })).map(text => text.text.replaceAll(NBSP, ' ')).join('|')
+    // A Button's label is no Text of the tree: the terminal's glyphs are the Buttons' own labels.
+    const shown = [...(await ui.findAll({ type: 'Text' })), ...(await ui.findAll({ type: 'Button' }))]
+      .map(text => text.text.replaceAll(NBSP, ' '))
+      .join('|')
     await ui.unmount()
 
     return shown
@@ -1483,6 +1486,7 @@ async function startBand($: Tested, on: Parameters<typeof mock.store>[0], cwd: s
 async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'terminal' = 'desktop') {
   const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface })
   const texts = await ui.findAll({ type: 'Text' })
+  const gauge = (await ui.find({ key: 'kontext' }))?.text
   const shown = {
     isStacked: (await ui.find({ type: 'Box' }))?.props.flexDirection === 'column',
     actions: [
@@ -1496,8 +1500,8 @@ async function drawBand($: Tested, bodyColumns: number, surface: 'desktop' | 'te
       (await ui.find({ key: 'merge' }))?.text,
     ],
     // The gauge's percentage: beside the ring on the desktop, in the button's text on the terminal.
-    hasPercent: texts.some(text => text.text.includes(`8${NBSP}%`)),
-    gauge: (await ui.find({ key: 'kontext' }))?.text,
+    hasPercent: texts.some(text => text.text.includes(`8${NBSP}%`)) || (gauge?.includes(`8${NBSP}%`) ?? false),
+    gauge,
     name: texts.find(text => text.props.color === 'text')?.text,
   }
   await ui.unmount()
