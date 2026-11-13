@@ -1,4 +1,4 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock, test as engineTest } from 'claude-code/testing'
 
 import {
   alterText,
@@ -69,6 +69,16 @@ import {
   fablePrompt,
   GOLD,
   erkenneDienste,
+  hatDevSkript,
+  devAnzeige,
+  devHint,
+  devIcon,
+  devOrt,
+  devPrompt,
+  devText,
+  lauscherAusJson,
+  lauscherAusLsof,
+  ordnerAusLsof,
   CELL_PX,
   ICON_SVG,
   ICON_SVG_COLOR,
@@ -92,6 +102,53 @@ import {
   upgradePrompt,
   zaehlerBreite,
 } from './colors'
+
+/**
+ * Every test answers the dev servers' reading of the listening ports with "nothing listens": the real call
+ * takes seconds and would read this machine's ports; a test of the dev servers puts them in `listening`. A test's own `process.run` stub is asked for every
+ * other call; a test without one gets this answer alone, registered when it first reaches for the engine
+ * (an event can be hooked only once, and a test registers its stubs before it drives the engine).
+ */
+let listening: { port: number; pid: number; name: string; cmd: string }[] = []
+const ports = () => ({
+  value: { exitCode: 0, stdout: JSON.stringify(listening), stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+})
+const readsPorts = (argv: readonly string[]): boolean =>
+  argv[0] === 'lsof' || (argv[0] === 'powershell' && argv.some(arg => arg.includes('Get-NetTCPConnection')))
+const test: typeof engineTest = (name, body) =>
+  engineTest(name, async ($, on) => {
+    listening = []
+    let hasProcess = false
+    const hook = ((event: string, ...rest: unknown[]) => {
+      const register = on as unknown as (event: string, ...rest: unknown[]) => unknown
+      if (event === 'process.run') {
+        hasProcess = true
+        const own = rest[rest.length - 1] as (...args: unknown[]) => unknown
+
+        return register(event, ...rest.slice(0, -1), (engine: unknown, e: { argv: readonly string[] }, next: unknown) =>
+          readsPorts(e.argv) ? ports() : own(engine, e, next),
+        )
+      }
+
+      return register(event, ...rest)
+    }) as typeof on
+    const engine = new Proxy($, {
+      get(target, key) {
+        if (!hasProcess) {
+          hasProcess = true
+          ;(on as unknown as (event: string, hook: unknown) => unknown)(
+            'process.run',
+            (_: unknown, e: { argv: readonly string[] }, next: (e: unknown) => unknown) =>
+              readsPorts(e.argv) ? ports() : next(e),
+          )
+        }
+
+        return Reflect.get(target, key)
+      },
+    })
+
+    return body(engine, hook)
+  })
 
 const ALPHA = 'C:\\Users\\me\\Repos\\Alpha'
 const BETA = 'C:\\Users\\me\\Repos\\Beta'
@@ -714,8 +771,14 @@ test('the spinner carries the project mark; hiding the band takes it away', asyn
   expect(await shown({ word: 'Sauteing', message: null })).toBe('Sauteing')
 })
 
-/** The CI row's own calls: the pushed head (`git rev-parse @{u}`) and `gh api`. Tests of other gh calls leave them out. */
-const isCiCall = (argv: readonly string[]): boolean => argv[0] === 'git' || (argv[0] === 'gh' && argv[1] === 'api')
+/**
+ * The band's background readings: the CI row's (the pushed head, `git rev-parse @{u}`, and `gh api`) and the
+ * dev servers' (the listening ports, from PowerShell or lsof). Tests of other calls leave them out.
+ */
+const isDevCall = (argv: readonly string[]): boolean =>
+  argv[0] === 'lsof' || (argv[0] === 'powershell' && argv.some(arg => arg.includes('Get-NetTCPConnection')))
+const isCiCall = (argv: readonly string[]): boolean =>
+  argv[0] === 'git' || (argv[0] === 'gh' && argv[1] === 'api') || isDevCall(argv)
 
 /** What `$.process.run` answers when `gh pr list` printed these pull requests. */
 const ghList = (numbers: number[]) => ({
@@ -2567,7 +2630,7 @@ test('with a Bramble build the name, PRs and Issues open their pages in the newe
     return { value: { kind: 'file', size: 1, mtimeMs, isLink: false } }
   })
   on('process.run', (_, e) => {
-    if (e.argv[0] === 'powershell') {
+    if (e.argv[0] === 'powershell' && !isDevCall(e.argv)) {
       started.push({ url: e.init?.env?.LWB_URL, exe: e.init?.env?.BRAMBLE_EXE })
 
       return ghList([])
@@ -3401,7 +3464,7 @@ test('on the terminal the repair icon is a text glyph that turns into a cross, a
 test('the prompts document shows what each button does, what to check, and the text itself', async () => {
   const doc = promptsMarkdown()
   expect(doc.startsWith('# Prompts hinter den Band-Knöpfen')).toBe(true)
-  expect(PROMPT_INFO.map(info => info.key)).toEqual(['fable', 'meinung', 'review', 'handoff', 'merge', 'pruefen', 'stack', 'repair-ui', 'repair-repo', 'upgrade'])
+  expect(PROMPT_INFO.map(info => info.key)).toEqual(['fable', 'meinung', 'review', 'handoff', 'merge', 'pruefen', 'stack', 'dev', 'repair-ui', 'repair-repo', 'upgrade'])
   for (const info of PROMPT_INFO) {
     expect(doc).toContain(`## ${info.name} (\`${info.key}\`)`)
     expect(doc).toContain(info.does)
@@ -3895,4 +3958,192 @@ test('a hidden prompt leaves the question open, and a band action sent over it t
   const after = await frageChat($, on, 'nichts', 'Soll ich weitermachen?')
   expect(await after.has('antwort-ja')).toBe(false)
   await after.mounted.unmount()
+})
+
+// The dev servers: which run for this folder is read from the listening ports and the folder in each process's command line.
+const HERE = `${BETA}\\.claude\\worktrees\\a`
+const vite = (port: number, folder: string, pid = port) => ({
+  port,
+  pid,
+  name: 'node.exe',
+  cmd: `"C:\\Program Files\\nodejs\\node.exe" "${folder}\\node_modules\\vite\\bin\\vite.js" --port ${port}`,
+})
+
+test('a folder shows the dev icon for a dev script, a dev server config or a launch.json', async () => {
+  for (const name of ['vite.config.ts', 'next.config.mjs', 'astro.config.js', 'angular.json', 'manage.py']) {
+    expect(erkenneDienste([name]).hasDevConfig).toBe(true)
+  }
+  for (const name of ['package.json', 'tsconfig.json', 'vite.config.ts.bak', 'README.md']) {
+    expect(erkenneDienste([name]).hasDevConfig).toBe(false)
+  }
+  expect(erkenneDienste(['Package.json']).hasPackage).toBe(true)
+  expect(hatDevSkript('{"scripts":{"dev":"vite"}}')).toBe(true)
+  expect(hatDevSkript('{"scripts":{"start":"node server.js"}}')).toBe(true)
+  expect(hatDevSkript('{"scripts":{"build":"tsc","test":"vitest"}}')).toBe(false)
+  expect(hatDevSkript('{"name":"x"}')).toBe(false)
+  expect(hatDevSkript('not json')).toBe(false)
+})
+
+test('the listening ports are read from the PowerShell JSON and from lsof, without ports under 1024', async () => {
+  expect(lauscherAusJson(JSON.stringify([vite(5173, HERE), { port: 445, pid: 4, name: 'System', cmd: '' }]))).toEqual([vite(5173, HERE)])
+  // One listener comes as an object, none as nothing; a process that is gone has no name or command line.
+  expect(lauscherAusJson(JSON.stringify({ port: 3000, pid: 7, name: null, cmd: null }))).toEqual([{ port: 3000, pid: 7, name: '', cmd: '' }])
+  expect(lauscherAusJson('')).toEqual([])
+  expect(lauscherAusJson('Get-NetTCPConnection : not found')).toBe(null)
+
+  const sockets = lauscherAusLsof(['p812', 'cnode', 'n*:5173', 'n[::1]:5173', 'p90', 'cpython3.12', 'n127.0.0.1:8000', 'p1', 'claunchd', 'n*:80'].join('\n'))
+  expect(sockets).toEqual([
+    { port: 5173, pid: 812, name: 'node' },
+    { port: 8000, pid: 90, name: 'python3.12' },
+  ])
+  expect(ordnerAusLsof(['p812', 'fcwd', 'n/Users/me/Repos/Beta', 'p90', 'fcwd', 'n/Users/me/Repos/Beta/.claude/worktrees/a'].join('\n'))).toEqual({
+    812: '/Users/me/Repos/Beta',
+    90: '/Users/me/Repos/Beta/.claude/worktrees/a',
+  })
+})
+
+test('a process belongs to this folder, to another folder of the repository, or to neither', async () => {
+  expect(devOrt(vite(5173, HERE).cmd, HERE)).toEqual({ lage: 'hier', ordner: 'c:/users/me/repos/beta/.claude/worktrees/a' })
+  // Another worktree and the main folder show another state than this folder's.
+  expect(devOrt(vite(5173, `${BETA}\\.claude\\worktrees\\b`).cmd, HERE)).toEqual({ lage: 'anderswo', ordner: 'b' })
+  expect(devOrt(vite(5173, BETA).cmd, HERE)).toEqual({ lage: 'anderswo', ordner: 'Hauptordner' })
+  // Seen from the main folder, a worktree's server is not this folder's.
+  expect(devOrt(vite(5173, HERE).cmd, BETA)).toEqual({ lage: 'anderswo', ordner: 'a' })
+  expect(devOrt(vite(5173, BETA).cmd, BETA)?.lage).toBe('hier')
+  // A worktree whose name only starts like this one's, a sibling repository and a longer path are other folders.
+  expect(devOrt(vite(5173, `${HERE}2`).cmd, HERE)).toEqual({ lage: 'anderswo', ordner: 'a2' })
+  expect(devOrt(vite(5173, `${BETA}2`).cmd, HERE)).toBe(null)
+  expect(devOrt(vite(5173, `D:\\x${BETA.slice(2)}`).cmd, HERE)).toBe(null)
+  expect(devOrt('python manage.py runserver', HERE)).toBe(null)
+  // POSIX: the working directory itself, with forward slashes.
+  expect(devOrt('/Users/me/Repos/Beta', '/Users/me/Repos/Beta')?.lage).toBe('hier')
+  // A folder without a project has no dev server.
+  expect(devOrt(vite(5173, 'C:\\').cmd, 'C:\\')).toBe(null)
+})
+
+test('the dev servers of this folder win over those of other folders; editors, browsers and MCP servers are none', async () => {
+  const other = vite(5174, `${BETA}\\.claude\\worktrees\\b`)
+  expect(devAnzeige([other, vite(5180, HERE), vite(5173, HERE)], HERE)).toEqual({ lage: 'hier', ports: [5173, 5180], ordner: null })
+  expect(devAnzeige([other], HERE)).toEqual({ lage: 'anderswo', ports: [5174], ordner: 'b' })
+  expect(devAnzeige([], HERE)).toEqual({ lage: 'aus', ports: [], ordner: null })
+  const none = [
+    { port: 9222, pid: 1, name: 'msedge.exe', cmd: `msedge.exe --remote-debugging-port=9222 --user-data-dir="${HERE}\\tmp"` },
+    { port: 6000, pid: 2, name: 'node.exe', cmd: `node "${HERE}\\node_modules\\some-mcp\\server.js" mcp` },
+    { port: 6001, pid: 3, name: 'claude.exe', cmd: `claude.exe --cwd "${HERE}"` },
+  ]
+  expect(devAnzeige(none, HERE).lage).toBe('aus')
+
+  // The hover card stays short: it opens to the side and is clipped to the band's row.
+  const cases = [null, devAnzeige([], HERE), devAnzeige([other], HERE), devAnzeige([vite(51730, HERE), vite(51731, HERE)], HERE)]
+  expect(cases.map(dev => devHint(dev))).toEqual([
+    'Dev-Server starten (Haiku)',
+    'Dev-Server starten (Haiku)',
+    'Dev-Server nur woanders (:5174)',
+    'Dev-Server öffnen: localhost:51730 +1',
+  ])
+  for (const dev of cases) {
+    expect(devHint(dev).length).toBeLessThanOrEqual(38)
+  }
+  // The icon carries a dot only where a server runs: green here, amber elsewhere.
+  expect(devIcon('aus').source).not.toContain('<circle')
+  expect(devIcon('hier').source).toContain('#2ea35e')
+  expect(devIcon('anderswo').source).toContain('#BA7517')
+  expect(devIcon('hier').source).toContain('viewBox="0 0 24 24"')
+
+  const text = devText([other, { port: 8000, pid: 9, name: 'python.exe', cmd: 'python manage.py runserver' }], HERE)
+  expect(text).toContain('Kein Dev-Server aus diesem Ordner')
+  expect(text).toContain('localhost:5174')
+  expect(text).toContain(':8000  python.exe')
+  expect(devText(null, HERE)).toContain('lassen sich hier nicht lesen')
+})
+
+test('the dev prompt hands the start to a Haiku subagent, looks before it starts, and ends no other process', async () => {
+  const prompt = devPrompt('Beta')
+  expect(prompt).toContain('„Beta“')
+  expect(prompt).toContain('auch den nicht committeten Änderungen')
+  expect(prompt).toContain('Subagenten auf Haiku (general-purpose, model haiku)')
+  const order = ['1. Nachsehen', '2. Befehl finden', '3. Starten', '4. Prüfen'].map(step => prompt.indexOf(step))
+  expect(order.every(at => at >= 0)).toBe(true)
+  expect(order).toEqual([...order].sort((a, b) => a - b))
+  expect(prompt).toContain('startet er keinen zweiten')
+  expect(prompt).toContain('nimmt er einen freien, statt den anderen Prozess zu beenden')
+  // A background process may end with its agent: the session then starts the server itself.
+  expect(prompt).toContain('starte ihn selbst mit dem Befehl, den er gefunden hat')
+  expect(prompt).toContain('keinen fremden Prozess beenden')
+  expect(prompt).toContain('nichts am Code ändern, nichts committen')
+  expect(prompt).not.toContain('anderen Ordner dieses Repositorys (Port')
+  // What the band saw elsewhere is said, and that server is left alone.
+  const elsewhere = devPrompt('Beta', { port: 5174, ordner: 'b' })
+  expect(elsewhere).toContain('aus einem anderen Ordner dieses Repositorys (Port 5174, b)')
+  expect(elsewhere).toContain('bleibt, wie er ist')
+})
+
+/** A session in a folder with a `package.json` that has a dev script, and what `$.process.run` was asked. */
+async function devSession($: TestEngine, on: TestOn, scripts: Record<string, string> = { dev: 'vite' }) {
+  on('fs.list', () => ({
+    value: [{ name: 'package.json', kind: 'file', size: 0, mtimeMs: 0, isLink: false }],
+  }))
+  on('fs.read', () => ({ value: JSON.stringify({ scripts }) }))
+  const ran: string[][] = []
+  on('process.run', (_, e) => {
+    ran.push([...e.argv])
+
+    // Only the system's opener works here: no gh, no git, no Bramble.
+    return e.argv[0] === 'rundll32' ? ghList([]) : ghFails('nicht hier')
+  })
+
+  return { ...(await meinungSession($, on)), ran }
+}
+
+const bandKeys = async ($: TestEngine, bodyColumns = 100): Promise<string[]> => {
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+  const keys = (await ui.findAll({ type: 'Button' })).map(button => String(button.key))
+  await ui.unmount()
+
+  return keys
+}
+
+test('with a dev script the band shows the dev icon after the handoff; without a server a press asks for one', async ($, on) => {
+  const { sent, toasts } = await devSession($, on)
+
+  for (const bodyColumns of [100, 70, 30]) {
+    const keys = await bandKeys($, bodyColumns)
+    expect(keys.filter(key => ACTION_KEYS.includes(key) || key === 'dev')).toEqual(['fable', 'meinung', 'review', 'handoff', 'dev', 'pruefen', 'merge', 'repair', 'uebersicht', 'einstellungen'])
+  }
+  // One more action takes more room.
+  expect(bandBreite('icons', { ...ZIEL, hasDev: true })).toBeGreaterThan(bandBreite('icons', ZIEL))
+
+  await pressKey($, 'dev')
+  expect(sent.map(prompt => prompt.text)).toEqual([devPrompt('Beta')])
+  expect(sent[0].origin).toMatchObject({ asUser: true })
+  expect(toasts).toEqual([])
+})
+
+test('a dev server of this folder is opened by a press, not started again; one of another folder is named in the prompt', async ($, on) => {
+  const { sent, ran } = await devSession($, on)
+
+  // Started since the band last looked: the press reads the ports again.
+  listening = [vite(5173, HERE)]
+  await pressKey($, 'dev')
+  expect(sent).toEqual([])
+  expect(ran.filter(argv => argv[0] === 'rundll32')).toEqual([['rundll32', 'url.dll,FileProtocolHandler', 'http://localhost:5173']])
+
+  // Only another worktree's server runs: that one does not show this folder's changes.
+  listening = [vite(5174, `${BETA}\\.claude\\worktrees\\b`)]
+  await pressKey($, 'dev')
+  expect(sent.map(prompt => prompt.text)).toEqual([devPrompt('Beta', { port: 5174, ordner: 'b' })])
+
+  const text = (await $.command.run({ ...RUN, args: 'dev' })).text
+  expect(text).toContain('Aus einem anderen Ordner dieses Repositorys (b) läuft: localhost:5174')
+})
+
+test('a folder without a dev server has no dev icon, until a server of the repository runs anyway', async ($, on) => {
+  await devSession($, on, { build: 'tsc' })
+  expect(await bandKeys($)).not.toContain('dev')
+
+  // The band looks again when a turn ends.
+  listening = [vite(5173, HERE)]
+  await $.turn.complete({ reason: 'answer', answer: 'fertig' } as never)
+  await sessionClock?.settle()
+  expect(await bandKeys($)).toContain('dev')
 })

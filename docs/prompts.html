@@ -204,6 +204,29 @@ Grenzen: nichts pushen, nichts mergen, keine Tests löschen oder abschwächen. L
 Grenzen: kein docker compose down mit -v, keine Volumes oder Daten löschen, keine Datenbank zurücksetzen, keine Container anfassen, die nicht zu diesem Stack gehören. Bleibt ein Dienst rot oder passt der Stand nicht, sag mir, was du siehst, statt weiterzubasteln. Am Ende: welche Container laufen, auf welchem Stand, und was dir aufgefallen ist.</pre>
   <p class="note">Bei etwas Live-Scharfem hält die Session an. Kein down -v, keine Volumes gelöscht, keine fremden Container angefasst.</p>
 </article>
+<article class="card" id="dev">
+  <header class="head">
+    <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 4.5v15l12-7.5z"/><circle cx="18.5" cy="18.5" r="4" fill="#2ea35e" stroke="none"/></svg>
+    <div class="titles">
+      <h2>Dev-Server starten</h2>
+      <p class="does">Das Band prüft selbst, ob ein Dev-Server aus diesem Ordner läuft: grüner Punkt, ein Druck öffnet ihn. Läuft keiner oder nur einer aus einem anderen Ordner (gelber Punkt), schickt der Knopf diesen Prompt.</p>
+    </div>
+    <button class="copy" type="button" data-target="p-dev" id="copy-dev">Kopieren</button>
+  </header>
+  <pre class="prompt" id="p-dev">Sorg dafür, dass für „<span class="slot">{Projekt}</span>“ ein Dev-Server aus diesem Ordner läuft, mit dem Stand, der hier liegt, auch den nicht committeten Änderungen.
+
+Gib das einem Subagenten auf Haiku (general-purpose, model haiku), es ist Handarbeit: Nenn ihm diesen Ordner und diesen Auftrag.
+
+1. Nachsehen: Welche Dev-Server laufen schon (lauschende Ports, ihre Prozesse und aus welchem Ordner sie kommen)? Läuft einer aus diesem Ordner, startet er keinen zweiten und nennt nur die Adresse.
+2. Befehl finden: aus .claude/launch.json, den Skripten des Projekts (package.json und Ähnliches), der README oder CLAUDE.md. Fehlen Abhängigkeiten, installiert er sie mit dem Paketmanager des Projekts und sagt, was er installiert hat.
+3. Starten: im Hintergrund aus diesem Ordner, so dass der Server weiterläuft, wenn der Agent fertig ist. Ist der übliche Port belegt, nimmt er einen freien, statt den anderen Prozess zu beenden.
+4. Prüfen: Er wartet, bis die Adresse antwortet, und liest die ersten Zeilen der Ausgabe auf Fehler.
+
+Läuft der Server nach dem Ende des Agenten nicht mehr (ein Hintergrundprozess kann mit ihm enden), starte ihn selbst mit dem Befehl, den er gefunden hat, und prüf die Adresse noch einmal.
+
+Grenzen: keinen fremden Prozess beenden, auch keinen Server aus einem anderen Ordner; nichts am Code ändern, nichts committen; keine Produktions- oder Live-Konfiguration verwenden. Lässt sich der Server nicht starten, sag mir, woran es liegt, statt es zu umgehen. Am Ende: die Adresse, der Befehl, der Port und was dir aufgefallen ist.</pre>
+  <p class="note">Ein Haiku-Subagent sieht nach, findet den Befehl, startet und prüft. Kein fremder Prozess wird beendet, am Code ändert sich nichts.</p>
+</article>
 <article class="card" id="repair-ui">
   <header class="head">
     <svg class="icon" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M9 21h6M12 18v3"/></svg>

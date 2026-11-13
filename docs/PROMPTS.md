@@ -143,6 +143,31 @@ Bau den Docker-Stack von „{Projekt}“ auf dem Stand dieses Ordners neu, damit
 Grenzen: kein docker compose down mit -v, keine Volumes oder Daten löschen, keine Datenbank zurücksetzen, keine Container anfassen, die nicht zu diesem Stack gehören. Bleibt ein Dienst rot oder passt der Stand nicht, sag mir, was du siehst, statt weiterzubasteln. Am Ende: welche Container laufen, auf welchem Stand, und was dir aufgefallen ist.
 ```
 
+## Dev-Server starten (`dev`)
+
+Das Band prüft selbst, ob ein Dev-Server aus diesem Ordner läuft (grüner Punkt: ein Druck öffnet ihn). Läuft keiner oder nur einer aus einem anderen Ordner (gelber Punkt), schickt der Knopf diesen Prompt: Ein Haiku-Subagent startet einen aus diesem Ordner.
+
+Prüfen:
+- Die Reihenfolge ist Nachsehen, Befehl finden, Starten, Prüfen; läuft schon einer aus diesem Ordner, wird kein zweiter gestartet.
+- Kein fremder Prozess wird beendet; bei belegtem Port ein anderer Port.
+- Installierte Abhängigkeiten werden genannt; am Code ändert sich nichts.
+- Endet der Server mit dem Agenten, startet die Session ihn selbst.
+
+```text
+Sorg dafür, dass für „{Projekt}“ ein Dev-Server aus diesem Ordner läuft, mit dem Stand, der hier liegt, auch den nicht committeten Änderungen.
+
+Gib das einem Subagenten auf Haiku (general-purpose, model haiku), es ist Handarbeit: Nenn ihm diesen Ordner und diesen Auftrag.
+
+1. Nachsehen: Welche Dev-Server laufen schon (lauschende Ports, ihre Prozesse und aus welchem Ordner sie kommen)? Läuft einer aus diesem Ordner, startet er keinen zweiten und nennt nur die Adresse.
+2. Befehl finden: aus .claude/launch.json, den Skripten des Projekts (package.json und Ähnliches), der README oder CLAUDE.md. Fehlen Abhängigkeiten, installiert er sie mit dem Paketmanager des Projekts und sagt, was er installiert hat.
+3. Starten: im Hintergrund aus diesem Ordner, so dass der Server weiterläuft, wenn der Agent fertig ist. Ist der übliche Port belegt, nimmt er einen freien, statt den anderen Prozess zu beenden.
+4. Prüfen: Er wartet, bis die Adresse antwortet, und liest die ersten Zeilen der Ausgabe auf Fehler.
+
+Läuft der Server nach dem Ende des Agenten nicht mehr (ein Hintergrundprozess kann mit ihm enden), starte ihn selbst mit dem Befehl, den er gefunden hat, und prüf die Adresse noch einmal.
+
+Grenzen: keinen fremden Prozess beenden, auch keinen Server aus einem anderen Ordner; nichts am Code ändern, nichts committen; keine Produktions- oder Live-Konfiguration verwenden. Lässt sich der Server nicht starten, sag mir, woran es liegt, statt es zu umgehen. Am Ende: die Adresse, der Befehl, der Port und was dir aufgefallen ist.
+```
+
 ## Reparieren: UI auf Studio-Niveau (`repair-ui`)
 
 Startet eine neue Session, die die Oberfläche prüft, ein Playbook schreibt (mit Mockup-Varianten zur Wahl) und es nach deinem Ja Seite für Seite mit Workern umsetzt.
