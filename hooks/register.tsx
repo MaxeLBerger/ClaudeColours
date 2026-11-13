@@ -23,6 +23,21 @@ import {
   vorlageKey,
   EINZEILER,
   erkenneDienste,
+  hatDevSkript,
+  devAnzeige,
+  devHint,
+  devIcon,
+  devPrompt,
+  devText,
+  DEV_GLYPH,
+  LAUSCHER_WINDOWS,
+  LAUSCHER_LSOF,
+  lsofOrdner,
+  lauscherAusJson,
+  lauscherAusLsof,
+  ordnerAusLsof,
+  type DevAnzeige,
+  type Lauscher,
   bereichOf,
   buildBereiche,
   buildUebersicht,
@@ -139,6 +154,8 @@ const EMPTY: ProjektfarbenView = {
   isRepair: false,
   isHidden: false,
   hasStack: false,
+  hasDev: false,
+  dev: null,
   ci: null,
   sent: [],
   frage: null,
@@ -337,6 +354,7 @@ async function afterTurn($: Engine, grund: Grund, answer: string): Promise<void>
   const cwd = await $.session.cwd()
   await refreshView($, cwd)
   void refreshPrs($, cwd, false).catch(() => undefined)
+  void refreshDev($, cwd).catch(() => undefined)
   void ciTick($, true).catch(() => undefined)
   void refreshPanel($).catch(() => undefined)
   if ((await recolorSelf($, false, await self)) === 'unnamed') {
@@ -380,14 +398,80 @@ async function readContext($: Engine): Promise<{ percent: number | null; tokens:
   }
 }
 
-/** True where the session's folder holds a compose file: the band then offers the stack rebuild. */
-async function readDienste($: Engine, cwd: string): Promise<boolean> {
+/**
+ * What the session's folder offers the band: a compose file brings the stack rebuild, and a dev server's
+ * config, a `package.json` with a dev script or a `.claude/launch.json` brings the dev server's icon.
+ */
+async function readDienste($: Engine, cwd: string): Promise<{ hasStack: boolean; hasDev: boolean }> {
   try {
     const entries = await $.fs.list(cwd)
+    const dienste = erkenneDienste(entries.filter(entry => entry.kind === 'file').map(entry => entry.name))
+    const hasDev =
+      dienste.hasDevConfig ||
+      (dienste.hasPackage && hatDevSkript(await $.fs.read(`${cwd}/package.json`).catch(() => ''))) ||
+      (await $.fs
+        .stat(`${cwd}/.claude/launch.json`)
+        .then(stat => stat.kind === 'file')
+        .catch(() => false))
 
-    return erkenneDienste(entries.filter(entry => entry.kind === 'file').map(entry => entry.name)).hasCompose
+    return { hasStack: dienste.hasCompose, hasDev }
   } catch {
-    return false
+    return { hasStack: false, hasDev: false }
+  }
+}
+
+/** The processes that listen on a TCP port, from PowerShell on Windows, else from lsof; null where neither answers. */
+async function readLauscher($: Engine): Promise<Lauscher[] | null> {
+  try {
+    const { exitCode, stdout } = await $.process.run([...LAUSCHER_WINDOWS], { timeoutMs: 30_000 })
+    const found = exitCode === 0 ? lauscherAusJson(stdout) : null
+    if (found !== null) {
+      return found
+    }
+  } catch {
+    // No PowerShell here: lsof is asked.
+  }
+  try {
+    const { exitCode, stdout } = await $.process.run([...LAUSCHER_LSOF], { timeoutMs: 15_000 })
+    // lsof answers 1 where nothing listens.
+    if (exitCode !== 0 && stdout.trim() === '') {
+      return exitCode === 1 ? [] : null
+    }
+    const sockets = lauscherAusLsof(stdout)
+    if (sockets.length === 0) {
+      return []
+    }
+    const ordner = await $.process
+      .run(lsofOrdner([...new Set(sockets.map(socket => socket.pid))]), { timeoutMs: 15_000 })
+      .then(result => ordnerAusLsof(result.stdout))
+      .catch(() => ({}) as Record<number, string>)
+
+    return sockets.map(socket => ({ ...socket, cmd: ordner[socket.pid] ?? '' }))
+  } catch {
+    return null
+  }
+}
+
+// One reading of the ports at a time: it takes seconds, and a turn's end must not stack them up.
+let isDevBusy = false
+
+/** Reads which dev servers run for this folder into the band's state; the state stays where they cannot be read. */
+async function refreshDev($: Engine, cwd: string): Promise<DevAnzeige | null> {
+  if (isDevBusy || projectOf(cwd) === null) {
+    return (await read($, view)).dev ?? null
+  }
+  isDevBusy = true
+  try {
+    const lauscher = await readLauscher($)
+    if (lauscher === null) {
+      return (await read($, view)).dev ?? null
+    }
+    const dev = devAnzeige(lauscher, cwd)
+    await update($, view, v => ({ ...v, dev }))
+
+    return dev
+  } finally {
+    isDevBusy = false
   }
 }
 
@@ -399,7 +483,7 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
     project === null ? null : farbeFor(project, await ensurePicks($, [project], satz), satz)
   const isHidden = (await $.store.get('bandAus')) === true
   const context = await readContext($)
-  const hasStack = await readDienste($, cwd)
+  const { hasStack, hasDev } = await readDienste($, cwd)
   await update($, view, v => ({
     ...v,
     project,
@@ -413,6 +497,7 @@ async function refreshView($: Engine, cwd: string): Promise<void> {
     satz: satz.id,
     isHidden,
     hasStack,
+    hasDev,
   }))
   await refreshNew($, cwd)
 }
@@ -1161,6 +1246,7 @@ async function startUp($: Engine, cwd: string): Promise<void> {
   await learnOnce($).catch(() => undefined)
   await refreshView($, cwd)
   void refreshPrs($, cwd, true).catch(() => undefined)
+  void refreshDev($, cwd).catch(() => undefined)
   startCi($)
   await recolorSelf($, false)
 }
@@ -1175,13 +1261,32 @@ const hilfe = (satz: Satz): string =>
     '/projektfarbe übersicht  Stand aller Sessions im Seitenpanel (im Terminal als Text)',
     '/projektfarbe band       Band, Kontext-Anzeige, PR- und Issue-Zahl und Farbpunkt am Spinner ein- oder ausblenden',
     '/projektfarbe breite     wie breit das Band gerade ist und in welchem Layout es gezeichnet wird',
-    '                         Symbole im Band: ✧ Fable fragen (goldener Lehrer, wenn es wichtig ist), ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
+    '                         Symbole im Band: ✧ Fable fragen (goldener Lehrer, wenn es wichtig ist), ✦ Opus-Meinung, ↑ Review + PR, ✉ Handoff, ▣ Stack neu bauen (nur mit Compose-Datei), ▷ Dev-Server (▶ läuft hier: öffnen; sonst starten), ✓ Prüfen (e2e), ⇉ Merge + Issues, ☰ Übersicht, ⚙ Einstellungen (Farbe, Modus, ausblenden)',
+    '/projektfarbe dev        welche Dev-Server laufen: aus diesem Ordner, aus einem anderen, und was sonst lauscht',
     '/projektfarbe prompts    die Prompts hinter den Band-Knöpfen als Text, zum Prüfen',
     '/projektfarbe schlaf     Schlafmodus: ruhige Farben, Formen statt bunter Punkte',
     '/projektfarbe bunt       zurück zu den bunten Farben',
     '',
     `Farben (${satz.label}): ${satz.farben.map(f => `${f.mark} ${f.name}`).join(', ')}`,
   ].join('\n')
+
+/**
+ * The dev icon's press. The ports are read again first (the band's reading is from the last turn's end): a
+ * server of this folder is opened in the browser; with none, the start prompt goes to the session, which
+ * hands the start to a Haiku subagent. Where the ports cannot be read, the session is asked as well.
+ */
+async function devDruck($: Engine): Promise<void> {
+  const dev = await refreshDev($, await $.session.cwd()).catch(() => null)
+  if (dev?.lage === 'hier') {
+    await openRepo($, `http://localhost:${dev.ports[0]}`, 'Der Dev-Server')
+
+    return
+  }
+  const woanders = dev?.lage === 'anderswo' ? { port: dev.ports[0], ordner: dev.ordner } : null
+  await bitteSenden($, { key: 'dev', label: 'Dev-Server', failure: 'Der Dev-Server wurde nicht gestartet' }, projekt =>
+    devPrompt(projekt, woanders),
+  )
+}
 
 // True while a compaction runs: a second press must not start another one.
 let isCompacting = false
@@ -1225,7 +1330,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'projektfarbe',
       description: 'Farbe dieses Projekts zeigen oder ändern (Farbpunkt vor den Session-Namen)',
-      argumentHint: '[farbe | standard | alle | status | übersicht | band | breite | schlaf | bunt]',
+      argumentHint: '[farbe | standard | alle | status | übersicht | band | breite | dev | schlaf | bunt]',
     })
     // In the background, so the session start never waits on the app.
     void startUp($, e.cwd).catch(() => undefined)
@@ -1382,6 +1487,16 @@ export const register: Register = on => {
             : `Das Band hat ${lastBand.columns} Zellen und ist im Layout „${lastBand.stufe}“ gezeichnet (Name: ${lastBand.inhalt.name} Zeichen). In einer Zeile braucht es: ${EINZEILER.map(stufe => `${stufe} ${Math.round(bandBreite(stufe, lastBand!.inhalt, lastBand!.isMono))}`).join(', ')} Zellen.${lastCi === null ? ' Keine CI-Zeile.' : ` CI-Zeile: ${lastCi === 'voll' ? 'mit Jobnamen' : 'nur Symbole und Zahlen'}.`}`,
       }
     }
+    if (arg === 'dev') {
+      const cwd = await $.session.cwd()
+      const lauscher = await readLauscher($)
+      if (lauscher !== null) {
+        const dev = devAnzeige(lauscher, cwd)
+        await update($, view, v => ({ ...v, dev }))
+      }
+
+      return { text: devText(lauscher, cwd) }
+    }
     if (arg === 'prompts') {
       return { text: promptsMarkdown() }
     }
@@ -1498,12 +1613,18 @@ export const register: Register = on => {
     // by the text they will show.
     const countRest = (open: number | null, fresh: number): string =>
       `${open === null ? ' ?' : ` ${prLabel(open)}`}${superscript(fresh)}`
+    // The dev server's icon: where the folder has a dev server to start, or one of the repository runs anyway.
+    // A state kept from before these fields existed lacks them.
+    const dev = state.dev ?? null
+    const devLage = dev?.lage ?? 'aus'
+    const showsDev = state.hasDev === true || devLage !== 'aus'
     const inhalt: BandInhalt = {
       name: [...state.project].length,
       prs: countRest(openPrs, state.newPrs).length,
       issues: countRest(openIssues, state.newIssues).length,
       percent: showsGauge ? figure.length : null,
       hasStack: state.hasStack,
+      hasDev: showsDev,
     }
     // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
     const columns = Number.isFinite(e.props.bodyColumns) ? e.props.bodyColumns : 120
@@ -1608,6 +1729,13 @@ export const register: Register = on => {
         press: () => bitteSenden($, { key: 'stack', label: 'Stack neu bauen', failure: 'Der Stack wurde nicht neu gebaut' }, stackPrompt),
       },
       {
+        key: 'dev',
+        hint: devHint(dev),
+        icon: DEV_GLYPH[devLage],
+        svg: devIcon(devLage),
+        press: () => devDruck($),
+      },
+      {
         key: 'pruefen',
         hint: 'Prüfen: Qualität, Tests und e2e mit Playwright',
         icon: '✓',
@@ -1654,7 +1782,7 @@ export const register: Register = on => {
         },
       },
       // The rebuild needs a compose file in the folder.
-    ].filter(def => def.key !== 'stack' || state.hasStack)
+    ].filter(def => (def.key !== 'stack' || state.hasStack) && (def.key !== 'dev' || showsDev))
     // Where the surface has `Svg` (not the terminal) the actions are drawn as vector icons, all of one
     // family so they stand on one line at one height. A Button takes only text, so the icon stands in the
     // field, centered in the row, and a Button of blanks lies over it, in the same cells; the press lands

@@ -373,8 +373,263 @@ export function upgradePrompt(projekt: string): string {
  * What a project's folder offers the band, from the names in it: a Docker stack shows the rebuild
  * button. Matches `docker-compose.yml`, `compose.yaml` and their `.override` / `.dev` forms.
  */
-export function erkenneDienste(namen: readonly string[]): { hasCompose: boolean } {
-  return { hasCompose: namen.some(name => /^(docker-)?compose(\.[\w-]+)*\.ya?ml$/i.test(name)) }
+export function erkenneDienste(namen: readonly string[]): { hasCompose: boolean; hasDevConfig: boolean; hasPackage: boolean } {
+  return {
+    hasCompose: namen.some(name => /^(docker-)?compose(\.[\w-]+)*\.ya?ml$/i.test(name)),
+    // A file that only a project with a dev server has: the band then shows the dev server's icon.
+    hasDevConfig: namen.some(name => /^((vite|next|nuxt|astro|svelte|remix|webpack)\.config\.[cm]?[jt]s|angular\.json|manage\.py)$/i.test(name)),
+    hasPackage: namen.some(name => name.toLowerCase() === 'package.json'),
+  }
+}
+
+/** True where a `package.json` has a script that starts a dev server (`dev`, `start`, `serve`, `develop`). */
+export function hatDevSkript(packageJson: string): boolean {
+  try {
+    const scripts = (JSON.parse(packageJson) as { scripts?: unknown }).scripts
+    if (typeof scripts !== 'object' || scripts === null) {
+      return false
+    }
+
+    return ['dev', 'start', 'serve', 'develop'].some(name => typeof (scripts as Record<string, unknown>)[name] === 'string')
+  } catch {
+    return false
+  }
+}
+
+/** A process that listens on a TCP port: what the system says about it. */
+export type Lauscher = {
+  port: number
+  pid: number
+  /** The program's name (`node.exe`, `python`). */
+  name: string
+  /** Where the folder is looked for: the command line, and on POSIX the working directory. */
+  cmd: string
+}
+
+/**
+ * How Windows is asked for the listening ports and their processes: one PowerShell call that prints JSON
+ * (`port`, `pid`, `name`, `cmd`). Ports under 1024 are no dev servers.
+ */
+export const LAUSCHER_WINDOWS: readonly string[] = [
+  'powershell',
+  '-NoProfile',
+  '-NonInteractive',
+  '-Command',
+  "$ErrorActionPreference='SilentlyContinue';$p=@{};Get-CimInstance Win32_Process -Property ProcessId,Name,CommandLine|ForEach-Object{$p[[int]$_.ProcessId]=$_};$r=@(Get-NetTCPConnection -State Listen|Where-Object{$_.LocalPort -ge 1024}|Sort-Object LocalPort,OwningProcess -Unique|ForEach-Object{$q=$p[[int]$_.OwningProcess];[pscustomobject]@{port=[int]$_.LocalPort;pid=[int]$_.OwningProcess;name=[string]$q.Name;cmd=[string]$q.CommandLine}});ConvertTo-Json -InputObject $r -Compress",
+]
+
+/** The same on macOS and Linux: the listening sockets, then the working directories of their processes. */
+export const LAUSCHER_LSOF: readonly string[] = ['lsof', '-nP', '-iTCP', '-sTCP:LISTEN', '-Fpcn']
+export const lsofOrdner = (pids: readonly number[]): string[] => ['lsof', '-a', '-d', 'cwd', '-Fpn', '-p', pids.join(',')]
+
+const toLauscher = (raw: unknown): Lauscher | null => {
+  if (typeof raw !== 'object' || raw === null) {
+    return null
+  }
+  const { port, pid, name, cmd } = raw as Record<string, unknown>
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1024 || typeof pid !== 'number' || pid <= 0) {
+    return null
+  }
+
+  return { port, pid, name: typeof name === 'string' ? name : '', cmd: typeof cmd === 'string' ? cmd : '' }
+}
+
+/** The listeners in the PowerShell call's JSON; null where it is not that. */
+export function lauscherAusJson(stdout: string): Lauscher[] | null {
+  const text = stdout.trim()
+  if (text === '') {
+    return []
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown
+
+    return (Array.isArray(parsed) ? parsed : [parsed]).map(toLauscher).filter(l => l !== null)
+  } catch {
+    return null
+  }
+}
+
+/** The listeners in `lsof -F` output: `p<pid>`, `c<name>`, then one `n<address>:<port>` per socket. */
+export function lauscherAusLsof(stdout: string): { port: number; pid: number; name: string }[] {
+  const found: { port: number; pid: number; name: string }[] = []
+  let pid = 0
+  let name = ''
+  for (const line of stdout.split(/\r?\n/)) {
+    const rest = line.slice(1)
+    if (line.startsWith('p')) {
+      pid = Number(rest)
+      name = ''
+    } else if (line.startsWith('c')) {
+      name = rest
+    } else if (line.startsWith('n')) {
+      const port = Number(/:(\d+)$/.exec(rest)?.[1])
+      if (Number.isInteger(port) && port >= 1024 && pid > 0 && !found.some(f => f.port === port && f.pid === pid)) {
+        found.push({ port, pid, name })
+      }
+    }
+  }
+
+  return found
+}
+
+/** The working directory of each process in `lsof -d cwd -Fpn` output, by pid. */
+export function ordnerAusLsof(stdout: string): Record<number, string> {
+  const ordner: Record<number, string> = {}
+  let pid = 0
+  for (const line of stdout.split(/\r?\n/)) {
+    if (line.startsWith('p')) {
+      pid = Number(line.slice(1))
+    } else if (line.startsWith('n') && pid > 0) {
+      ordner[pid] = line.slice(1)
+    }
+  }
+
+  return ordner
+}
+
+const pfad = (text: string): string => text.replace(/\\+/g, '/').toLowerCase()
+
+/**
+ * Which folder of this repository a process belongs to, read from its command line (or working directory):
+ * `hier` where it names the session's own folder, `anderswo` with that folder's name where it names another
+ * one of the repository (its main folder or a worktree), null where the repository is not named at all. A
+ * server from another worktree does not show this folder's changes, which is the case the band warns of.
+ */
+export function devOrt(cmd: string, cwd: string): { lage: 'hier' | 'anderswo'; ordner: string } | null {
+  const root = repoKeyOf(cwd)
+  if (root === null) {
+    return null
+  }
+  const here = pfad(cwd).replace(/\/+$/, '')
+  const text = pfad(cmd)
+  let other: string | null = null
+  for (let at = text.indexOf(root); at >= 0; at = text.indexOf(root, at + 1)) {
+    // The repository's path must stand on its own: not the tail of a longer path, not the head of a sibling's name.
+    if (at > 0 && /[\w.-]/.test(text[at - 1])) {
+      continue
+    }
+    const rest = text.slice(at + root.length)
+    const worktree = /^\/\.claude\/worktrees\/([^/"'\s]+)/.exec(rest)
+    if (worktree === null && rest !== '' && !/^[/"'\s]/.test(rest)) {
+      continue
+    }
+    const folder = worktree === null ? root : `${root}/.claude/worktrees/${worktree[1]}`
+    if (folder === here) {
+      return { lage: 'hier', ordner: folder }
+    }
+    other ??= worktree === null ? 'Hauptordner' : worktree[1]
+  }
+
+  return other === null ? null : { lage: 'anderswo', ordner: other }
+}
+
+// Programs that listen on a port and name the folder without being its dev server: the editor, Claude itself,
+// browsers under automation, language and MCP servers, Docker (its ports are the stack's).
+const KEIN_SERVER_NAME = /^(claude|code|cursor|chrome|msedge|msedgewebview2|firefox|electron|docker|com\.docker|wslrelay|vpnkit)/i
+const KEIN_SERVER_CMD = /--remote-debugging-port|\bmcp\b|language-?server|tsserver/i
+
+/** What the band knows of the dev servers: those of this folder and those of the repository's other folders. */
+export type DevAnzeige = {
+  lage: 'hier' | 'anderswo' | 'aus'
+  /** The ports of `lage`'s servers, lowest first; empty for `aus`. */
+  ports: number[]
+  /** For `anderswo`: the folder the first server runs from (a worktree's name, or `Hauptordner`). */
+  ordner: string | null
+}
+
+/** The dev servers among the listeners, for the session's folder: its own win over those of other folders. */
+export function devAnzeige(lauscher: readonly Lauscher[], cwd: string): DevAnzeige {
+  const servers = lauscher
+    .filter(l => !KEIN_SERVER_NAME.test(l.name) && !KEIN_SERVER_CMD.test(l.cmd))
+    .map(l => ({ port: l.port, ort: devOrt(l.cmd, cwd) }))
+    .sort((a, b) => a.port - b.port)
+  const ports = (lage: 'hier' | 'anderswo'): number[] => [...new Set(servers.filter(s => s.ort?.lage === lage).map(s => s.port))]
+  const hier = ports('hier')
+  if (hier.length > 0) {
+    return { lage: 'hier', ports: hier, ordner: null }
+  }
+  const anderswo = ports('anderswo')
+
+  return anderswo.length > 0
+    ? { lage: 'anderswo', ports: anderswo, ordner: servers.find(s => s.ort?.lage === 'anderswo')?.ort?.ordner ?? null }
+    : { lage: 'aus', ports: [], ordner: null }
+}
+
+const devAdresse = (port: number): string => `localhost:${port}`
+
+/** The dev icon's hover card: short, as it opens to the side and is clipped to the band's row. */
+export function devHint(dev: DevAnzeige | null): string {
+  if (dev === null || dev.lage === 'aus') {
+    return 'Dev-Server starten (Haiku)'
+  }
+  const mehr = dev.ports.length > 1 ? ` +${dev.ports.length - 1}` : ''
+
+  return dev.lage === 'hier'
+    ? `Dev-Server öffnen: ${devAdresse(dev.ports[0])}${mehr}`
+    : `Dev-Server nur woanders (:${dev.ports[0]})`
+}
+
+/** The dev servers as text, for `/projektfarbe dev`: what runs from this folder, what from another, what else listens. */
+export function devText(lauscher: readonly Lauscher[] | null, cwd: string): string {
+  if (lauscher === null) {
+    return 'Die lauschenden Ports lassen sich hier nicht lesen (PowerShell oder lsof fehlt).'
+  }
+  const dev = devAnzeige(lauscher, cwd)
+  const head =
+    dev.lage === 'hier'
+      ? `Dev-Server aus diesem Ordner: ${dev.ports.map(devAdresse).join(', ')}`
+      : dev.lage === 'anderswo'
+        ? `Kein Dev-Server aus diesem Ordner. Aus einem anderen Ordner dieses Repositorys (${dev.ordner ?? '?'}) läuft: ${dev.ports.map(devAdresse).join(', ')}. Der zeigt nicht den Stand dieses Ordners.`
+        : 'Kein Dev-Server aus diesem Repository gefunden.'
+  const rest = lauscher
+    .filter(l => devOrt(l.cmd, cwd) === null && !KEIN_SERVER_NAME.test(l.name) && !KEIN_SERVER_CMD.test(l.cmd) && l.name !== '')
+    .sort((a, b) => a.port - b.port)
+    .map(l => `  :${l.port}  ${l.name}`)
+  const sonst = rest.length === 0 ? '' : `\n\nWeitere lauschende Ports (Ordner nicht erkennbar):\n${[...new Set(rest)].join('\n')}`
+
+  return `${head}${sonst}\n\nZugeordnet wird über den Ordner in der Kommandozeile des Prozesses; steht er dort nicht (etwa bei „python manage.py runserver“), bleibt der Server unerkannt.`
+}
+
+/** The dot on the dev icon: green for a server of this folder, amber for one of another folder only. */
+const DEV_PUNKT = { hier: '#2ea35e', anderswo: '#BA7517' } as const
+
+/** The dev server's icon: a play triangle of the family, with a dot in the state's color where a server runs. */
+export function devIcon(lage: DevAnzeige['lage']): { alt: string; source: string } {
+  const dot = lage === 'aus' ? '' : `<circle cx="18.5" cy="18.5" r="4" fill="${DEV_PUNKT[lage]}" stroke="none"/>`
+
+  return {
+    alt: lage === 'hier' ? 'Dev-Server öffnen' : 'Dev-Server starten',
+    source: svgIcon(`<path d="M6.5 4.5v15l12-7.5z"/>${dot}`),
+  }
+}
+
+/** The dev icon's glyph on the terminal, by state. */
+export const DEV_GLYPH = { hier: '▶', anderswo: '◈', aus: '▷' } as const
+
+/**
+ * What the dev button sends where no server of this folder runs: a Haiku subagent looks at what listens,
+ * finds the project's command and starts the server from this folder, so it shows the uncommitted changes
+ * too. The press is the go-ahead for starting (and for installing missing dependencies, said aloud); no other
+ * process is ended, and a taken port means another port. `woanders` is what the band saw in another folder.
+ */
+export function devPrompt(projekt: string, woanders: { port: number; ordner: string | null } | null = null): string {
+  const hinweis =
+    woanders === null
+      ? ''
+      : ` Gerade läuft nur einer aus einem anderen Ordner dieses Repositorys (Port ${woanders.port}${woanders.ordner === null ? '' : `, ${woanders.ordner}`}); der zeigt nicht den Stand hier und bleibt, wie er ist.`
+
+  return [
+    `Sorg dafür, dass für „${projekt}“ ein Dev-Server aus diesem Ordner läuft, mit dem Stand, der hier liegt, auch den nicht committeten Änderungen.${hinweis}`,
+    'Gib das einem Subagenten auf Haiku (general-purpose, model haiku), es ist Handarbeit: Nenn ihm diesen Ordner und diesen Auftrag.',
+    [
+      '1. Nachsehen: Welche Dev-Server laufen schon (lauschende Ports, ihre Prozesse und aus welchem Ordner sie kommen)? Läuft einer aus diesem Ordner, startet er keinen zweiten und nennt nur die Adresse.',
+      '2. Befehl finden: aus .claude/launch.json, den Skripten des Projekts (package.json und Ähnliches), der README oder CLAUDE.md. Fehlen Abhängigkeiten, installiert er sie mit dem Paketmanager des Projekts und sagt, was er installiert hat.',
+      '3. Starten: im Hintergrund aus diesem Ordner, so dass der Server weiterläuft, wenn der Agent fertig ist. Ist der übliche Port belegt, nimmt er einen freien, statt den anderen Prozess zu beenden.',
+      '4. Prüfen: Er wartet, bis die Adresse antwortet, und liest die ersten Zeilen der Ausgabe auf Fehler.',
+    ].join('\n'),
+    'Läuft der Server nach dem Ende des Agenten nicht mehr (ein Hintergrundprozess kann mit ihm enden), starte ihn selbst mit dem Befehl, den er gefunden hat, und prüf die Adresse noch einmal.',
+    'Grenzen: keinen fremden Prozess beenden, auch keinen Server aus einem anderen Ordner; nichts am Code ändern, nichts committen; keine Produktions- oder Live-Konfiguration verwenden. Lässt sich der Server nicht starten, sag mir, woran es liegt, statt es zu umgehen. Am Ende: die Adresse, der Befehl, der Port und was dir aufgefallen ist.',
+  ].join('\n\n')
 }
 
 /** What each prompt button does and what a review of it checks, for `promptsMarkdown`. */
@@ -459,6 +714,18 @@ export const PROMPT_INFO = [
       'Danach Health und Stand (SHA, Version oder Build-Zeit) geprüft.',
     ],
     text: stackPrompt,
+  },
+  {
+    key: 'dev',
+    name: 'Dev-Server starten',
+    does: 'Das Band prüft selbst, ob ein Dev-Server aus diesem Ordner läuft (grüner Punkt: ein Druck öffnet ihn). Läuft keiner oder nur einer aus einem anderen Ordner (gelber Punkt), schickt der Knopf diesen Prompt: Ein Haiku-Subagent startet einen aus diesem Ordner.',
+    checks: [
+      'Die Reihenfolge ist Nachsehen, Befehl finden, Starten, Prüfen; läuft schon einer aus diesem Ordner, wird kein zweiter gestartet.',
+      'Kein fremder Prozess wird beendet; bei belegtem Port ein anderer Port.',
+      'Installierte Abhängigkeiten werden genannt; am Code ändert sich nichts.',
+      'Endet der Server mit dem Agenten, startet die Session ihn selbst.',
+    ],
+    text: (projekt: string) => devPrompt(projekt),
   },
   {
     key: 'repair-ui',
@@ -830,6 +1097,8 @@ export type BandInhalt = {
   percent: number | null
   /** True where the project has a Docker stack: one more action, the rebuild. */
   hasStack?: boolean
+  /** True where the band shows the dev server's icon: one more action. */
+  hasDev?: boolean
 }
 
 // The band's actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
@@ -1039,7 +1308,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
   const gapCells = form.gap === 1 ? m.gapTight : m.gap
   // Left part: the project, the session actions, the counts. Right part: the gauge, the overview and the
   // settings, one group of icon fields. Each node has a gap to the next; the two parts keep one gap between them.
-  const total = ACTION_COUNT + (inhalt.hasStack === true ? 1 : 0)
+  const total = ACTION_COUNT + (inhalt.hasStack === true ? 1 : 0) + (inhalt.hasDev === true ? 1 : 0)
   const group = (n: number, extra = 0): number => n * ICON_BOX + extra + (n - 1) * m.iconGap
   const left = [
     BLOCK_CELLS + (1 + inhalt.name) * m.name,
