@@ -29,6 +29,7 @@ import {
   devIcon,
   devPrompt,
   devText,
+  devZellen,
   DEV_GLYPH,
   LAUSCHER_WINDOWS,
   LAUSCHER_LSOF,
@@ -1618,6 +1619,8 @@ export const register: Register = on => {
     const dev = state.dev ?? null
     const devLage = dev?.lage ?? 'aus'
     const showsDev = state.hasDev === true || devLage !== 'aus'
+    // The port of this folder's server stands beside the icon, in the success color: which one is up, at a glance.
+    const devPort = dev?.lage === 'hier' ? String(dev.ports[0]) : null
     const inhalt: BandInhalt = {
       name: [...state.project].length,
       prs: countRest(openPrs, state.newPrs).length,
@@ -1625,6 +1628,7 @@ export const register: Register = on => {
       percent: showsGauge ? figure.length : null,
       hasStack: state.hasStack,
       hasDev: showsDev,
+      ...(devPort === null ? {} : { devPort: devPort.length }),
     }
     // A surface that does not say how wide the band is (an older Claude Code) gets a roomy one-row band.
     const columns = Number.isFinite(e.props.bodyColumns) ? e.props.bodyColumns : 120
@@ -1733,6 +1737,9 @@ export const register: Register = on => {
         hint: devHint(dev),
         icon: DEV_GLYPH[devLage],
         svg: devIcon(devLage),
+        ...(devPort === null
+          ? {}
+          : { badge: `${NBSP}${devPort}`, tone: { color: 'success' }, width: devZellen(devPort.length) }),
         press: () => devDruck($),
       },
       {

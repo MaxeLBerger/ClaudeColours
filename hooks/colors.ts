@@ -408,14 +408,16 @@ export type Lauscher = {
 
 /**
  * How Windows is asked for the listening ports and their processes: one PowerShell call that prints JSON
- * (`port`, `pid`, `name`, `cmd`). Ports under 1024 are no dev servers.
+ * (`port`, `pid`, `name`, `cmd`). Ports under 1024 are no dev servers. A listener is a socket without a remote
+ * port that is not merely bound: the state itself is not asked for, as a Windows build was seen to report a
+ * listening Node server with an empty state, which `-State Listen`, netstat and .NET's listener table all missed.
  */
 export const LAUSCHER_WINDOWS: readonly string[] = [
   'powershell',
   '-NoProfile',
   '-NonInteractive',
   '-Command',
-  "$ErrorActionPreference='SilentlyContinue';$p=@{};Get-CimInstance Win32_Process -Property ProcessId,Name,CommandLine|ForEach-Object{$p[[int]$_.ProcessId]=$_};$r=@(Get-NetTCPConnection -State Listen|Where-Object{$_.LocalPort -ge 1024}|Sort-Object LocalPort,OwningProcess -Unique|ForEach-Object{$q=$p[[int]$_.OwningProcess];[pscustomobject]@{port=[int]$_.LocalPort;pid=[int]$_.OwningProcess;name=[string]$q.Name;cmd=[string]$q.CommandLine}});ConvertTo-Json -InputObject $r -Compress",
+  "$ErrorActionPreference='SilentlyContinue';$p=@{};Get-CimInstance Win32_Process -Property ProcessId,Name,CommandLine|ForEach-Object{$p[[int]$_.ProcessId]=$_};$r=@(Get-NetTCPConnection|Where-Object{$_.RemotePort -eq 0 -and $_.LocalPort -ge 1024 -and [int]$_.State -ne 100}|Sort-Object LocalPort,OwningProcess -Unique|ForEach-Object{$q=$p[[int]$_.OwningProcess];[pscustomobject]@{port=[int]$_.LocalPort;pid=[int]$_.OwningProcess;name=[string]$q.Name;cmd=[string]$q.CommandLine}});ConvertTo-Json -InputObject $r -Compress",
 ]
 
 /** The same on macOS and Linux: the listening sockets, then the working directories of their processes. */
@@ -585,7 +587,11 @@ export function devText(lauscher: readonly Lauscher[] | null, cwd: string): stri
     .filter(l => devOrt(l.cmd, cwd) === null && !KEIN_SERVER_NAME.test(l.name) && !KEIN_SERVER_CMD.test(l.cmd) && l.name !== '')
     .sort((a, b) => a.port - b.port)
     .map(l => `  :${l.port}  ${l.name}`)
-  const sonst = rest.length === 0 ? '' : `\n\nWeitere lauschende Ports (Ordner nicht erkennbar):\n${[...new Set(rest)].join('\n')}`
+  // A machine has many of these: the first ones are enough to find a server that was not recognised.
+  const zeilen = [...new Set(rest)]
+  const mehr = zeilen.length > 25 ? `\n  und ${zeilen.length - 25} weitere` : ''
+  const sonst =
+    zeilen.length === 0 ? '' : `\n\nWeitere lauschende Ports (Ordner nicht erkennbar):\n${zeilen.slice(0, 25).join('\n')}${mehr}`
 
   return `${head}${sonst}\n\nZugeordnet wird über den Ordner in der Kommandozeile des Prozesses; steht er dort nicht (etwa bei „python manage.py runserver“), bleibt der Server unerkannt.`
 }
@@ -601,6 +607,14 @@ export function devIcon(lage: DevAnzeige['lage']): { alt: string; source: string
     alt: lage === 'hier' ? 'Dev-Server öffnen' : 'Dev-Server starten',
     source: svgIcon(`<path d="M6.5 4.5v15l12-7.5z"/>${dot}`),
   }
+}
+
+/**
+ * The cells the dev icon's field takes: the icon's field and, while a server of this folder runs, a blank and
+ * the port's digits beside it, so the band says at a glance which port is up.
+ */
+export function devZellen(digits: number | null): number {
+  return ICON_BOX + (digits === null ? 0 : digits + 1)
 }
 
 /** The dev icon's glyph on the terminal, by state. */
@@ -1099,6 +1113,8 @@ export type BandInhalt = {
   hasStack?: boolean
   /** True where the band shows the dev server's icon: one more action. */
   hasDev?: boolean
+  /** The digits of the port shown beside the dev icon while a server of this folder runs; none otherwise. */
+  devPort?: number
 }
 
 // The band's actions are drawn as vector icons where the surface has `Svg` (the desktop, not the
@@ -1312,7 +1328,7 @@ export function bandBreite(stufe: BandStufe, inhalt: BandInhalt, isMono = false)
   const group = (n: number, extra = 0): number => n * ICON_BOX + extra + (n - 1) * m.iconGap
   const left = [
     BLOCK_CELLS + (1 + inhalt.name) * m.name,
-    group(total - SETTING_COUNT, MERGE_EXTRA),
+    group(total - SETTING_COUNT, MERGE_EXTRA + (inhalt.hasDev === true ? devZellen(inhalt.devPort ?? null) - ICON_BOX : 0)),
     (4 + inhalt.prs) * m.text,
     (7 + inhalt.issues) * m.text,
   ]

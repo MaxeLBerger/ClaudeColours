@@ -76,6 +76,7 @@ import {
   devOrt,
   devPrompt,
   devText,
+  devZellen,
   lauscherAusJson,
   lauscherAusLsof,
   ordnerAusLsof,
@@ -4146,4 +4147,14 @@ test('a folder without a dev server has no dev icon, until a server of the repos
   await $.turn.complete({ reason: 'answer', answer: 'fertig' } as never)
   await sessionClock?.settle()
   expect(await bandKeys($)).toContain('dev')
+
+  // The running server's port stands beside the icon, in a field as much wider, and the band counts it.
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 120 }, surface: 'desktop' })
+  const feld = (await ui.findAll({ type: 'Box' })).find(box => String(box.key) === 'dev-feld')
+  const texts = (await ui.findAll({ type: 'Text' })).map(text => text.text)
+  await ui.unmount()
+  expect(feld?.props.width).toBe(devZellen(4))
+  expect(texts.some(text => text.endsWith('5173'))).toBe(true)
+  expect(devZellen(null)).toBe(ICON_BOX)
+  expect(bandBreite('icons', { ...ZIEL, hasDev: true, devPort: 4 }) - bandBreite('icons', { ...ZIEL, hasDev: true })).toBe(5)
 })
