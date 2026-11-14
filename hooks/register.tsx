@@ -1983,11 +1983,16 @@ export const register: Register = on => {
     }
 
     // Too narrow for one row: two rows. Name, counts and a short gauge above; below the session actions at
-    // the left and the overview and settings at the right, indented to stand under the name.
+    // the left and the overview and settings at the right, indented to stand under the name. Each row gets
+    // the one-row layouts' own guard (`flexWrap="nowrap"`, `overflow="hidden"`): `nameBudget` only shrinks
+    // the name, and nothing shrinks the session actions, so a row that still does not fit (a long name held
+    // to `NAME_MIN`, or too many actions for the width) is cut off at its right edge instead of wrapping
+    // into a third or fourth row, which broke "never three" once the dev icon's port badge made the second
+    // row wider.
     if (form === null) {
       return above(
         <Box flexDirection="column">
-          <Box columnGap={1} justifyContent="space-between">
+          <Box columnGap={1} justifyContent="space-between" flexWrap="nowrap" overflow="hidden">
             <Box columnGap={1}>
               {project}
               {repairEntries ?? (
@@ -1999,7 +2004,7 @@ export const register: Register = on => {
             </Box>
             {!showsGauge ? null : draw(kontextDef(true))}
           </Box>
-          <Box columnGap={1} paddingLeft={2} justifyContent="space-between">
+          <Box columnGap={1} paddingLeft={2} justifyContent="space-between" flexWrap="nowrap" overflow="hidden">
             <Box columnGap={ICON_GAP}>{sessionActions}</Box>
             <Box columnGap={ICON_GAP}>{settingActions}</Box>
           </Box>
