@@ -50,6 +50,16 @@ export type ProjektfarbenView = {
   /** True where the folder holds a compose file: the band then shows the stack rebuild. */
   hasStack: boolean
   /**
+   * True where the folder has a dev server to start (a dev script in `package.json`, a dev server's config
+   * or `.claude/launch.json`): the band then shows the dev icon. A state kept from before this field existed lacks it.
+   */
+  hasDev: boolean
+  /**
+   * The dev servers found at the last look at the listening ports; null before the first one and where the
+   * ports cannot be read. A state kept from before this field existed lacks it: read it as null.
+   */
+  dev: ProjektfarbenDev | null
+  /**
    * The CI of the pushed head, the band's bottom row; null where it has no workflow run. A state kept
    * from before this field existed (a reload keeps the session's state) lacks it: read it as null.
    */
@@ -61,6 +71,16 @@ export type ProjektfarbenView = {
    * buttons under that message. Null when there is none. A state kept from before this field existed lacks it: read it as null.
    */
   frage: string | null
+}
+
+// The contract must be self-contained, so this mirrors `DevAnzeige` in hooks/colors.ts: change them together.
+export type ProjektfarbenDev = {
+  /** `hier`: a server of this folder runs; `anderswo`: only one of another folder of the repository; `aus`: none. */
+  lage: 'hier' | 'anderswo' | 'aus'
+  /** The ports of those servers, lowest first. */
+  ports: number[]
+  /** For `anderswo`: the folder the first one runs from (a worktree's name, or `Hauptordner`). */
+  ordner: string | null
 }
 
 // The contract must be self-contained, so this mirrors `CiAnzeige` in hooks/colors.ts: change them together.
