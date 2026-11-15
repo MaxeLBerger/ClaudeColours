@@ -1608,6 +1608,21 @@ test('the one-row layouts never wrap, so a stale tree in a narrower window does 
   }
 })
 
+test('the two-row layout also never wraps a row into a third or fourth line', async ($, on) => {
+  await startBand($, on, `${BETA}\\.claude\\worktrees\\a`)
+
+  // Both of "zwei"'s own rows (name+counts+gauge, then session actions+settings), never the survey's.
+  for (const bodyColumns of [30, 50]) {
+    const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns }, surface: 'desktop' })
+    const rows = (await ui.findAll({ type: 'Box' })).filter(box => box.props.justifyContent === 'space-between')
+    await ui.unmount()
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(row.props).toMatchObject({ flexWrap: 'nowrap', overflow: 'hidden' })
+    }
+  }
+})
+
 test('the one-row band spreads to its ends: the actions flush right, and the percent sign never breaks away', async ($, on) => {
   await startBand($, on, `${BETA}${String.fromCharCode(92).repeat(2)}.claude${String.fromCharCode(92).repeat(2)}worktrees${String.fromCharCode(92).repeat(2)}a`)
 
