@@ -82,23 +82,35 @@ Als Projekt zählt der Ordner, in dem die Session läuft; ein Worktree unter `.c
 
 ## Installieren
 
-In einer Terminal-Session von Claude Code:
+**Voraussetzungen:** die Claude-Desktop-App (Code-Tab; im Terminal gibt es nur Band und Spinner-Punkt, keine Farbe im Session-Namen) und für PR-, Issue- und CI-Anzeige die GitHub-CLI `gh`, angemeldet mit `gh auth login`. Ohne `gh` läuft der Mod trotzdem, das Band zeigt dort dann ein graues `?`.
 
-```
-/plugin install projektfarben --marketplace MaxeLBerger/ClaudeColours
-```
-
-`y` bestätigt den neuen Marketplace, dann den Bereich `user` wählen.
-
-Aus einer Shell:
+Aus einer Shell, zwei Befehle:
 
 ```bash
-claude plugin install projektfarben --marketplace MaxeLBerger/ClaudeColours
+claude plugin marketplace add MaxeLBerger/ClaudeColours
 ```
+
+```bash
+claude plugin install projektfarben@max-mods
+```
+
+Der erste holt den Marketplace `max-mods` aus diesem Repository, der zweite installiert den Mod für deinen Benutzer (Bereich `user`). In einer Terminal-Session von Claude Code geht dasselbe mit `/plugin marketplace add MaxeLBerger/ClaudeColours` und `/plugin install projektfarben@max-mods`.
 
 In der Desktop-App, wo `/plugin` nicht läuft: auf **+** neben dem Eingabefeld klicken, dann **Plugins**, **Add marketplace** mit `MaxeLBerger/ClaudeColours`, dann **Add plugin**.
 
-Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start.
+Sessions, die schon laufen, laden den Mod bei ihrem nächsten Start. Danach in einer neuen Session `/projektfarbe` eingeben: Es zeigt die Farbe des Projekts und, falls eine Zahl fehlt, warum.
+
+Aktualisieren:
+
+```bash
+claude plugin marketplace update max-mods
+```
+
+```bash
+claude plugin update projektfarben@max-mods
+```
+
+Bramble (unter „Was der Mod macht“) ist ein eigener Browser und optional; ohne ihn öffnen die Links im Standardbrowser.
 
 ## Befehle
 
